@@ -1,0 +1,36 @@
+name: sparktal
+
+services:
+  postgres:
+    image: postgres:18-trixie
+    environment:
+      POSTGRES_DB: sparktal
+      POSTGRES_USER: sparktal
+      POSTGRES_PASSWORD: sparktal
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      # Postgres 18 images keep PGDATA under /var/lib/postgresql/18/docker,
+      # so the volume mounts the parent directory (not .../data).
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sparktal -d sparktal"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:8.10
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pgdata:
+  redisdata:

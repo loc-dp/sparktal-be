@@ -1,21 +1,24 @@
-from apps.core.seed import SeedContext, register_seeder, run_seeders
+from apps.core.seed import SeedContext, isolated_registry, register_seeder, run_seeders
 
 
 def test_seeders_run_in_order_and_share_context() -> None:
     order: list[str] = []
 
-    @register_seeder(order=99)
-    def seed_late(ctx: SeedContext) -> None:
-        order.append("late")
-        ctx.refs["late"] = True
+    # Isolated: the real seeders are registered globally and need a database.
+    with isolated_registry():
 
-    @register_seeder(order=98)
-    def seed_early(ctx: SeedContext) -> None:
-        order.append("early")
-        ctx.refs["early"] = True
+        @register_seeder(order=99)
+        def seed_late(ctx: SeedContext) -> None:
+            order.append("late")
+            ctx.refs["late"] = True
 
-    ctx = SeedContext()
-    ran = run_seeders(ctx)
+        @register_seeder(order=98)
+        def seed_early(ctx: SeedContext) -> None:
+            order.append("early")
+            ctx.refs["early"] = True
+
+        ctx = SeedContext()
+        ran = run_seeders(ctx)
 
     assert order.index("early") < order.index("late")
     assert ctx.refs["early"] is True

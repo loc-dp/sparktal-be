@@ -25,6 +25,15 @@ class CompanyAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
     inlines = (OfficeInline, MembershipInline)
 
 
+@admin.register(Office)
+class OfficeAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
+    # Registered so other admins can use `office` in autocomplete_fields.
+    list_display = ("address", "company", "city", "position")
+    list_filter = ("city",)
+    search_fields = ("address", "company__name")
+    autocomplete_fields = ("company",)
+
+
 @admin.register(CompanyMembership)
 class CompanyMembershipAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
     list_display = ("user", "company", "role", "created_at")

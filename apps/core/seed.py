@@ -9,7 +9,8 @@ Orders already assigned: accounts 10, companies 20, recruiters 30, jobs 40,
 candidates 50, chat 70. Seeders must be idempotent (use `update_or_create`).
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -46,6 +47,18 @@ def register_seeder(order: int) -> Callable[[Seeder], Seeder]:
         return fn
 
     return decorator
+
+
+@contextmanager
+def isolated_registry() -> Iterator[None]:
+    """Swap in an empty registry so a test can run its own seeders alone."""
+    global _REGISTRY
+    saved = _REGISTRY
+    _REGISTRY = {}
+    try:
+        yield
+    finally:
+        _REGISTRY = saved
 
 
 def run_seeders(ctx: SeedContext) -> list[str]:

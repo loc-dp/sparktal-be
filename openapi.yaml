@@ -149,6 +149,110 @@ paths:
               schema:
                 $ref: '#/components/schemas/Health'
           description: ''
+  /api/v1/jobs:
+    get:
+      operationId: jobs_list
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      tags:
+      - jobs
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedJobList'
+          description: ''
+    post:
+      operationId: jobs_create
+      tags:
+      - jobs
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JobRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/JobRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/JobRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+          description: ''
+  /api/v1/jobs/{id}:
+    get:
+      operationId: jobs_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - jobs
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+          description: ''
+    patch:
+      operationId: jobs_partial_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - jobs
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedJobRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedJobRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedJobRequest'
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+          description: ''
   /api/v1/me:
     get:
       operationId: me_retrieve
@@ -163,11 +267,39 @@ paths:
               schema:
                 $ref: '#/components/schemas/Me'
           description: ''
+  /api/v1/public/jobs/{share_token}:
+    get:
+      operationId: public_jobs_retrieve
+      parameters:
+      - in: path
+        name: share_token
+        schema:
+          type: string
+        required: true
+      tags:
+      - public
+      security:
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicJob'
+          description: ''
 components:
   schemas:
     BlankEnum:
       enum:
       - ''
+    BountyTypeEnum:
+      enum:
+      - pct
+      - fixed
+      type: string
+      description: |-
+        * `pct` - % of annual salary
+        * `fixed` - Fixed amount
     Company:
       type: object
       properties:
@@ -248,6 +380,28 @@ components:
       description: |-
         * `fdi` - FDI
         * `vn` - Vietnamese company
+    FunctionEnum:
+      enum:
+      - finance
+      - engineering
+      - data
+      - design
+      - legal
+      - marketing
+      - sales
+      - operations
+      - other
+      type: string
+      description: |-
+        * `finance` - Finance
+        * `engineering` - Engineering
+        * `data` - Data
+        * `design` - Design
+        * `legal` - Legal
+        * `marketing` - Marketing
+        * `sales` - Sales
+        * `operations` - Operations
+        * `other` - Other
     Health:
       type: object
       properties:
@@ -279,6 +433,171 @@ components:
         * `real_estate_construction` - Real Estate & Construction
         * `fmcg` - FMCG
         * `energy_utilities` - Energy & Utilities
+    Job:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        title:
+          type: string
+          maxLength: 120
+        function:
+          allOf:
+          - $ref: '#/components/schemas/FunctionEnum'
+          readOnly: true
+        why_we_need_you:
+          type: string
+        roles:
+          type: string
+          description: One responsibility per line.
+        qualifications:
+          type: string
+          description: One must-have per line.
+        nice_to_have:
+          type: string
+        benefits:
+          type: string
+        salary_min:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,15}(?:\.\d{0,0})?$
+          nullable: true
+        salary_max:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,15}(?:\.\d{0,0})?$
+          nullable: true
+        pay_basis:
+          $ref: '#/components/schemas/PayBasisEnum'
+        work_model:
+          $ref: '#/components/schemas/WorkModelEnum'
+        office:
+          type: string
+          format: uuid
+          nullable: true
+        location_label:
+          type: string
+          readOnly: true
+        bounty_type:
+          $ref: '#/components/schemas/BountyTypeEnum'
+        bounty_pct:
+          type: integer
+          nullable: true
+        bounty_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,15}(?:\.\d{0,0})?$
+          nullable: true
+        skills:
+          type: array
+          items:
+            type: string
+            maxLength: 40
+        status:
+          allOf:
+          - $ref: '#/components/schemas/StatusEnum'
+          readOnly: true
+        note_for_recruiters:
+          type: string
+        share_token:
+          type: string
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        published_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        closed_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        can_edit:
+          type: boolean
+          readOnly: true
+      required:
+      - can_edit
+      - closed_at
+      - created_at
+      - function
+      - id
+      - location_label
+      - published_at
+      - qualifications
+      - roles
+      - share_token
+      - status
+      - title
+      - why_we_need_you
+    JobRequest:
+      type: object
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 120
+        why_we_need_you:
+          type: string
+          minLength: 1
+        roles:
+          type: string
+          minLength: 1
+          description: One responsibility per line.
+        qualifications:
+          type: string
+          minLength: 1
+          description: One must-have per line.
+        nice_to_have:
+          type: string
+        benefits:
+          type: string
+        salary_min:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,15}(?:\.\d{0,0})?$
+          nullable: true
+        salary_max:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,15}(?:\.\d{0,0})?$
+          nullable: true
+        pay_basis:
+          $ref: '#/components/schemas/PayBasisEnum'
+        work_model:
+          $ref: '#/components/schemas/WorkModelEnum'
+        office:
+          type: string
+          format: uuid
+          nullable: true
+        bounty_type:
+          $ref: '#/components/schemas/BountyTypeEnum'
+        bounty_pct:
+          type: integer
+          nullable: true
+        bounty_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,15}(?:\.\d{0,0})?$
+          nullable: true
+        skills:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 40
+        note_for_recruiters:
+          type: string
+      required:
+      - qualifications
+      - roles
+      - title
+      - why_we_need_you
     KindEnum:
       enum:
       - company
@@ -401,6 +720,29 @@ components:
           $ref: '#/components/schemas/LocationEnum'
       required:
       - address
+    PaginatedJobList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Job'
     PatchedCompanyRequest:
       type: object
       properties:
@@ -449,6 +791,136 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/OfficeRequest'
+    PatchedJobRequest:
+      type: object
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 120
+        why_we_need_you:
+          type: string
+          minLength: 1
+        roles:
+          type: string
+          minLength: 1
+          description: One responsibility per line.
+        qualifications:
+          type: string
+          minLength: 1
+          description: One must-have per line.
+        nice_to_have:
+          type: string
+        benefits:
+          type: string
+        salary_min:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,15}(?:\.\d{0,0})?$
+          nullable: true
+        salary_max:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,15}(?:\.\d{0,0})?$
+          nullable: true
+        pay_basis:
+          $ref: '#/components/schemas/PayBasisEnum'
+        work_model:
+          $ref: '#/components/schemas/WorkModelEnum'
+        office:
+          type: string
+          format: uuid
+          nullable: true
+        bounty_type:
+          $ref: '#/components/schemas/BountyTypeEnum'
+        bounty_pct:
+          type: integer
+          nullable: true
+        bounty_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,15}(?:\.\d{0,0})?$
+          nullable: true
+        skills:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 40
+        note_for_recruiters:
+          type: string
+    PayBasisEnum:
+      enum:
+      - gross
+      - net
+      type: string
+      description: |-
+        * `gross` - Gross
+        * `net` - Net
+    PublicJob:
+      type: object
+      description: 'What anyone with the share link may see: no bounty, no internal
+        notes.'
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        title:
+          type: string
+          maxLength: 120
+        function:
+          $ref: '#/components/schemas/FunctionEnum'
+        why_we_need_you:
+          type: string
+        roles:
+          type: string
+          description: One responsibility per line.
+        qualifications:
+          type: string
+          description: One must-have per line.
+        nice_to_have:
+          type: string
+        benefits:
+          type: string
+        salary_min:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,15}(?:\.\d{0,0})?$
+          nullable: true
+        salary_max:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,15}(?:\.\d{0,0})?$
+          nullable: true
+        pay_basis:
+          $ref: '#/components/schemas/PayBasisEnum'
+        work_model:
+          $ref: '#/components/schemas/WorkModelEnum'
+        location_label:
+          type: string
+          readOnly: true
+        skills:
+          type: array
+          items:
+            type: string
+            maxLength: 40
+        published_at:
+          type: string
+          format: date-time
+          nullable: true
+        company:
+          type: object
+          additionalProperties: {}
+          readOnly: true
+      required:
+      - company
+      - id
+      - location_label
+      - qualifications
+      - roles
+      - title
+      - why_we_need_you
     SizeRangeEnum:
       enum:
       - lt50
@@ -463,6 +935,26 @@ components:
         * `r100_500` - 100–500 employees
         * `r500_1000` - 500–1,000 employees
         * `gt1000` - 1,000+ employees
+    StatusEnum:
+      enum:
+      - pending
+      - active
+      - closed
+      type: string
+      description: |-
+        * `pending` - Pending
+        * `active` - Active
+        * `closed` - Closed
+    WorkModelEnum:
+      enum:
+      - onsite
+      - hybrid
+      - remote
+      type: string
+      description: |-
+        * `onsite` - On-site
+        * `hybrid` - Hybrid
+        * `remote` - Remote
   securitySchemes:
     cookieAuth:
       type: apiKey

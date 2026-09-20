@@ -9,7 +9,7 @@ from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
-from apps.core.seed import DEMO_EMAILS, SeedContext, run_seeders
+from apps.core.seed import DEMO_EMAILS, SeedContext, run_resetters, run_seeders
 
 
 class Command(BaseCommand):
@@ -41,6 +41,8 @@ class Command(BaseCommand):
 
         with transaction.atomic():
             if options["reset"]:
+                for name in run_resetters():
+                    self.stdout.write(f"  reset {name}")
                 deleted, _ = get_user_model().objects.filter(email__in=DEMO_EMAILS).delete()
                 self.stdout.write(f"Reset: deleted {deleted} rows.")
             ran = run_seeders(SeedContext())

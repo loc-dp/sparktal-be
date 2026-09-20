@@ -83,6 +83,7 @@ exclude = ["^\\.venv/", "/migrations/"]
 [[tool.mypy.overrides]]
 module = [
     "allauth.*",
+    "django_filters.*",
     "channels.*",
     "channels_redis.*",
     "environ.*",
@@ -108,7 +109,7 @@ disable_error_code = ["no-any-return"]
 # allauth ships no stubs, so its base classes are `Any`; subclassing them is the
 # documented way to customise it.
 [[tool.mypy.overrides]]
-module = ["apps.accounts.adapter"]
+module = ["apps.accounts.adapter", "*.filters"]
 disallow_subclassing_any = false
 
 # factory_boy ships no usable stubs: its declarations (Sequence, Faker, …) and the

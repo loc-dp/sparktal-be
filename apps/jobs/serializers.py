@@ -1,8 +1,10 @@
 from decimal import Decimal
 from typing import Any
 
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
+from apps.candidates.stages import STAGE_ORDER
 from apps.companies.access import company_of
 from apps.companies.models import Office
 from apps.jobs.functions import guess_function
@@ -213,3 +215,93 @@ class PublicJobSerializer(serializers.ModelSerializer[Job]):
             "about": job.company.about,
             "logo_url": request.build_absolute_uri(logo.url) if (logo and request) else None,
         }
+
+
+class JobListItemSerializer(serializers.ModelSerializer[Job]):
+    """The My jobs row: every number comes from `annotate_job_metrics`."""
+
+    cv_count = serializers.IntegerField(read_only=True)
+    new_count = serializers.IntegerField(read_only=True)
+    days_open = serializers.IntegerField(read_only=True)
+    days_to_onboard = serializers.IntegerField(read_only=True, allow_null=True)
+    current_stage = serializers.SerializerMethodField()
+    location_label = serializers.CharField(read_only=True)
+    bounty_label = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Job
+        fields = (
+            "id",
+            "title",
+            "function",
+            "status",
+            "work_model",
+            "location_label",
+            "created_at",
+            "published_at",
+            "share_token",
+            "cv_count",
+            "new_count",
+            "current_stage",
+            "days_open",
+            "days_to_onboard",
+            "bounty_label",
+        )
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_current_stage(self, job: Job) -> str | None:
+        rank = getattr(job, "stage_rank", None)
+        if rank is None or rank < 0:
+            return None
+        stage: str = STAGE_ORDER[rank]
+        return stage
+
+    @extend_schema_field(serializers.CharField())
+    def get_bounty_label(self, job: Job) -> str:
+        if job.bounty_type == BountyType.FIXED and job.bounty_amount:
+            grouped = f"{int(job.bounty_amount):,}".replace(",", ".")
+            return f"{grouped} ₫ fixed"
+        return f"{job.bounty_pct or 0}% of annual salary"
+
+
+class JobCountsSerializer(serializers.Serializer[dict[str, int]]):
+    pending = serializers.IntegerField()
+    active = serializers.IntegerField()
+    closed = serializers.IntegerField()
+
+
+class JobKpisSerializer(serializers.Serializer[dict[str, int]]):
+    days_open = serializers.IntegerField()
+    applicants = serializers.IntegerField()
+    screen = serializers.IntegerField()
+    interviewing = serializers.IntegerField()
+    offer = serializers.IntegerField()
+
+
+class NewApplicantSerializer(serializers.Serializer[dict[str, object]]):
+    id = serializers.UUIDField()
+    candidate_name = serializers.CharField()
+    current_title = serializers.CharField()
+    recruiter_nickname = serializers.CharField()
+    submitted_at = serializers.DateTimeField()
+    is_duplicate = serializers.BooleanField()
+
+
+class RejectionSerializer(serializers.Serializer[dict[str, object]]):
+    candidate_name = serializers.CharField()
+    reason = serializers.CharField(allow_blank=True)
+    rejected_at = serializers.DateTimeField()
+
+
+class RecruiterOnJobSerializer(serializers.Serializer[dict[str, object]]):
+    id = serializers.UUIDField()
+    nickname = serializers.CharField()
+    cv_count = serializers.IntegerField()
+
+
+class JobOverviewSerializer(serializers.Serializer[dict[str, object]]):
+    kpis = JobKpisSerializer()
+    new_applicants = NewApplicantSerializer(many=True)
+    rejection_log = RejectionSerializer(many=True)
+    recruiters = RecruiterOnJobSerializer(many=True)
+    note_for_recruiters = serializers.CharField(allow_blank=True)

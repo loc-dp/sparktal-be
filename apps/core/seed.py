@@ -35,8 +35,10 @@ class SeedContext:
 
 
 Seeder = Callable[[SeedContext], None]
+Resetter = Callable[[], None]
 
 _REGISTRY: dict[str, tuple[int, Seeder]] = {}
+_RESETTERS: dict[str, tuple[int, Resetter]] = {}
 
 
 def register_seeder(order: int) -> Callable[[Seeder], Seeder]:
@@ -49,16 +51,38 @@ def register_seeder(order: int) -> Callable[[Seeder], Seeder]:
     return decorator
 
 
+def register_resetter(order: int) -> Callable[[Resetter], Resetter]:
+    """Rows an app must delete before `--reset` removes the demo users.
+
+    Deleting a user cascades to its RecruiterProfile, which `Application.recruiter`
+    protects, so every app clears its own rows first (highest order first).
+    """
+
+    def decorator(fn: Resetter) -> Resetter:
+        _RESETTERS[f"{fn.__module__}.{fn.__qualname__}"] = (order, fn)
+        return fn
+
+    return decorator
+
+
+def run_resetters() -> list[str]:
+    ran: list[str] = []
+    for name, (_order, fn) in sorted(_RESETTERS.items(), key=lambda item: (-item[1][0], item[0])):
+        fn()
+        ran.append(name)
+    return ran
+
+
 @contextmanager
 def isolated_registry() -> Iterator[None]:
     """Swap in an empty registry so a test can run its own seeders alone."""
-    global _REGISTRY
-    saved = _REGISTRY
-    _REGISTRY = {}
+    global _REGISTRY, _RESETTERS
+    saved, saved_resets = _REGISTRY, _RESETTERS
+    _REGISTRY, _RESETTERS = {}, {}
     try:
         yield
     finally:
-        _REGISTRY = saved
+        _REGISTRY, _RESETTERS = saved, saved_resets
 
 
 def run_seeders(ctx: SeedContext) -> list[str]:

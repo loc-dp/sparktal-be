@@ -1,3 +1,5 @@
+from datetime import UTC
+
 import factory
 from factory.django import DjangoModelFactory
 
@@ -23,7 +25,7 @@ class JobFactory(DjangoModelFactory[Job]):
     bounty_pct = 18
     skills = factory.List(["Go", "PostgreSQL"])
     status = JobStatus.ACTIVE
-    published_at = factory.Faker("date_time_this_year", tzinfo=None)
+    published_at = factory.Faker("date_time_this_year", tzinfo=UTC)
     # Non-remote jobs must have an office, so give every job one from its own
     # company unless the caller passes something else.
     office = factory.LazyAttribute(

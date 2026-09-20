@@ -1,3 +1,5 @@
+from datetime import UTC
+
 import factory
 from factory.django import DjangoModelFactory
 
@@ -26,7 +28,7 @@ class CompanyFactory(DjangoModelFactory[Company]):
     bd_headcount = 12
     located = Location.HCM
     about = factory.Faker("paragraph", nb_sentences=8)
-    profile_completed_at = factory.Faker("date_time_this_year", tzinfo=None)
+    profile_completed_at = factory.Faker("date_time_this_year", tzinfo=UTC)
 
 
 class OfficeFactory(DjangoModelFactory[Office]):

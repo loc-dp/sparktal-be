@@ -153,6 +153,16 @@ paths:
     get:
       operationId: jobs_list
       parameters:
+      - in: query
+        name: function
+        schema:
+          type: string
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
       - name: page
         required: false
         in: query
@@ -165,6 +175,22 @@ paths:
         description: Number of results to return per page.
         schema:
           type: integer
+      - in: query
+        name: search
+        schema:
+          type: string
+      - in: query
+        name: status
+        schema:
+          type: string
+          enum:
+          - active
+          - closed
+          - pending
+        description: |-
+          * `pending` - Pending
+          * `active` - Active
+          * `closed` - Closed
       tags:
       - jobs
       security:
@@ -174,7 +200,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PaginatedJobList'
+                $ref: '#/components/schemas/PaginatedJobListItemList'
           description: ''
     post:
       operationId: jobs_create
@@ -252,6 +278,89 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Job'
+          description: ''
+  /api/v1/jobs/{id}/close:
+    post:
+      operationId: jobs_close_create
+      description: 'Shared lookup: 404 (never 403) when the user may not touch this
+        job.'
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - jobs
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+          description: ''
+  /api/v1/jobs/{id}/overview:
+    get:
+      operationId: jobs_overview_retrieve
+      description: 'Shared lookup: 404 (never 403) when the user may not touch this
+        job.'
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - jobs
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobOverview'
+          description: ''
+  /api/v1/jobs/{id}/reopen:
+    post:
+      operationId: jobs_reopen_create
+      description: 'Shared lookup: 404 (never 403) when the user may not touch this
+        job.'
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - jobs
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+          description: ''
+  /api/v1/jobs/counts:
+    get:
+      operationId: jobs_counts_retrieve
+      tags:
+      - jobs
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobCounts'
           description: ''
   /api/v1/me:
     get:
@@ -535,6 +644,126 @@ components:
       - status
       - title
       - why_we_need_you
+    JobCounts:
+      type: object
+      properties:
+        pending:
+          type: integer
+        active:
+          type: integer
+        closed:
+          type: integer
+      required:
+      - active
+      - closed
+      - pending
+    JobKpis:
+      type: object
+      properties:
+        days_open:
+          type: integer
+        applicants:
+          type: integer
+        screen:
+          type: integer
+        interviewing:
+          type: integer
+        offer:
+          type: integer
+      required:
+      - applicants
+      - days_open
+      - interviewing
+      - offer
+      - screen
+    JobListItem:
+      type: object
+      description: 'The My jobs row: every number comes from `annotate_job_metrics`.'
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        title:
+          type: string
+          maxLength: 120
+        function:
+          $ref: '#/components/schemas/FunctionEnum'
+        status:
+          $ref: '#/components/schemas/StatusEnum'
+        work_model:
+          $ref: '#/components/schemas/WorkModelEnum'
+        location_label:
+          type: string
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        published_at:
+          type: string
+          format: date-time
+          nullable: true
+        share_token:
+          type: string
+          readOnly: true
+        cv_count:
+          type: integer
+          readOnly: true
+        new_count:
+          type: integer
+          readOnly: true
+        current_stage:
+          type: string
+          nullable: true
+          readOnly: true
+        days_open:
+          type: integer
+          readOnly: true
+        days_to_onboard:
+          type: integer
+          readOnly: true
+          nullable: true
+        bounty_label:
+          type: string
+          readOnly: true
+      required:
+      - bounty_label
+      - created_at
+      - current_stage
+      - cv_count
+      - days_open
+      - days_to_onboard
+      - id
+      - location_label
+      - new_count
+      - share_token
+      - title
+    JobOverview:
+      type: object
+      properties:
+        kpis:
+          $ref: '#/components/schemas/JobKpis'
+        new_applicants:
+          type: array
+          items:
+            $ref: '#/components/schemas/NewApplicant'
+        rejection_log:
+          type: array
+          items:
+            $ref: '#/components/schemas/Rejection'
+        recruiters:
+          type: array
+          items:
+            $ref: '#/components/schemas/RecruiterOnJob'
+        note_for_recruiters:
+          type: string
+      required:
+      - kpis
+      - new_applicants
+      - note_for_recruiters
+      - recruiters
+      - rejection_log
     JobRequest:
       type: object
       properties:
@@ -691,6 +920,30 @@ components:
       required:
       - id
       - nickname
+    NewApplicant:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        candidate_name:
+          type: string
+        current_title:
+          type: string
+        recruiter_nickname:
+          type: string
+        submitted_at:
+          type: string
+          format: date-time
+        is_duplicate:
+          type: boolean
+      required:
+      - candidate_name
+      - current_title
+      - id
+      - is_duplicate
+      - recruiter_nickname
+      - submitted_at
     Office:
       type: object
       properties:
@@ -720,7 +973,7 @@ components:
           $ref: '#/components/schemas/LocationEnum'
       required:
       - address
-    PaginatedJobList:
+    PaginatedJobListItemList:
       type: object
       required:
       - count
@@ -742,7 +995,7 @@ components:
         results:
           type: array
           items:
-            $ref: '#/components/schemas/Job'
+            $ref: '#/components/schemas/JobListItem'
     PatchedCompanyRequest:
       type: object
       properties:
@@ -921,6 +1174,34 @@ components:
       - roles
       - title
       - why_we_need_you
+    RecruiterOnJob:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        nickname:
+          type: string
+        cv_count:
+          type: integer
+      required:
+      - cv_count
+      - id
+      - nickname
+    Rejection:
+      type: object
+      properties:
+        candidate_name:
+          type: string
+        reason:
+          type: string
+        rejected_at:
+          type: string
+          format: date-time
+      required:
+      - candidate_name
+      - reason
+      - rejected_at
     SizeRangeEnum:
       enum:
       - lt50

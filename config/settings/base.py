@@ -169,6 +169,16 @@ CHANNEL_LAYERS: dict[str, dict[str, Any]] = {
     },
 }
 
+# Redis, not the per-process LocMem default: allauth counts login and password
+# attempts here, and a `manage.py shell` clearing the cache must affect the
+# running server (the E2E suite relies on exactly that).
+CACHES = {
+    "default": {
+        "BACKEND": "django_redis.cache.RedisCache",
+        "LOCATION": env.str("CACHE_URL", default=REDIS_URL.rsplit("/", 1)[0] + "/1"),
+    }
+}
+
 CELERY_BROKER_URL = REDIS_URL
 # Long-running jobs (plan 06's CV export) keep their own status row, but a result
 # backend makes `.delay().get()` usable for smoke checks and short tasks.

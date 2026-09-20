@@ -4,14 +4,23 @@ from pathlib import Path
 from typing import Any
 
 import environ
+from django.core.exceptions import ImproperlyConfigured
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
 env = environ.Env()
 environ.Env.read_env(BASE_DIR / ".env", overwrite=False)
 
-SECRET_KEY = env.str("DJANGO_SECRET_KEY", default="django-insecure-dev-only-change-me")
+INSECURE_DEV_SECRET_KEY = "django-insecure-dev-only-change-me"
+
+SECRET_KEY = env.str("DJANGO_SECRET_KEY", default=INSECURE_DEV_SECRET_KEY)
 DEBUG = env.bool("DJANGO_DEBUG", default=False)
+
+if not DEBUG and SECRET_KEY == INSECURE_DEV_SECRET_KEY:
+    raise ImproperlyConfigured(
+        "DJANGO_SECRET_KEY must be set when DEBUG is off. The built-in fallback is "
+        "for local development only."
+    )
 ALLOWED_HOSTS: list[str] = env.list("DJANGO_ALLOWED_HOSTS", default=["localhost", "127.0.0.1"])
 
 INSTALLED_APPS = [

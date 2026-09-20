@@ -4,8 +4,9 @@ from importlib.util import find_spec
 from typing import Any
 
 from django.apps import apps
+from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
 from apps.core.seed import DEMO_EMAILS, SeedContext, run_seeders
@@ -20,8 +21,19 @@ class Command(BaseCommand):
             action="store_true",
             help="Delete the demo users (and everything that cascades from them) first.",
         )
+        parser.add_argument(
+            "--force",
+            action="store_true",
+            help="Required to seed when DEBUG is off (the demo accounts share a public password).",
+        )
 
     def handle(self, *args: Any, **options: Any) -> None:
+        if not settings.DEBUG and not options["force"]:
+            raise CommandError(
+                "seed_demo creates accounts with a publicly known password and refuses to run "
+                "with DEBUG off. Pass --force if this really is a throwaway environment."
+            )
+
         for app_config in apps.get_app_configs():
             module_name = f"{app_config.name}.seed"
             if app_config.name.startswith("apps.") and find_spec(module_name) is not None:

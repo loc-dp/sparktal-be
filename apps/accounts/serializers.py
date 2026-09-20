@@ -1,5 +1,6 @@
 from typing import Any
 
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from apps.accounts.models import User
@@ -26,6 +27,7 @@ class MeSerializer(serializers.ModelSerializer[User]):
         fields = ("id", "email", "full_name", "kind", "company", "recruiter")
 
     @staticmethod
+    @extend_schema_field(MeCompanySerializer(allow_null=True))
     def get_company(user: User) -> dict[str, Any] | None:
         """Plan 03 adds the models; until then nobody has a membership."""
         membership = getattr(user, "membership", None)
@@ -44,6 +46,7 @@ class MeSerializer(serializers.ModelSerializer[User]):
         )
 
     @staticmethod
+    @extend_schema_field(MeRecruiterSerializer(allow_null=True))
     def get_recruiter(user: User) -> dict[str, Any] | None:
         """Plan 03 fills this from `user.recruiter`."""
         profile = getattr(user, "recruiter", None)

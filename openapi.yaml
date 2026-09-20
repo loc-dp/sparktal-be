@@ -80,16 +80,14 @@ components:
         kind:
           $ref: '#/components/schemas/KindEnum'
         company:
-          type: object
-          additionalProperties: {}
+          allOf:
+          - $ref: '#/components/schemas/MeCompany'
           nullable: true
-          description: Plan 03 adds the models; until then nobody has a membership.
           readOnly: true
         recruiter:
-          type: object
-          additionalProperties: {}
+          allOf:
+          - $ref: '#/components/schemas/MeRecruiter'
           nullable: true
-          description: Plan 03 fills this from `user.recruiter`.
           readOnly: true
       required:
       - company
@@ -97,6 +95,34 @@ components:
       - full_name
       - id
       - recruiter
+    MeCompany:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        role:
+          type: string
+        profile_completed:
+          type: boolean
+      required:
+      - id
+      - name
+      - profile_completed
+      - role
+    MeRecruiter:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        nickname:
+          type: string
+      required:
+      - id
+      - nickname
   securitySchemes:
     cookieAuth:
       type: apiKey

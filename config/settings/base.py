@@ -154,6 +154,9 @@ CHANNEL_LAYERS: dict[str, dict[str, Any]] = {
 }
 
 CELERY_BROKER_URL = REDIS_URL
+# Long-running jobs (plan 06's CV export) keep their own status row, but a result
+# backend makes `.delay().get()` usable for smoke checks and short tasks.
+CELERY_RESULT_BACKEND = env.str("CELERY_RESULT_BACKEND", default=REDIS_URL)
 CELERY_TASK_ALWAYS_EAGER = False
 CELERY_TASK_EAGER_PROPAGATES = True
 CELERY_TIMEZONE = TIME_ZONE

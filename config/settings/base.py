@@ -109,10 +109,19 @@ AUTH_PASSWORD_VALIDATORS = [
 # django-guardian: no anonymous user row (our User has no username field).
 ANONYMOUS_USER_NAME = None
 
-# django-allauth (plan 02 adds the adapter, HEADLESS_ONLY and frontend URLs).
+# django-allauth
+ACCOUNT_ADAPTER = "apps.accounts.adapter.AccountAdapter"
 ACCOUNT_LOGIN_METHODS = {"email"}
 ACCOUNT_SIGNUP_FIELDS = ["email*", "password1*"]
 ACCOUNT_USER_MODEL_USERNAME_FIELD = None
+ACCOUNT_EMAIL_VERIFICATION = "optional"
+ACCOUNT_PREVENT_ENUMERATION = True
+ACCOUNT_PASSWORD_RESET_TOKEN_EXPIRY = 3 * 24 * 60 * 60  # 3 days for the invite email
+ACCOUNT_RATE_LIMITS = {
+    "login_failed": "5/5m/ip,5/5m/key",
+    "reset_password": "3/10m/key",
+    "reset_password_from_key": "10/10m/ip",
+}
 
 LANGUAGE_CODE = "en"
 TIME_ZONE = "Asia/Ho_Chi_Minh"
@@ -167,6 +176,14 @@ EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
 DEFAULT_FROM_EMAIL = env.str("DEFAULT_FROM_EMAIL", default="Sparktal <no-reply@sparktal.com>")
 
 FRONTEND_URL = env.str("FRONTEND_URL", default="http://localhost:3000")
+
+HEADLESS_ONLY = True
+HEADLESS_FRONTEND_URLS = {
+    "account_reset_password": f"{FRONTEND_URL}/forgot-password",
+    "account_reset_password_from_key": f"{FRONTEND_URL}/reset-password?key={{key}}",
+    "account_signup": f"{FRONTEND_URL}/sign-in",
+}
+HEADLESS_SERVE_SPECIFICATION = False
 FRONTEND_ORIGINS: list[str] = env.list("FRONTEND_ORIGINS", default=["http://localhost:3000"])
 CORS_ALLOWED_ORIGINS = FRONTEND_ORIGINS
 CORS_ALLOW_CREDENTIALS = True

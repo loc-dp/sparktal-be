@@ -97,6 +97,12 @@ module = ["factory.*", "faker.*"]
 ignore_missing_imports = true
 implicit_reexport = true
 
+# allauth ships no stubs, so its base classes are `Any`; subclassing them is the
+# documented way to customise it.
+[[tool.mypy.overrides]]
+module = ["apps.accounts.adapter"]
+disallow_subclassing_any = false
+
 # factory_boy ships no usable stubs: its declarations (Sequence, Faker, …) and the
 # factory call itself are untyped, so strict mode cannot see through them.
 [[tool.mypy.overrides]]

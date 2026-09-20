@@ -121,6 +121,8 @@ def seed(ctx: SeedContext) -> None:
                 "bounty_pct": spec["bounty_pct"],
                 "skills": spec["skills"],
                 "status": spec["status"],
+                # Reset every field the UI can change, so each seed is identical.
+                "note_for_recruiters": "",
                 "published_at": None if spec["status"] == JobStatus.PENDING else created,
                 "closed_at": now - timedelta(days=60)
                 if spec["status"] == JobStatus.CLOSED

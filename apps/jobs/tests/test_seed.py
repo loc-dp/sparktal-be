@@ -41,6 +41,18 @@ def test_seed_removes_jobs_that_are_not_part_of_the_demo() -> None:
     assert Job.objects.filter(company__name="Vela Pay").count() == 6
 
 
+def test_seed_clears_edits_made_through_the_ui() -> None:
+    call_command("seed_demo", "--force")
+    job = Job.objects.get(title="Senior Backend Engineer")
+    job.note_for_recruiters = "Typed during an E2E run"
+    job.save()
+
+    call_command("seed_demo", "--force")
+
+    job.refresh_from_db()
+    assert job.note_for_recruiters == ""
+
+
 def test_seed_is_idempotent() -> None:
     call_command("seed_demo", "--force")
     call_command("seed_demo", "--force")

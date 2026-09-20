@@ -9,7 +9,7 @@ from drf_spectacular.utils import extend_schema, extend_schema_view
 from PIL import Image, UnidentifiedImageError
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.generics import RetrieveUpdateAPIView
-from rest_framework.parsers import FormParser, MultiPartParser
+from rest_framework.parsers import MultiPartParser
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -21,6 +21,16 @@ from apps.companies.serializers import (
     CompanySerializer,
     ImageUploadSerializer,
 )
+
+# Declared inline rather than as a component: a $ref'd binary schema comes out of
+# the generator as `unknown` instead of a Blob, which breaks the typed client.
+UPLOAD_REQUEST = {
+    "multipart/form-data": {
+        "type": "object",
+        "properties": {"file": {"type": "string", "format": "binary"}},
+        "required": ["file"],
+    }
+}
 
 # SVG is executable in a browser, so only raster formats are accepted and every
 # upload is verified by Pillow rather than trusted by extension.
@@ -90,7 +100,9 @@ class CompanyCompleteView(APIView):
 
 
 class CompanyImageView(APIView):
-    parser_classes = (MultiPartParser, FormParser)
+    # Multipart only: a urlencoded form cannot carry a file, and advertising it
+    # makes the generated client type the field as `unknown` instead of a Blob.
+    parser_classes = (MultiPartParser,)
     kind = "logo"
 
     def _respond(self, request: Request, company: Company) -> Response:
@@ -122,7 +134,7 @@ class CompanyImageView(APIView):
     put=extend_schema(
         operation_id="company_logo_update",
         tags=["companies"],
-        request=ImageUploadSerializer,
+        request=UPLOAD_REQUEST,
         responses=CompanySerializer,
     ),
     delete=extend_schema(
@@ -137,7 +149,7 @@ class CompanyLogoView(CompanyImageView):
     put=extend_schema(
         operation_id="company_banner_update",
         tags=["companies"],
-        request=ImageUploadSerializer,
+        request=UPLOAD_REQUEST,
         responses=CompanySerializer,
     ),
     delete=extend_schema(

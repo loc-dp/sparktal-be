@@ -51,11 +51,13 @@ paths:
         content:
           multipart/form-data:
             schema:
-              $ref: '#/components/schemas/ImageUploadRequest'
-          application/x-www-form-urlencoded:
-            schema:
-              $ref: '#/components/schemas/ImageUploadRequest'
-        required: true
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+              required:
+              - file
       security:
       - cookieAuth: []
       responses:
@@ -97,11 +99,13 @@ paths:
         content:
           multipart/form-data:
             schema:
-              $ref: '#/components/schemas/ImageUploadRequest'
-          application/x-www-form-urlencoded:
-            schema:
-              $ref: '#/components/schemas/ImageUploadRequest'
-        required: true
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+              required:
+              - file
       security:
       - cookieAuth: []
       responses:
@@ -251,14 +255,6 @@ components:
           type: string
       required:
       - status
-    ImageUploadRequest:
-      type: object
-      properties:
-        file:
-          type: string
-          format: binary
-      required:
-      - file
     IndustryEnum:
       enum:
       - banking_finance

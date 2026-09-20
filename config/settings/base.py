@@ -118,7 +118,10 @@ ACCOUNT_EMAIL_VERIFICATION = "optional"
 ACCOUNT_PREVENT_ENUMERATION = True
 ACCOUNT_PASSWORD_RESET_TOKEN_EXPIRY = 3 * 24 * 60 * 60  # 3 days for the invite email
 ACCOUNT_RATE_LIMITS = {
-    "login_failed": "5/5m/ip,5/5m/key",
+    # Per account: 5 failures in 5 minutes. The per-IP budget is deliberately much
+    # larger — a company behind one NAT would otherwise lock out its own staff,
+    # and one attacker could lock out everyone in the office.
+    "login_failed": "30/5m/ip,5/5m/key",
     "reset_password": "3/10m/key",
     "reset_password_from_key": "10/10m/ip",
 }

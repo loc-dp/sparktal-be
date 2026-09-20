@@ -105,10 +105,15 @@ disallow_subclassing_any = false
 
 # factory_boy ships no usable stubs: its declarations (Sequence, Faker, …) and the
 # factory call itself are untyped, so strict mode cannot see through them.
+# factory_boy has no stubs, so mypy reads `CompanyFactory()` as returning the
+# factory rather than the model and floods test files with attr-defined errors.
+# Test code is covered by the tests themselves, so these two codes are off here
+# only — application modules stay fully strict.
 [[tool.mypy.overrides]]
 module = ["*.tests.*", "conftest"]
 disallow_untyped_decorators = false
 disallow_untyped_calls = false
+disable_error_code = ["attr-defined", "misc"]
 
 [tool.django-stubs]
 django_settings_module = "config.settings.test"

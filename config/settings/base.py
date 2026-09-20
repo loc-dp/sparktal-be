@@ -46,6 +46,8 @@ INSTALLED_APPS = [
     "allauth.headless",
     "apps.core",
     "apps.accounts",
+    "apps.companies",
+    "apps.recruiters",
 ]
 
 MIDDLEWARE = [

@@ -93,9 +93,17 @@ module = [
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-module = ["factory.*", "faker.*"]
+module = ["factory.*", "faker.*", "rules.*"]
 ignore_missing_imports = true
 implicit_reexport = true
+
+# django-rules is untyped: its @predicate decorator and add_perm() erase types.
+# Rule modules are tiny and covered by permission tests, so relax only these.
+[[tool.mypy.overrides]]
+module = ["*.rules"]
+disallow_untyped_calls = false
+disallow_untyped_decorators = false
+disable_error_code = ["no-any-return"]
 
 # allauth ships no stubs, so its base classes are `Any`; subclassing them is the
 # documented way to customise it.

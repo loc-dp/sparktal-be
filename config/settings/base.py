@@ -209,6 +209,11 @@ SPECTACULAR_SETTINGS = {
     "SERVE_INCLUDE_SCHEMA": False,
     "COMPONENT_SPLIT_REQUEST": True,
     "SCHEMA_PATH_PREFIX": r"/api/v1",
+    # `Location` is reused by Company.located and Office.city; name it once so the
+    # generator stops warning about two names for one choice set.
+    "ENUM_NAME_OVERRIDES": {
+        "LocationEnum": "apps.companies.models.Location.choices",
+    },
     "SWAGGER_UI_DIST": "SIDECAR",
     "SWAGGER_UI_FAVICON_HREF": "SIDECAR",
     "REDOC_DIST": "SIDECAR",

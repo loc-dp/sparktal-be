@@ -4,6 +4,122 @@ info:
   version: 1.0.0
   description: Sparktal Platform V.1 — Company portal API.
 paths:
+  /api/v1/company:
+    get:
+      operationId: company_retrieve
+      tags:
+      - companies
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Company'
+          description: ''
+    patch:
+      operationId: company_partial_update
+      tags:
+      - companies
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedCompanyRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedCompanyRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedCompanyRequest'
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Company'
+          description: ''
+  /api/v1/company/banner:
+    put:
+      operationId: company_banner_update
+      tags:
+      - companies
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ImageUploadRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ImageUploadRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Company'
+          description: ''
+    delete:
+      operationId: company_banner_destroy
+      tags:
+      - companies
+      security:
+      - cookieAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/company/complete:
+    post:
+      operationId: company_complete_create
+      tags:
+      - companies
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Company'
+          description: ''
+  /api/v1/company/logo:
+    put:
+      operationId: company_logo_update
+      tags:
+      - companies
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ImageUploadRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ImageUploadRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Company'
+          description: ''
+    delete:
+      operationId: company_logo_destroy
+      tags:
+      - companies
+      security:
+      - cookieAuth: []
+      responses:
+        '204':
+          description: No response body
   /api/v1/csrf:
     get:
       operationId: csrf_retrieve
@@ -45,6 +161,89 @@ paths:
           description: ''
 components:
   schemas:
+    BlankEnum:
+      enum:
+      - ''
+    Company:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        name:
+          type: string
+          maxLength: 120
+        industry:
+          oneOf:
+          - $ref: '#/components/schemas/IndustryEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+        company_type:
+          oneOf:
+          - $ref: '#/components/schemas/CompanyTypeEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+        year_incorporated:
+          type: integer
+          maximum: 32767
+          minimum: 0
+          nullable: true
+        size_range:
+          oneOf:
+          - $ref: '#/components/schemas/SizeRangeEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+        bd_headcount:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+          nullable: true
+        located:
+          oneOf:
+          - $ref: '#/components/schemas/LocationEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+        about:
+          type: string
+        website:
+          type: string
+          maxLength: 200
+        linkedin:
+          type: string
+          maxLength: 200
+        facebook:
+          type: string
+          maxLength: 200
+        logo_url:
+          type: string
+          nullable: true
+          readOnly: true
+        banner_url:
+          type: string
+          nullable: true
+          readOnly: true
+        profile_completed:
+          type: boolean
+          readOnly: true
+        offices:
+          type: array
+          items:
+            $ref: '#/components/schemas/Office'
+        can_edit:
+          type: boolean
+          readOnly: true
+      required:
+      - banner_url
+      - can_edit
+      - id
+      - logo_url
+      - name
+      - profile_completed
+    CompanyTypeEnum:
+      enum:
+      - fdi
+      - vn
+      type: string
+      description: |-
+        * `fdi` - FDI
+        * `vn` - Vietnamese company
     Health:
       type: object
       properties:
@@ -52,6 +251,38 @@ components:
           type: string
       required:
       - status
+    ImageUploadRequest:
+      type: object
+      properties:
+        file:
+          type: string
+          format: binary
+      required:
+      - file
+    IndustryEnum:
+      enum:
+      - banking_finance
+      - fintech
+      - technology_software
+      - ecommerce_retail
+      - manufacturing
+      - logistics_supply_chain
+      - healthcare_pharma
+      - real_estate_construction
+      - fmcg
+      - energy_utilities
+      type: string
+      description: |-
+        * `banking_finance` - Banking & Finance
+        * `fintech` - Fintech
+        * `technology_software` - Technology & Software
+        * `ecommerce_retail` - E-commerce & Retail
+        * `manufacturing` - Manufacturing
+        * `logistics_supply_chain` - Logistics & Supply Chain
+        * `healthcare_pharma` - Healthcare & Pharma
+        * `real_estate_construction` - Real Estate & Construction
+        * `fmcg` - FMCG
+        * `energy_utilities` - Energy & Utilities
     KindEnum:
       enum:
       - company
@@ -62,6 +293,28 @@ components:
         * `company` - Company
         * `recruiter` - Recruiter
         * `staff` - Staff
+    LocationEnum:
+      enum:
+      - hcm
+      - hn
+      - dn
+      - hp
+      - ct
+      - bd
+      - dnai
+      - bn
+      - other
+      type: string
+      description: |-
+        * `hcm` - Ho Chi Minh City
+        * `hn` - Ha Noi
+        * `dn` - Da Nang
+        * `hp` - Hai Phong
+        * `ct` - Can Tho
+        * `bd` - Binh Duong
+        * `dnai` - Dong Nai
+        * `bn` - Bac Ninh
+        * `other` - Other province
     Me:
       type: object
       properties:
@@ -123,6 +376,97 @@ components:
       required:
       - id
       - nickname
+    Office:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        address:
+          type: string
+          maxLength: 255
+        city:
+          $ref: '#/components/schemas/LocationEnum'
+        position:
+          type: integer
+          readOnly: true
+      required:
+      - address
+      - id
+      - position
+    OfficeRequest:
+      type: object
+      properties:
+        address:
+          type: string
+          maxLength: 255
+        city:
+          $ref: '#/components/schemas/LocationEnum'
+      required:
+      - address
+    PatchedCompanyRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        industry:
+          oneOf:
+          - $ref: '#/components/schemas/IndustryEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+        company_type:
+          oneOf:
+          - $ref: '#/components/schemas/CompanyTypeEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+        year_incorporated:
+          type: integer
+          maximum: 32767
+          minimum: 0
+          nullable: true
+        size_range:
+          oneOf:
+          - $ref: '#/components/schemas/SizeRangeEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+        bd_headcount:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+          nullable: true
+        located:
+          oneOf:
+          - $ref: '#/components/schemas/LocationEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+        about:
+          type: string
+        website:
+          type: string
+          maxLength: 200
+        linkedin:
+          type: string
+          maxLength: 200
+        facebook:
+          type: string
+          maxLength: 200
+        offices:
+          type: array
+          items:
+            $ref: '#/components/schemas/OfficeRequest'
+    SizeRangeEnum:
+      enum:
+      - lt50
+      - r50_100
+      - r100_500
+      - r500_1000
+      - gt1000
+      type: string
+      description: |-
+        * `lt50` - Under 50 employees
+        * `r50_100` - 50–100 employees
+        * `r100_500` - 100–500 employees
+        * `r500_1000` - 500–1,000 employees
+        * `gt1000` - 1,000+ employees
   securitySchemes:
     cookieAuth:
       type: apiKey

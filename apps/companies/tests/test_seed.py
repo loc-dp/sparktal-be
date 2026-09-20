@@ -38,6 +38,21 @@ def test_seed_creates_an_onboarding_company_for_e2e() -> None:
     assert company.memberships.get(user__email="new.admin@example.com").role == CompanyRole.ADMIN
 
 
+def test_seed_resets_the_onboarding_company() -> None:
+    call_command("seed_demo", "--force")
+    company = Company.objects.get(name="Kestrel Logistics")
+    company.offices.create(address="Left over from a previous run", city="hp", position=0)
+    company.industry = "fintech"
+    company.mark_profile_completed()
+
+    call_command("seed_demo", "--force")
+
+    company.refresh_from_db()
+    assert company.offices.count() == 0
+    assert company.industry == ""
+    assert company.profile_completed is False
+
+
 def test_seed_is_idempotent() -> None:
     call_command("seed_demo", "--force")
     call_command("seed_demo", "--force")

@@ -22,6 +22,25 @@ def test_seed_creates_the_six_vela_pay_jobs() -> None:
     assert backend.office is not None
 
 
+def test_seed_removes_jobs_that_are_not_part_of_the_demo() -> None:
+    call_command("seed_demo", "--force")
+    from apps.companies.models import Company
+
+    company = Company.objects.get(name="Vela Pay")
+    Job.objects.create(
+        company=company,
+        title="Left over from an E2E run",
+        why_we_need_you="x",
+        roles="x",
+        qualifications="x",
+    )
+
+    call_command("seed_demo", "--reset", "--force")
+
+    assert not Job.objects.filter(title="Left over from an E2E run").exists()
+    assert Job.objects.filter(company__name="Vela Pay").count() == 6
+
+
 def test_seed_is_idempotent() -> None:
     call_command("seed_demo", "--force")
     call_command("seed_demo", "--force")

@@ -5,7 +5,7 @@ from django.utils import timezone
 
 from apps.accounts.models import User
 from apps.companies.models import Company
-from apps.core.seed import SeedContext, register_seeder
+from apps.core.seed import SeedContext, register_resetter, register_seeder
 from apps.jobs.functions import guess_function
 from apps.jobs.models import BountyType, Job, JobStatus, PayBasis, WorkModel
 
@@ -132,3 +132,11 @@ def seed(ctx: SeedContext) -> None:
         jobs[job.title] = job
 
     ctx.refs["jobs"] = jobs
+
+
+@register_resetter(order=40)
+def reset() -> None:
+    """Drop jobs the demo company did not come with (E2E creates and renames some)."""
+    Job.objects.filter(company__name="Vela Pay").exclude(
+        title__in=[spec["title"] for spec in JOBS]
+    ).delete()

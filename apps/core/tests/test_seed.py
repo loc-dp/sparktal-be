@@ -18,5 +18,6 @@ def test_seeders_run_in_order_and_share_context() -> None:
     ran = run_seeders(ctx)
 
     assert order.index("early") < order.index("late")
-    assert ctx.refs["early"] and ctx.refs["late"]
+    assert ctx.refs["early"] is True
+    assert ctx.refs["late"] is True
     assert any(name.endswith("seed_early") for name in ran)

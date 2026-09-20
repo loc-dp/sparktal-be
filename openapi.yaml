@@ -1,0 +1,45 @@
+openapi: 3.0.3
+info:
+  title: Sparktal API
+  version: 1.0.0
+  description: Sparktal Platform V.1 — Company portal API.
+paths:
+  /api/v1/csrf:
+    get:
+      operationId: csrf_retrieve
+      tags:
+      - csrf
+      security:
+      - cookieAuth: []
+      - {}
+      responses:
+        '204':
+          description: No response body
+  /api/v1/health:
+    get:
+      operationId: health_retrieve
+      tags:
+      - health
+      security:
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+          description: ''
+components:
+  schemas:
+    Health:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+      - status
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: sessionid

@@ -1,3 +1,5 @@
+from typing import cast
+
 from rest_framework.test import APIClient
 
 from apps.accounts.models import User
@@ -5,7 +7,7 @@ from apps.accounts.tests.factories import DEFAULT_TEST_PASSWORD, UserFactory
 
 
 def test_user_factory_builds_company_user_with_known_password(db: None) -> None:
-    user = UserFactory()
+    user = cast(User, UserFactory())
 
     assert user.kind == "company"
     assert user.check_password(DEFAULT_TEST_PASSWORD)

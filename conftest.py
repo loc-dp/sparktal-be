@@ -1,3 +1,5 @@
+from typing import cast
+
 import pytest
 from rest_framework.test import APIClient
 
@@ -12,7 +14,7 @@ def api_client() -> APIClient:
 
 @pytest.fixture
 def user(db: None) -> User:
-    return UserFactory()
+    return cast(User, UserFactory())
 
 
 @pytest.fixture

@@ -1,8 +1,16 @@
+from typing import TYPE_CHECKING
+
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
 from django.contrib.auth.forms import BaseUserCreationForm, UserChangeForm
 
 from apps.accounts.models import User
+
+if TYPE_CHECKING:
+    # django-stubs makes ModelAdmin generic, but it is not subscriptable at runtime.
+    _UserAdminBase = DjangoUserAdmin[User]
+else:
+    _UserAdminBase = DjangoUserAdmin
 
 
 class UserCreationForm(BaseUserCreationForm):  # type: ignore[type-arg]
@@ -18,7 +26,7 @@ class UserEditForm(UserChangeForm):  # type: ignore[type-arg]
 
 
 @admin.register(User)
-class UserAdmin(DjangoUserAdmin):
+class UserAdmin(_UserAdminBase):
     form = UserEditForm
     add_form = UserCreationForm
     ordering = ("email",)

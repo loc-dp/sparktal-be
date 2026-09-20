@@ -47,7 +47,8 @@ def test_create_superuser_is_staff_kind() -> None:
         email="admin@sparktal.vn", password="pass-1234-word", full_name="Sparktal Admin"
     )
 
-    assert user.is_staff and user.is_superuser
+    assert user.is_staff
+    assert user.is_superuser
     assert user.kind == UserKind.STAFF
 
 

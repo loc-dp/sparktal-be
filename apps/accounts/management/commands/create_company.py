@@ -9,6 +9,7 @@ from django.db import transaction
 from django.test import RequestFactory
 
 from apps.accounts.models import User, UserKind
+from apps.companies.models import Company, CompanyMembership, CompanyRole
 
 
 class Command(BaseCommand):
@@ -34,10 +35,11 @@ class Command(BaseCommand):
         user.set_unusable_password()
         user.save(update_fields=["password"])
 
-        # Plan 03 creates the Company row and the admin CompanyMembership here.
-        self.stdout.write(f"Created company admin {user.email} for “{options['name']}”.")
+        company = Company.objects.create(name=options["name"])
+        CompanyMembership.objects.create(user=user, company=company, role=CompanyRole.ADMIN)
         self.stdout.write(
-            self.style.WARNING("Company profile is created on first sign-in (career page setup).")
+            f"Created company “{company.name}” with admin {user.email}. "
+            "The profile is completed on first sign-in (career page setup)."
         )
 
         if not options["no_email"]:

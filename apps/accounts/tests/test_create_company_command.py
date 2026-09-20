@@ -72,3 +72,23 @@ def test_rejects_an_existing_email() -> None:
             "--admin-name",
             "Taken",
         )
+
+
+def test_creates_the_company_and_an_admin_membership() -> None:
+    call_command(
+        "create_company",
+        "--name",
+        "Nordhaven",
+        "--admin-email",
+        "admin@nordhaven.vn",
+        "--admin-name",
+        "Phạm Quốc Anh",
+        "--no-email",
+    )
+
+    from apps.companies.models import Company
+
+    company = Company.objects.get(name="Nordhaven")
+    assert company.profile_completed is False
+    assert company.memberships.get().user.email == "admin@nordhaven.vn"
+    assert company.memberships.get().role == "admin"

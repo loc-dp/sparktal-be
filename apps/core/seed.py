@@ -24,6 +24,7 @@ DEMO_EMAILS: list[str] = [
     "bluefin@example.com",
     "atlas@example.com",
     "admin@sparktal.vn",
+    "new.admin@example.com",
 ]
 
 

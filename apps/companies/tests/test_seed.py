@@ -1,0 +1,45 @@
+import pytest
+from django.core.management import call_command
+
+from apps.companies.models import Company, CompanyRole
+from apps.recruiters.models import RecruiterProfile
+
+pytestmark = pytest.mark.django_db
+
+
+def test_seed_creates_vela_pay_with_members_and_offices() -> None:
+    call_command("seed_demo", "--force")
+
+    company = Company.objects.get(name="Vela Pay")
+    assert company.profile_completed is True
+    assert company.industry == "fintech"
+    assert company.offices.count() >= 1
+    roles = {m.user.email: m.role for m in company.memberships.all()}
+    assert roles["nhung.le@velapay.vn"] == CompanyRole.ADMIN
+    assert roles["maianh.tran@velapay.vn"] == CompanyRole.TALENT_ACQUISITION
+    assert roles["khoa.nguyen@velapay.vn"] == CompanyRole.HIRING_MANAGER
+
+
+def test_seed_creates_three_recruiters_with_nicknames() -> None:
+    call_command("seed_demo", "--force")
+
+    assert set(RecruiterProfile.objects.values_list("nickname", flat=True)) == {
+        "NorthStar Talent",
+        "Bluefin Search",
+        "Atlas Hunters",
+    }
+
+
+def test_seed_creates_an_onboarding_company_for_e2e() -> None:
+    call_command("seed_demo", "--force")
+
+    company = Company.objects.get(name="Kestrel Logistics")
+    assert company.profile_completed is False
+    assert company.memberships.get(user__email="new.admin@example.com").role == CompanyRole.ADMIN
+
+
+def test_seed_is_idempotent() -> None:
+    call_command("seed_demo", "--force")
+    call_command("seed_demo", "--force")
+
+    assert Company.objects.filter(name="Vela Pay").count() == 1

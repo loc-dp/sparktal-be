@@ -84,6 +84,25 @@ def test_session_then_logout(client: APIClient) -> None:
     assert client.get(SESSION_URL).status_code == 401
 
 
+def test_repeated_failures_trip_the_login_rate_limit(client: APIClient) -> None:
+    from django.core.cache import cache
+
+    cache.clear()  # the limit counts in the cache, shared across tests
+    UserFactory(email="maianh.tran@velapay.vn")
+    credentials = {"email": "maianh.tran@velapay.vn", "password": "wrong-password"}
+
+    codes = []
+    for _ in range(7):
+        response = client.post(LOGIN_URL, credentials, format="json")
+        codes.append([error.get("code") for error in response.json()["errors"]])
+
+    # ACCOUNT_RATE_LIMITS["login_failed"] = 5/5m — allauth reports this as a 400
+    # with its own code, not as a 429.
+    assert codes[-1] == ["too_many_login_attempts"]
+    assert "too_many_login_attempts" not in codes[0]
+    cache.clear()
+
+
 def test_signup_is_closed(client: APIClient) -> None:
     response = client.post(
         SIGNUP_URL, {"email": "intruder@example.com", "password": "pass-1234-word"}, format="json"

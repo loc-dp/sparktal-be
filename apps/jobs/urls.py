@@ -7,6 +7,10 @@ from apps.jobs.api import (
     JobListCreateView,
     JobOverviewView,
     JobReopenView,
+    MarketplaceJobDetailView,
+    MarketplaceJobListView,
+    MarketplaceJoinView,
+    MarketplaceLeaveView,
     PublicJobView,
 )
 
@@ -18,4 +22,20 @@ urlpatterns = [
     path("jobs/<uuid:pk>/reopen", JobReopenView.as_view(), name="job-reopen"),
     path("jobs/<uuid:pk>/overview", JobOverviewView.as_view(), name="job-overview"),
     path("public/jobs/<str:share_token>", PublicJobView.as_view(), name="public-job"),
+    path("marketplace/jobs", MarketplaceJobListView.as_view(), name="marketplace-jobs"),
+    path(
+        "marketplace/jobs/<uuid:pk>",
+        MarketplaceJobDetailView.as_view(),
+        name="marketplace-job-detail",
+    ),
+    path(
+        "marketplace/jobs/<uuid:pk>/join",
+        MarketplaceJoinView.as_view(),
+        name="marketplace-job-join",
+    ),
+    path(
+        "marketplace/jobs/<uuid:pk>/leave",
+        MarketplaceLeaveView.as_view(),
+        name="marketplace-job-leave",
+    ),
 ]

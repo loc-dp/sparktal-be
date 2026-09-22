@@ -16,6 +16,7 @@ class MeCompanySerializer(serializers.Serializer[dict[str, Any]]):
 class MeRecruiterSerializer(serializers.Serializer[dict[str, Any]]):
     id = serializers.UUIDField()
     nickname = serializers.CharField()
+    status = serializers.CharField()
 
 
 class MeSerializer(serializers.ModelSerializer[User]):
@@ -52,4 +53,8 @@ class MeSerializer(serializers.ModelSerializer[User]):
         profile = getattr(user, "recruiter", None)
         if profile is None:
             return None
-        return dict(MeRecruiterSerializer({"id": profile.id, "nickname": profile.nickname}).data)
+        return dict(
+            MeRecruiterSerializer(
+                {"id": profile.id, "nickname": profile.nickname, "status": profile.status}
+            ).data
+        )

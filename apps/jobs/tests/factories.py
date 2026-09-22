@@ -4,7 +4,8 @@ import factory
 from factory.django import DjangoModelFactory
 
 from apps.companies.tests.factories import CompanyFactory, OfficeFactory
-from apps.jobs.models import BountyType, Job, JobStatus, PayBasis, WorkModel
+from apps.jobs.models import BountyType, Job, JobAssignment, JobStatus, PayBasis, WorkModel
+from apps.recruiters.tests.factories import RecruiterProfileFactory
 
 
 class JobFactory(DjangoModelFactory[Job]):
@@ -26,8 +27,14 @@ class JobFactory(DjangoModelFactory[Job]):
     skills = factory.List(["Go", "PostgreSQL"])
     status = JobStatus.ACTIVE
     published_at = factory.Faker("date_time_this_year", tzinfo=UTC)
-    # Non-remote jobs must have an office, so give every job one from its own
-    # company unless the caller passes something else.
     office = factory.LazyAttribute(
         lambda job: job.company.offices.first() or OfficeFactory(company=job.company)
     )
+
+
+class JobAssignmentFactory(DjangoModelFactory[JobAssignment]):
+    class Meta:
+        model = JobAssignment
+
+    job = factory.SubFactory(JobFactory)
+    recruiter = factory.SubFactory(RecruiterProfileFactory)

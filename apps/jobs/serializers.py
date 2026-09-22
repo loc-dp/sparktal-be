@@ -33,8 +33,6 @@ def _blank_message(field: str) -> dict[str, str]:
 
 class JobSerializer(serializers.ModelSerializer[Job]):
     location_label = serializers.CharField(read_only=True)
-    # Declared without the model's range validators so `validate()` can answer with
-    # the wording the studio shows instead of DRF's generic bounds message.
     bounty_pct = serializers.IntegerField(required=False, allow_null=True)
     can_edit = serializers.SerializerMethodField()
 
@@ -305,3 +303,81 @@ class JobOverviewSerializer(serializers.Serializer[dict[str, object]]):
     rejection_log = RejectionSerializer(many=True)
     recruiters = RecruiterOnJobSerializer(many=True)
     note_for_recruiters = serializers.CharField(allow_blank=True)
+
+
+class MarketplaceJobListItemSerializer(serializers.ModelSerializer[Job]):
+    company = serializers.SerializerMethodField()
+    location_label = serializers.CharField(read_only=True)
+    joined = serializers.BooleanField(read_only=True)
+    submitted_count = serializers.IntegerField(read_only=True)
+    recruiters_working = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model = Job
+        fields = (
+            "id",
+            "title",
+            "function",
+            "company",
+            "work_model",
+            "location_label",
+            "salary_min",
+            "salary_max",
+            "pay_basis",
+            "bounty_type",
+            "bounty_pct",
+            "bounty_amount",
+            "skills",
+            "why_we_need_you",
+            "published_at",
+            "created_at",
+            "joined",
+            "submitted_count",
+            "recruiters_working",
+        )
+
+    @extend_schema_field(serializers.DictField(child=serializers.CharField()))
+    def get_company(self, job: Job) -> dict[str, str]:
+        return {
+            "id": str(job.company_id),
+            "name": job.company.name,
+            "industry": job.company.get_industry_display(),
+        }
+
+
+class MarketplaceJobSerializer(MarketplaceJobListItemSerializer):
+    channel_id = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Job
+        fields = (
+            *MarketplaceJobListItemSerializer.Meta.fields,
+            "roles",
+            "qualifications",
+            "nice_to_have",
+            "benefits",
+            "note_for_recruiters",
+            "channel_id",
+        )
+
+    @extend_schema_field(serializers.UUIDField(allow_null=True))
+    def get_channel_id(self, job: Job) -> str | None:
+        from apps.chat.models import Channel
+
+        recruiter = self.context.get("recruiter")
+        if recruiter is None or not getattr(job, "joined", False):
+            return None
+        channel = Channel.objects.filter(job=job, recruiter=recruiter).only("id").first()
+        return str(channel.id) if channel else None
+
+
+class JoinResultSerializer(serializers.Serializer[dict[str, Any]]):
+    assignment_id = serializers.UUIDField()
+    channel_id = serializers.UUIDField()
+    joined = serializers.BooleanField()
+
+
+class LeaveResultSerializer(serializers.Serializer[dict[str, Any]]):
+    assignment_id = serializers.UUIDField()
+    joined = serializers.BooleanField()
+    left_at = serializers.DateTimeField()

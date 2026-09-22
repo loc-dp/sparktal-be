@@ -5,9 +5,6 @@ from apps.accounts.models import User
 from apps.accounts.serializers import MeSerializer
 
 
-# On a generic view the decorator has to target the method, not the class:
-# drf-spectacular rejects a class-level operation_id ("will most likely result in
-# a broken schema").
 @extend_schema_view(get=extend_schema(operation_id="me_retrieve", responses=MeSerializer))
 class MeView(RetrieveAPIView[User]):
     serializer_class = MeSerializer

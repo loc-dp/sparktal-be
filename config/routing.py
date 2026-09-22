@@ -1,5 +1,9 @@
-"""WebSocket routes. Plan 07 appends `path("ws/events/", EventsConsumer.as_asgi())`."""
-
 from typing import Any
 
-websocket_urlpatterns: list[Any] = []
+from django.urls import path
+
+from apps.chat.consumers import EventsConsumer
+
+websocket_urlpatterns: list[Any] = [
+    path("ws/events/", EventsConsumer.as_asgi()),
+]

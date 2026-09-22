@@ -42,8 +42,6 @@ def test_no_email_flag_skips_the_invite() -> None:
 
 @pytest.mark.parametrize("hosts", [["localhost", "127.0.0.1"], ["api.sparktal.com"]])
 def test_invite_uses_an_allowed_host(settings, hosts: list[str]) -> None:  # type: ignore[no-untyped-def]
-    # RequestFactory defaults to "testserver", which only ALLOWED_HOSTS in tests
-    # accepts — the command has to pick a host the project really allows.
     settings.ALLOWED_HOSTS = hosts
 
     call_command(

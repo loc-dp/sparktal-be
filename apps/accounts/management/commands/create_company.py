@@ -43,10 +43,6 @@ class Command(BaseCommand):
         )
 
         if not options["no_email"]:
-            # allauth reads the current request from a context var, so a bare
-            # RequestFactory request is not enough: it has to be pushed in. Its
-            # default host ("testserver") is rejected by ALLOWED_HOSTS outside
-            # tests, so borrow the first allowed host.
             host = next(iter(settings.ALLOWED_HOSTS), "localhost")
             request = RequestFactory().post("/", HTTP_HOST=host)
             with context.request_context(request):

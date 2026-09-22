@@ -1,6 +1,5 @@
 from typing import Any
 
-# django-rules ships no stubs; its decorators erase types.
 import rules
 
 from apps.accounts.models import User
@@ -34,5 +33,4 @@ can_edit_company_profile = has_company_role(CompanyRole.ADMIN, CompanyRole.TALEN
 
 rules.add_perm("companies.view_company", is_company_member)
 rules.add_perm("companies.change_company", can_edit_company_profile)
-# Any member may create a job; per-job visibility is handled in apps/jobs (plan 04/05).
 rules.add_perm("jobs.add_job", is_company_member)

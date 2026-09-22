@@ -55,8 +55,6 @@ def test_login_of_inactive_user_fails(client: APIClient) -> None:
         LOGIN_URL, {"email": "left@velapay.vn", "password": DEFAULT_TEST_PASSWORD}, format="json"
     )
 
-    # allauth answers 401 (not 400) here: the credentials parse fine, the account
-    # just cannot be authenticated.
     assert response.status_code == 401
     assert response.json()["meta"]["is_authenticated"] is False
 
@@ -96,8 +94,6 @@ def test_repeated_failures_trip_the_login_rate_limit(client: APIClient) -> None:
         response = client.post(LOGIN_URL, credentials, format="json")
         codes.append([error.get("code") for error in response.json()["errors"]])
 
-    # ACCOUNT_RATE_LIMITS["login_failed"] = 5/5m — allauth reports this as a 400
-    # with its own code, not as a 429.
     assert codes[-1] == ["too_many_login_attempts"]
     assert "too_many_login_attempts" not in codes[0]
     cache.clear()
@@ -136,8 +132,6 @@ def test_password_reset_flow_sets_a_new_password(client: APIClient) -> None:
 def test_password_reset_request_for_unknown_email_reveals_nothing(client: APIClient) -> None:
     response = client.post(PASSWORD_REQUEST_URL, {"email": "nobody@example.com"}, format="json")
 
-    # ACCOUNT_PREVENT_ENUMERATION: same status as a real address, and an email is
-    # still sent — but it is the "Unknown Account" notice, with no reset key.
     assert response.status_code == 200
     assert len(mail.outbox) == 1
     assert "Unknown Account" in mail.outbox[0].subject

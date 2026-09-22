@@ -5,11 +5,11 @@ from django.utils import timezone
 
 from apps.accounts.models import User
 from apps.companies.models import Company
-from apps.core.seed import SeedContext, register_resetter, register_seeder
+from apps.core.seed import DEMO_EMAILS, SeedContext, register_resetter, register_seeder
 from apps.jobs.functions import guess_function
-from apps.jobs.models import BountyType, Job, JobStatus, PayBasis, WorkModel
+from apps.jobs.models import BountyType, Job, JobAssignment, JobStatus, PayBasis, WorkModel
+from apps.recruiters.models import RecruiterProfile
 
-# Mirrors prototypes/assets/data.js `jobs` (Vela Pay, employer side).
 JOBS: list[dict[str, Any]] = [
     {
         "title": "Senior Backend Engineer",
@@ -121,7 +121,6 @@ def seed(ctx: SeedContext) -> None:
                 "bounty_pct": spec["bounty_pct"],
                 "skills": spec["skills"],
                 "status": spec["status"],
-                # Reset every field the UI can change, so each seed is identical.
                 "note_for_recruiters": "",
                 "published_at": None if spec["status"] == JobStatus.PENDING else created,
                 "closed_at": now - timedelta(days=60)
@@ -129,7 +128,6 @@ def seed(ctx: SeedContext) -> None:
                 else None,
             },
         )
-        # `created_at` is auto_now_add, so backdate it with an update.
         Job.objects.filter(pk=job.pk).update(created_at=created)
         jobs[job.title] = job
 
@@ -142,3 +140,34 @@ def reset() -> None:
     Job.objects.filter(company__name="Vela Pay").exclude(
         title__in=[spec["title"] for spec in JOBS]
     ).delete()
+
+
+ASSIGNMENTS: dict[str, list[str]] = {
+    "NorthStar Talent": ["Senior Backend Engineer", "Data Analyst", "Compliance Manager"],
+    "Bluefin Search": ["Senior Backend Engineer", "Product Designer", "Compliance Manager"],
+}
+
+
+@register_seeder(order=45)
+def seed_assignments(ctx: SeedContext) -> None:
+    jobs: dict[str, Job] = ctx.refs.get("jobs") or {
+        job.title: job for job in Job.objects.filter(company__name="Vela Pay")
+    }
+    recruiters: dict[str, RecruiterProfile] = ctx.refs["recruiters"]
+    created: list[JobAssignment] = []
+    for nickname, titles in ASSIGNMENTS.items():
+        recruiter = recruiters[nickname]
+        for title in titles:
+            assignment, _ = JobAssignment.objects.get_or_create(
+                job=jobs[title], recruiter=recruiter
+            )
+            if assignment.left_at is not None:
+                assignment.left_at = None
+                assignment.save(update_fields=["left_at"])
+            created.append(assignment)
+    ctx.refs["assignments"] = created
+
+
+@register_resetter(order=45)
+def reset_assignments() -> None:
+    JobAssignment.objects.filter(recruiter__user__email__in=DEMO_EMAILS).delete()

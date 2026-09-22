@@ -11,6 +11,4 @@ class AccountAdapter(DefaultAccountAdapter):
         return False
 
     def send_mail(self, template_prefix: str, email: str, context: dict[str, Any]) -> None:
-        # Keep allauth's templates; this hook exists so a later plan can switch to an
-        # ESP without touching call sites.
         super().send_mail(template_prefix, email, context)

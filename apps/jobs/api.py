@@ -1,12 +1,21 @@
+from typing import Any
+
+from django.db import transaction
 from django.db.models import Count, Q, QuerySet
 from django.http import Http404
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, extend_schema_view
+from rest_framework import status
 from rest_framework.exceptions import ValidationError
 from rest_framework.filters import OrderingFilter
-from rest_framework.generics import ListCreateAPIView, RetrieveAPIView, RetrieveUpdateAPIView
+from rest_framework.generics import (
+    ListAPIView,
+    ListCreateAPIView,
+    RetrieveAPIView,
+    RetrieveUpdateAPIView,
+)
 from rest_framework.permissions import AllowAny, BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -14,17 +23,25 @@ from rest_framework.views import APIView
 
 from apps.accounts.models import User
 from apps.candidates.models import Stage
+from apps.chat.signals import ensure_channel
 from apps.jobs.access import can_change_job, jobs_visible_to
 from apps.jobs.filters import JobFilterSet
-from apps.jobs.models import Job, JobStatus
+from apps.jobs.marketplace import MarketplaceFilterSet, annotate_marketplace, marketplace_queryset
+from apps.jobs.models import Job, JobAssignment, JobStatus
 from apps.jobs.queries import annotate_job_metrics
 from apps.jobs.serializers import (
     JobCountsSerializer,
     JobListItemSerializer,
     JobOverviewSerializer,
     JobSerializer,
+    JoinResultSerializer,
+    LeaveResultSerializer,
+    MarketplaceJobListItemSerializer,
+    MarketplaceJobSerializer,
     PublicJobSerializer,
 )
+from apps.recruiters.access import IsApprovedRecruiter, approved_recruiter
+from apps.recruiters.models import RecruiterProfile
 
 
 def _user(view: APIView) -> User | None:
@@ -91,7 +108,6 @@ class JobDetailView(RetrieveUpdateAPIView[Job]):
 
     def get_object(self) -> Job:
         job = super().get_object()
-        # 404, not 403: a job you may not edit should not be distinguishable.
         if self.request.method == "PATCH" and not can_change_job(_user(self), job):
             raise Http404
         return job
@@ -229,3 +245,91 @@ class JobOverviewView(JobActionView):
             "note_for_recruiters": job.note_for_recruiters,
         }
         return Response(JobOverviewSerializer(payload).data)
+
+
+def _recruiter(view: APIView) -> RecruiterProfile:
+    profile = approved_recruiter(view.request.user)
+    assert profile is not None, "IsApprovedRecruiter must run before this view"
+    return profile
+
+
+@extend_schema_view(get=extend_schema(operation_id="marketplace_jobs_list", tags=["marketplace"]))
+class MarketplaceJobListView(ListAPIView[Job]):
+    queryset = Job.objects.none()
+    permission_classes = (IsApprovedRecruiter,)
+    serializer_class = MarketplaceJobListItemSerializer
+    filter_backends = (DjangoFilterBackend,)
+    filterset_class = MarketplaceFilterSet
+
+    def get_queryset(self) -> QuerySet[Job]:
+        recruiter = _recruiter(self)
+        return annotate_marketplace(marketplace_queryset(recruiter), recruiter)
+
+
+@extend_schema_view(
+    get=extend_schema(operation_id="marketplace_jobs_retrieve", tags=["marketplace"])
+)
+class MarketplaceJobDetailView(RetrieveAPIView[Job]):
+    queryset = Job.objects.none()
+    permission_classes = (IsApprovedRecruiter,)
+    serializer_class = MarketplaceJobSerializer
+
+    def get_queryset(self) -> QuerySet[Job]:
+        recruiter = _recruiter(self)
+        return annotate_marketplace(marketplace_queryset(recruiter), recruiter)
+
+    def get_serializer_context(self) -> dict[str, Any]:
+        return {**super().get_serializer_context(), "recruiter": _recruiter(self)}
+
+
+class MarketplaceActionView(APIView):
+    permission_classes = (IsApprovedRecruiter,)
+
+    def get_job(self, pk: str) -> Job:
+        return get_object_or_404(marketplace_queryset(_recruiter(self)), pk=pk)
+
+
+@extend_schema_view(
+    post=extend_schema(
+        operation_id="marketplace_jobs_join_create",
+        tags=["marketplace"],
+        request=None,
+        responses=JoinResultSerializer,
+    )
+)
+class MarketplaceJoinView(MarketplaceActionView):
+    def post(self, request: Request, pk: str) -> Response:
+        recruiter = _recruiter(self)
+        job = self.get_job(pk)
+        with transaction.atomic():
+            assignment, created = JobAssignment.objects.get_or_create(job=job, recruiter=recruiter)
+            if not created and assignment.left_at is not None:
+                assignment.left_at = None
+                assignment.save(update_fields=["left_at"])
+        channel, _ = ensure_channel(job, recruiter)
+        payload = {"assignment_id": assignment.pk, "channel_id": channel.pk, "joined": True}
+        return Response(
+            JoinResultSerializer(payload).data,
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
+
+
+@extend_schema_view(
+    post=extend_schema(
+        operation_id="marketplace_jobs_leave_create",
+        tags=["marketplace"],
+        request=None,
+        responses=LeaveResultSerializer,
+    )
+)
+class MarketplaceLeaveView(MarketplaceActionView):
+    def post(self, request: Request, pk: str) -> Response:
+        recruiter = _recruiter(self)
+        job = self.get_job(pk)
+        assignment = get_object_or_404(
+            JobAssignment, job=job, recruiter=recruiter, left_at__isnull=True
+        )
+        assignment.left_at = timezone.now()
+        assignment.save(update_fields=["left_at"])
+        payload = {"assignment_id": assignment.pk, "joined": False, "left_at": assignment.left_at}
+        return Response(LeaveResultSerializer(payload).data)

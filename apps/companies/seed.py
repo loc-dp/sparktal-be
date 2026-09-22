@@ -64,7 +64,6 @@ def seed(ctx: SeedContext) -> None:
             user=user, defaults={"company": company, "role": role}
         )
 
-    # A second company whose profile is still empty: the onboarding path for E2E.
     onboarding, _ = Company.objects.update_or_create(
         name="Kestrel Logistics",
         defaults={
@@ -81,8 +80,6 @@ def seed(ctx: SeedContext) -> None:
             "profile_completed_at": None,
         },
     )
-    # Wipe anything an earlier run (or an E2E pass) left behind: this company is
-    # the onboarding fixture and must always start empty.
     onboarding.offices.all().delete()
     new_admin, _ = User.objects.update_or_create(
         email="new.admin@example.com",

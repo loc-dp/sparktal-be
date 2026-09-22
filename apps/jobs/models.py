@@ -126,3 +126,26 @@ class Job(models.Model):
         self.closed_at = None
         self.published_at = self.published_at or timezone.now()
         self.save(update_fields=["status", "closed_at", "published_at", "updated_at"])
+
+
+class JobAssignment(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    job = models.ForeignKey(Job, on_delete=models.CASCADE, related_name="assignments")
+    recruiter = models.ForeignKey(
+        "recruiters.RecruiterProfile", on_delete=models.CASCADE, related_name="assignments"
+    )
+    joined_at = models.DateTimeField(auto_now_add=True)
+    left_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ("-joined_at", "-id")
+        constraints = (
+            models.UniqueConstraint(fields=("job", "recruiter"), name="job_assignment_unique"),
+        )
+
+    def __str__(self) -> str:
+        return f"{self.recruiter.nickname} · {self.job.title}"
+
+    @property
+    def is_active(self) -> bool:
+        return self.left_at is None

@@ -1,5 +1,3 @@
-# UploadedFile is generic for django-stubs but not subscriptable at runtime, so
-# annotations stay lazy in this module.
 from __future__ import annotations
 
 from typing import Any
@@ -15,15 +13,15 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.companies.access import company_of
+from apps.companies.home import home_payload
 from apps.companies.models import Company
 from apps.companies.serializers import (
     CompanyCompleteSerializer,
+    CompanyHomeSerializer,
     CompanySerializer,
     ImageUploadSerializer,
 )
 
-# Declared inline rather than as a component: a $ref'd binary schema comes out of
-# the generator as `unknown` instead of a Blob, which breaks the typed client.
 UPLOAD_REQUEST = {
     "multipart/form-data": {
         "type": "object",
@@ -32,8 +30,6 @@ UPLOAD_REQUEST = {
     }
 }
 
-# SVG is executable in a browser, so only raster formats are accepted and every
-# upload is verified by Pillow rather than trusted by extension.
 ACCEPTED_IMAGE_FORMATS = {"PNG", "JPEG", "WEBP"}
 LIMITS_MB = {"logo": 2, "banner": 5}
 
@@ -100,8 +96,6 @@ class CompanyCompleteView(APIView):
 
 
 class CompanyImageView(APIView):
-    # Multipart only: a urlencoded form cannot carry a file, and advertising it
-    # makes the generated client type the field as `unknown` instead of a Blob.
     parser_classes = (MultiPartParser,)
     kind = "logo"
 
@@ -158,3 +152,16 @@ class CompanyLogoView(CompanyImageView):
 )
 class CompanyBannerView(CompanyImageView):
     kind = "banner"
+
+
+@extend_schema_view(
+    get=extend_schema(
+        tags=["company"],
+        operation_id="company_home_retrieve",
+        responses=CompanyHomeSerializer,
+    )
+)
+class CompanyHomeView(APIView):
+    def get(self, request: Request) -> Response:
+        get_company_or_404(request)
+        return Response(home_payload(request.user))  # type: ignore[arg-type]

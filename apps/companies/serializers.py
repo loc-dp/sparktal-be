@@ -23,8 +23,6 @@ def _is_http_url(url: str, suffixes: tuple[str, ...] | None = None) -> bool:
 
 
 class OfficeSerializer(serializers.ModelSerializer[Office]):
-    # Blank is allowed at field level so the prototype's message wins over DRF's
-    # "This field may not be blank."
     address = serializers.CharField(max_length=255, allow_blank=True)
 
     class Meta:
@@ -40,8 +38,6 @@ class OfficeSerializer(serializers.ModelSerializer[Office]):
 
 class CompanySerializer(serializers.ModelSerializer[Company]):
     offices = OfficeSerializer(many=True, required=False)
-    # Plain CharFields: DRF's URLField would answer "Enter a valid URL." before the
-    # per-field validators below, and the UI has its own wording for each link.
     website = serializers.CharField(required=False, allow_blank=True, max_length=200)
     linkedin = serializers.CharField(required=False, allow_blank=True, max_length=200)
     facebook = serializers.CharField(required=False, allow_blank=True, max_length=200)
@@ -185,7 +181,43 @@ class CompanyCompleteSerializer(serializers.Serializer[Company]):
 
 
 class ImageUploadSerializer(serializers.Serializer[Any]):
-    # FileField, not ImageField: the view checks size first and then the real format
-    # with Pillow, so the user gets the size message for a large file instead of
-    # DRF's generic "not an image" one.
     file = serializers.FileField()
+
+
+class HomeJobRowSerializer(serializers.Serializer[dict[str, Any]]):
+    id = serializers.UUIDField()
+    title = serializers.CharField()
+    current_stage = serializers.CharField(allow_null=True)
+    days_open = serializers.IntegerField()
+    cv_count = serializers.IntegerField()
+    new_count = serializers.IntegerField()
+
+
+class HomeActionSerializer(serializers.Serializer[dict[str, Any]]):
+    kind = serializers.CharField()
+    title = serializers.CharField()
+    detail = serializers.CharField()
+    href = serializers.CharField()
+
+
+class HomeJobCountsSerializer(serializers.Serializer[dict[str, int]]):
+    pending = serializers.IntegerField()
+    active = serializers.IntegerField()
+    closed = serializers.IntegerField()
+
+
+class HomePipelineSerializer(serializers.Serializer[dict[str, int]]):
+    shortlisted = serializers.IntegerField()
+    new = serializers.IntegerField()
+    screen = serializers.IntegerField()
+    interview = serializers.IntegerField()
+    offer = serializers.IntegerField()
+    onboarded = serializers.IntegerField()
+    rejected = serializers.IntegerField()
+
+
+class CompanyHomeSerializer(serializers.Serializer[dict[str, Any]]):
+    jobs = HomeJobCountsSerializer()
+    pipeline = HomePipelineSerializer()
+    active_jobs = HomeJobRowSerializer(many=True)
+    actions = HomeActionSerializer(many=True)

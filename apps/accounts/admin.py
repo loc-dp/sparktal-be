@@ -7,7 +7,6 @@ from django.contrib.auth.forms import BaseUserCreationForm, UserChangeForm
 from apps.accounts.models import User
 
 if TYPE_CHECKING:
-    # django-stubs makes ModelAdmin generic, but it is not subscriptable at runtime.
     _UserAdminBase = DjangoUserAdmin[User]
 else:
     _UserAdminBase = DjangoUserAdmin

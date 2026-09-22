@@ -6,9 +6,11 @@ from rest_framework.test import APIClient
 
 from apps.accounts.models import User
 from apps.accounts.tests.factories import UserFactory
+from apps.chat.models import Channel
 from apps.companies.models import Company, CompanyMembership, CompanyRole
 from apps.companies.tests.factories import CompanyFactory, CompanyMembershipFactory, OfficeFactory
-from apps.recruiters.models import RecruiterProfile
+from apps.jobs.models import Job, JobAssignment
+from apps.recruiters.models import RecruiterProfile, RecruiterStatus
 from apps.recruiters.tests.factories import RecruiterProfileFactory
 
 
@@ -66,6 +68,16 @@ def company_ta(company: Company) -> User:
 
 
 @pytest.fixture
+def job(company: Company, company_ta: User) -> Job:
+    from apps.jobs.tests.factories import JobFactory
+
+    return cast(
+        Job,
+        JobFactory(company=company, created_by=company_ta, title="Senior Backend Engineer"),
+    )
+
+
+@pytest.fixture
 def company_hm(company: Company) -> User:
     return _member(company, CompanyRole.HIRING_MANAGER, "hm@velapay.vn")
 
@@ -87,3 +99,46 @@ def recruiter_profile(db: None) -> RecruiterProfile:
 @pytest.fixture
 def recruiter_user(recruiter_profile: RecruiterProfile) -> User:
     return recruiter_profile.user
+
+
+@pytest.fixture
+def recruiter_client(recruiter_user: User) -> APIClient:
+    client = APIClient()
+    client.force_login(recruiter_user)
+    return client
+
+
+@pytest.fixture
+def pending_recruiter_user(db: None) -> User:
+    profile = cast(
+        RecruiterProfile,
+        RecruiterProfileFactory(
+            nickname="Atlas Hunters",
+            status=RecruiterStatus.PENDING,
+            user__email="atlas@example.com",
+        ),
+    )
+    return profile.user
+
+
+@pytest.fixture
+def rejected_recruiter_user(db: None) -> User:
+    profile = cast(
+        RecruiterProfile,
+        RecruiterProfileFactory(
+            nickname="Fog Bank Search",
+            status=RecruiterStatus.REJECTED,
+            user__email="fogbank@example.com",
+        ),
+    )
+    return profile.user
+
+
+@pytest.fixture
+def channel(job: Job, recruiter_profile: RecruiterProfile) -> Channel:
+    return Channel.objects.create(job=job, recruiter=recruiter_profile)
+
+
+@pytest.fixture
+def assignment(job: Job, recruiter_profile: RecruiterProfile) -> JobAssignment:
+    return JobAssignment.objects.create(job=job, recruiter=recruiter_profile)

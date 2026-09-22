@@ -1,10 +1,15 @@
+from typing import TYPE_CHECKING
+
 from django.db.models import QuerySet
 from guardian.shortcuts import assign_perm, get_objects_for_user
 
 from apps.accounts.models import User
 from apps.companies.access import membership_of
 from apps.companies.models import CompanyRole
-from apps.jobs.models import Job
+from apps.jobs.models import Job, JobAssignment, JobStatus
+
+if TYPE_CHECKING:
+    from apps.recruiters.models import RecruiterProfile
 
 FULL_ACCESS_ROLES = {CompanyRole.ADMIN, CompanyRole.TALENT_ACQUISITION}
 
@@ -45,3 +50,17 @@ def grant_creator_perms(job: Job, user: User) -> None:
     """A Hiring Manager keeps access to the jobs they open."""
     assign_perm("jobs.view_job", user, job)
     assign_perm("jobs.change_job", user, job)
+
+
+def jobs_joined_by(recruiter: "RecruiterProfile | None") -> QuerySet[Job]:
+    if recruiter is None:
+        return Job.objects.none()
+    return Job.objects.filter(
+        assignments__recruiter=recruiter, assignments__left_at__isnull=True
+    ).distinct()
+
+
+def can_submit_to_job(recruiter: "RecruiterProfile | None", job: Job) -> bool:
+    if recruiter is None or job.status != JobStatus.ACTIVE:
+        return False
+    return JobAssignment.objects.filter(job=job, recruiter=recruiter, left_at__isnull=True).exists()

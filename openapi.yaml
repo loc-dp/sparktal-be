@@ -4,6 +4,351 @@ info:
   version: 1.0.0
   description: Sparktal Platform V.1 — Company portal API.
 paths:
+  /api/v1/applications/{id}/cv:
+    get:
+      operationId: applications_cv_retrieve
+      description: Stream a single CV through the configured Django storage backend.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - applications
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+          description: ''
+  /api/v1/candidates:
+    get:
+      operationId: candidates_list
+      parameters:
+      - in: query
+        name: is_expat
+        schema:
+          type: boolean
+      - in: query
+        name: ordering
+        schema:
+          type: string
+          enum:
+          - -created_at
+          - -expected_salary
+          - -full_name
+          - -updated_at
+          - -years_experience
+          - created_at
+          - expected_salary
+          - full_name
+          - updated_at
+          - years_experience
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - in: query
+        name: q
+        schema:
+          type: string
+      - in: query
+        name: skills
+        schema:
+          type: string
+      tags:
+      - candidates
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedCandidateList'
+          description: ''
+    post:
+      operationId: candidates_create
+      tags:
+      - candidates
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CandidateWriteRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/CandidateWriteRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/CandidateWriteRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Candidate'
+          description: ''
+  /api/v1/candidates/{id}:
+    get:
+      operationId: candidates_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - candidates
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Candidate'
+          description: ''
+    patch:
+      operationId: candidates_partial_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - candidates
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedCandidateWriteRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedCandidateWriteRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedCandidateWriteRequest'
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Candidate'
+          description: ''
+    delete:
+      operationId: candidates_destroy
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - candidates
+      security:
+      - cookieAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/candidates/{id}/cv:
+    get:
+      operationId: candidates_cv_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - candidates
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+          description: ''
+    put:
+      operationId: candidates_cv_upload
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - candidates
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/CandidateCvRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Candidate'
+          description: ''
+  /api/v1/chat/channels:
+    get:
+      operationId: chat_channels_list
+      tags:
+      - chat
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Channel'
+          description: ''
+  /api/v1/chat/channels/{id}/messages:
+    get:
+      operationId: chat_channels_messages_list
+      parameters:
+      - in: query
+        name: before
+        schema:
+          type: string
+          format: date-time
+        description: Return older messages.
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      - in: query
+        name: limit
+        schema:
+          type: integer
+        description: 1–50, default 30.
+      tags:
+      - chat
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessagePage'
+          description: ''
+    post:
+      operationId: chat_channels_messages_create
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - chat
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/MessageCreateRequest'
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: ''
+  /api/v1/chat/channels/{id}/read:
+    post:
+      operationId: chat_channels_read_create
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - chat
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReadRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ReadRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ReadRequest'
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadResult'
+          description: ''
+  /api/v1/chat/messages/{id}/attachment:
+    get:
+      operationId: chat_messages_attachment_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - chat
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+          description: ''
   /api/v1/company:
     get:
       operationId: company_retrieve
@@ -90,6 +435,20 @@ paths:
               schema:
                 $ref: '#/components/schemas/Company'
           description: ''
+  /api/v1/company/home:
+    get:
+      operationId: company_home_retrieve
+      tags:
+      - company
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompanyHome'
+          description: ''
   /api/v1/company/logo:
     put:
       operationId: company_logo_update
@@ -135,6 +494,90 @@ paths:
       responses:
         '204':
           description: No response body
+  /api/v1/cv-exports/{id}:
+    get:
+      operationId: cv_exports_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - exports
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CvExport'
+          description: ''
+  /api/v1/cv-exports/{id}/download:
+    get:
+      operationId: cv_exports_download_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - exports
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/zip:
+              schema:
+                type: string
+                format: binary
+          description: ''
+  /api/v1/cv-parses:
+    post:
+      operationId: cv_parses_create
+      tags:
+      - candidates
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/CvParseCreateRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '202':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CvParse'
+          description: ''
+  /api/v1/cv-parses/{id}:
+    get:
+      operationId: cv_parses_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - candidates
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CvParse'
+          description: ''
   /api/v1/health:
     get:
       operationId: health_retrieve
@@ -226,6 +669,88 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Job'
+          description: ''
+  /api/v1/jobs/{job_id}/applications:
+    get:
+      operationId: jobs_applications_list
+      parameters:
+      - in: path
+        name: job_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - in: query
+        name: search
+        schema:
+          type: string
+        description: Candidate name or current title.
+      - in: query
+        name: stage
+        schema:
+          type: string
+          enum:
+          - interview
+          - new
+          - offer
+          - onboarded
+          - rejected
+          - screen
+          - shortlisted
+      tags:
+      - applications
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedApplicationListList'
+          description: ''
+  /api/v1/jobs/{job_id}/cv-exports:
+    post:
+      operationId: jobs_cv_exports_create
+      parameters:
+      - in: path
+        name: job_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - exports
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CvExportCreateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/CvExportCreateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/CvExportCreateRequest'
+      security:
+      - cookieAuth: []
+      responses:
+        '202':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CvExport'
           description: ''
   /api/v1/jobs/{id}:
     get:
@@ -362,6 +887,164 @@ paths:
               schema:
                 $ref: '#/components/schemas/JobCounts'
           description: ''
+  /api/v1/marketplace/jobs:
+    get:
+      operationId: marketplace_jobs_list
+      parameters:
+      - in: query
+        name: function
+        schema:
+          type: string
+          enum:
+          - data
+          - design
+          - engineering
+          - finance
+          - legal
+          - marketing
+          - operations
+          - other
+          - sales
+        description: |-
+          * `finance` - Finance
+          * `engineering` - Engineering
+          * `data` - Data
+          * `design` - Design
+          * `legal` - Legal
+          * `marketing` - Marketing
+          * `sales` - Sales
+          * `operations` - Operations
+          * `other` - Other
+      - in: query
+        name: joined
+        schema:
+          type: boolean
+      - in: query
+        name: location
+        schema:
+          type: string
+          enum:
+          - bd
+          - bn
+          - ct
+          - dn
+          - dnai
+          - hcm
+          - hn
+          - hp
+          - other
+        description: |-
+          * `hcm` - Ho Chi Minh City
+          * `hn` - Ha Noi
+          * `dn` - Da Nang
+          * `hp` - Hai Phong
+          * `ct` - Can Tho
+          * `bd` - Binh Duong
+          * `dnai` - Dong Nai
+          * `bn` - Bac Ninh
+          * `other` - Other province
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - in: query
+        name: search
+        schema:
+          type: string
+      - in: query
+        name: work_model
+        schema:
+          type: string
+          enum:
+          - hybrid
+          - onsite
+          - remote
+        description: |-
+          * `onsite` - On-site
+          * `hybrid` - Hybrid
+          * `remote` - Remote
+      tags:
+      - marketplace
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedMarketplaceJobListItemList'
+          description: ''
+  /api/v1/marketplace/jobs/{id}:
+    get:
+      operationId: marketplace_jobs_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - marketplace
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MarketplaceJob'
+          description: ''
+  /api/v1/marketplace/jobs/{id}/join:
+    post:
+      operationId: marketplace_jobs_join_create
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - marketplace
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JoinResult'
+          description: ''
+  /api/v1/marketplace/jobs/{id}/leave:
+    post:
+      operationId: marketplace_jobs_leave_create
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - marketplace
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LeaveResult'
+          description: ''
   /api/v1/me:
     get:
       operationId: me_retrieve
@@ -396,8 +1079,203 @@ paths:
               schema:
                 $ref: '#/components/schemas/PublicJob'
           description: ''
+  /api/v1/recruiters/me:
+    get:
+      operationId: recruiters_me_retrieve
+      tags:
+      - recruiters
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecruiterProfile'
+          description: ''
+    patch:
+      operationId: recruiters_me_partial_update
+      tags:
+      - recruiters
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedRecruiterProfileRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedRecruiterProfileRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedRecruiterProfileRequest'
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecruiterProfile'
+          description: ''
+  /api/v1/recruiters/me/jobs:
+    get:
+      operationId: recruiters_jobs_list
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      tags:
+      - recruiters
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedRecruiterJobList'
+          description: ''
+  /api/v1/recruiters/me/overview:
+    get:
+      operationId: recruiters_overview_retrieve
+      tags:
+      - recruiters
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecruiterOverview'
+          description: ''
+  /api/v1/recruiters/nickname-check:
+    get:
+      operationId: recruiters_nickname_check_retrieve
+      parameters:
+      - in: query
+        name: nickname
+        schema:
+          type: string
+        required: true
+      tags:
+      - recruiters
+      security:
+      - cookieAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NicknameCheck'
+          description: ''
+  /api/v1/recruiters/signup:
+    post:
+      operationId: recruiters_signup_create
+      tags:
+      - recruiters
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SignupRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SignupRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SignupRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      - {}
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SignupResult'
+          description: ''
 components:
   schemas:
+    ApplicationCandidate:
+      type: object
+      properties:
+        full_name:
+          type: string
+          readOnly: true
+        current_title:
+          type: string
+          readOnly: true
+      required:
+      - current_title
+      - full_name
+    ApplicationList:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        candidate:
+          allOf:
+          - $ref: '#/components/schemas/ApplicationCandidate'
+          readOnly: true
+        recruiter:
+          allOf:
+          - $ref: '#/components/schemas/ApplicationRecruiter'
+          readOnly: true
+        stage:
+          allOf:
+          - $ref: '#/components/schemas/StageEnum'
+          readOnly: true
+        submitted_at:
+          type: string
+          format: date-time
+          readOnly: true
+        stage_changed_at:
+          type: string
+          format: date-time
+          readOnly: true
+        is_duplicate:
+          type: boolean
+          readOnly: true
+        cv_filename:
+          type: string
+          readOnly: true
+      required:
+      - candidate
+      - cv_filename
+      - id
+      - is_duplicate
+      - recruiter
+      - stage
+      - stage_changed_at
+      - submitted_at
+    ApplicationRecruiter:
+      type: object
+      description: Company users only see the recruiter's marketplace nickname.
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        nickname:
+          type: string
+          readOnly: true
+      required:
+      - id
+      - nickname
     BlankEnum:
       enum:
       - ''
@@ -409,6 +1287,214 @@ components:
       description: |-
         * `pct` - % of annual salary
         * `fixed` - Fixed amount
+    Candidate:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        full_name:
+          type: string
+          readOnly: true
+        current_title:
+          type: string
+          readOnly: true
+        email:
+          type: string
+          format: email
+          readOnly: true
+        phone:
+          type: string
+          readOnly: true
+        dob:
+          type: string
+          format: date
+          readOnly: true
+          nullable: true
+        location:
+          allOf:
+          - $ref: '#/components/schemas/LocationEnum'
+          readOnly: true
+        is_expat:
+          type: boolean
+          readOnly: true
+        languages:
+          type: array
+          items:
+            type: string
+            maxLength: 24
+          readOnly: true
+        skills:
+          type: array
+          items:
+            type: string
+            maxLength: 40
+          readOnly: true
+        years_experience:
+          type: integer
+          readOnly: true
+          nullable: true
+        current_salary:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,15}(?:\.\d{0,0})?$
+          readOnly: true
+          nullable: true
+        expected_salary:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,15}(?:\.\d{0,0})?$
+          readOnly: true
+          nullable: true
+        cv_filename:
+          type: string
+          readOnly: true
+        has_cv:
+          type: boolean
+          readOnly: true
+        notes:
+          type: string
+          readOnly: true
+        submitted_count:
+          type: integer
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - current_salary
+      - current_title
+      - cv_filename
+      - dob
+      - email
+      - expected_salary
+      - full_name
+      - has_cv
+      - id
+      - is_expat
+      - languages
+      - location
+      - notes
+      - phone
+      - skills
+      - submitted_count
+      - updated_at
+      - years_experience
+    CandidateCvRequest:
+      type: object
+      properties:
+        file:
+          type: string
+          format: binary
+          writeOnly: true
+      required:
+      - file
+    CandidateWriteRequest:
+      type: object
+      properties:
+        full_name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        current_title:
+          type: string
+          maxLength: 160
+        email:
+          oneOf:
+          - type: string
+            format: email
+            maxLength: 254
+          - type: string
+            maxLength: 0
+        phone:
+          type: string
+          maxLength: 128
+        dob:
+          type: string
+          format: date
+          nullable: true
+        location:
+          oneOf:
+          - $ref: '#/components/schemas/LocationEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+        is_expat:
+          type: boolean
+        languages:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 24
+        skills:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 40
+        years_experience:
+          type: integer
+          maximum: 32767
+          minimum: 0
+          nullable: true
+        current_salary:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,15}(?:\.\d{0,0})?$
+          nullable: true
+        expected_salary:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,15}(?:\.\d{0,0})?$
+          nullable: true
+        notes:
+          type: string
+      required:
+      - full_name
+    Channel:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        job:
+          type: object
+          additionalProperties: {}
+          readOnly: true
+        company:
+          type: object
+          additionalProperties: {}
+          readOnly: true
+        recruiter:
+          type: object
+          additionalProperties: {}
+          readOnly: true
+        unread_count:
+          type: integer
+          readOnly: true
+        last_message_at:
+          type: string
+          format: date-time
+          nullable: true
+        last_message:
+          type: object
+          additionalProperties: {}
+          nullable: true
+          readOnly: true
+      required:
+      - company
+      - id
+      - job
+      - last_message
+      - recruiter
+      - unread_count
     Company:
       type: object
       properties:
@@ -481,6 +1567,26 @@ components:
       - logo_url
       - name
       - profile_completed
+    CompanyHome:
+      type: object
+      properties:
+        jobs:
+          $ref: '#/components/schemas/HomeJobCounts'
+        pipeline:
+          $ref: '#/components/schemas/HomePipeline'
+        active_jobs:
+          type: array
+          items:
+            $ref: '#/components/schemas/HomeJobRow'
+        actions:
+          type: array
+          items:
+            $ref: '#/components/schemas/HomeAction'
+      required:
+      - actions
+      - active_jobs
+      - jobs
+      - pipeline
     CompanyTypeEnum:
       enum:
       - fdi
@@ -489,6 +1595,115 @@ components:
       description: |-
         * `fdi` - FDI
         * `vn` - Vietnamese company
+    CvExport:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/CvExportStatusEnum'
+          readOnly: true
+        file_count:
+          type: integer
+          readOnly: true
+        error:
+          type: string
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        finished_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        expires_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        download_url:
+          type: string
+          nullable: true
+          readOnly: true
+      required:
+      - created_at
+      - download_url
+      - error
+      - expires_at
+      - file_count
+      - finished_at
+      - id
+      - status
+    CvExportCreateRequest:
+      type: object
+      properties:
+        application_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+    CvExportStatusEnum:
+      enum:
+      - queued
+      - running
+      - done
+      - failed
+      type: string
+      description: |-
+        * `queued` - Queued
+        * `running` - Running
+        * `done` - Done
+        * `failed` - Failed
+    CvParse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/CvExportStatusEnum'
+          readOnly: true
+        fields:
+          readOnly: true
+        error:
+          type: string
+          readOnly: true
+        filename:
+          type: string
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        finished_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+      required:
+      - created_at
+      - error
+      - fields
+      - filename
+      - finished_at
+      - id
+      - status
+    CvParseCreateRequest:
+      type: object
+      properties:
+        file:
+          type: string
+          format: binary
+          writeOnly: true
+      required:
+      - file
     FunctionEnum:
       enum:
       - finance
@@ -518,6 +1733,84 @@ components:
           type: string
       required:
       - status
+    HomeAction:
+      type: object
+      properties:
+        kind:
+          type: string
+        title:
+          type: string
+        detail:
+          type: string
+        href:
+          type: string
+      required:
+      - detail
+      - href
+      - kind
+      - title
+    HomeJobCounts:
+      type: object
+      properties:
+        pending:
+          type: integer
+        active:
+          type: integer
+        closed:
+          type: integer
+      required:
+      - active
+      - closed
+      - pending
+    HomeJobRow:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        current_stage:
+          type: string
+          nullable: true
+        days_open:
+          type: integer
+        cv_count:
+          type: integer
+        new_count:
+          type: integer
+      required:
+      - current_stage
+      - cv_count
+      - days_open
+      - id
+      - new_count
+      - title
+    HomePipeline:
+      type: object
+      properties:
+        shortlisted:
+          type: integer
+        new:
+          type: integer
+        screen:
+          type: integer
+        interview:
+          type: integer
+        offer:
+          type: integer
+        onboarded:
+          type: integer
+        rejected:
+          type: integer
+      required:
+      - interview
+      - new
+      - offer
+      - onboarded
+      - rejected
+      - screen
+      - shortlisted
     IndustryEnum:
       enum:
       - banking_finance
@@ -606,7 +1899,7 @@ components:
             maxLength: 40
         status:
           allOf:
-          - $ref: '#/components/schemas/StatusEnum'
+          - $ref: '#/components/schemas/JobStatusEnum'
           readOnly: true
         note_for_recruiters:
           type: string
@@ -690,7 +1983,7 @@ components:
         function:
           $ref: '#/components/schemas/FunctionEnum'
         status:
-          $ref: '#/components/schemas/StatusEnum'
+          $ref: '#/components/schemas/JobStatusEnum'
         work_model:
           $ref: '#/components/schemas/WorkModelEnum'
         location_label:
@@ -827,16 +2120,46 @@ components:
       - roles
       - title
       - why_we_need_you
-    KindEnum:
+    JobStatusEnum:
       enum:
-      - company
-      - recruiter
-      - staff
+      - pending
+      - active
+      - closed
       type: string
       description: |-
-        * `company` - Company
-        * `recruiter` - Recruiter
-        * `staff` - Staff
+        * `pending` - Pending
+        * `active` - Active
+        * `closed` - Closed
+    JoinResult:
+      type: object
+      properties:
+        assignment_id:
+          type: string
+          format: uuid
+        channel_id:
+          type: string
+          format: uuid
+        joined:
+          type: boolean
+      required:
+      - assignment_id
+      - channel_id
+      - joined
+    LeaveResult:
+      type: object
+      properties:
+        assignment_id:
+          type: string
+          format: uuid
+        joined:
+          type: boolean
+        left_at:
+          type: string
+          format: date-time
+      required:
+      - assignment_id
+      - joined
+      - left_at
     LocationEnum:
       enum:
       - hcm
@@ -859,6 +2182,186 @@ components:
         * `dnai` - Dong Nai
         * `bn` - Bac Ninh
         * `other` - Other province
+    MarketplaceJob:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        title:
+          type: string
+          maxLength: 120
+        function:
+          $ref: '#/components/schemas/FunctionEnum'
+        company:
+          type: object
+          additionalProperties:
+            type: string
+          readOnly: true
+        work_model:
+          $ref: '#/components/schemas/WorkModelEnum'
+        location_label:
+          type: string
+          readOnly: true
+        salary_min:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,15}(?:\.\d{0,0})?$
+          nullable: true
+        salary_max:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,15}(?:\.\d{0,0})?$
+          nullable: true
+        pay_basis:
+          $ref: '#/components/schemas/PayBasisEnum'
+        bounty_type:
+          $ref: '#/components/schemas/BountyTypeEnum'
+        bounty_pct:
+          type: integer
+          maximum: 30
+          minimum: 5
+          nullable: true
+        bounty_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,15}(?:\.\d{0,0})?$
+          nullable: true
+        skills:
+          type: array
+          items:
+            type: string
+            maxLength: 40
+        why_we_need_you:
+          type: string
+        published_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        joined:
+          type: boolean
+          readOnly: true
+        submitted_count:
+          type: integer
+          readOnly: true
+        recruiters_working:
+          type: integer
+          readOnly: true
+        roles:
+          type: string
+          description: One responsibility per line.
+        qualifications:
+          type: string
+          description: One must-have per line.
+        nice_to_have:
+          type: string
+        benefits:
+          type: string
+        note_for_recruiters:
+          type: string
+        channel_id:
+          type: string
+          format: uuid
+          nullable: true
+          readOnly: true
+      required:
+      - channel_id
+      - company
+      - created_at
+      - id
+      - joined
+      - location_label
+      - qualifications
+      - recruiters_working
+      - roles
+      - submitted_count
+      - title
+      - why_we_need_you
+    MarketplaceJobListItem:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        title:
+          type: string
+          maxLength: 120
+        function:
+          $ref: '#/components/schemas/FunctionEnum'
+        company:
+          type: object
+          additionalProperties:
+            type: string
+          readOnly: true
+        work_model:
+          $ref: '#/components/schemas/WorkModelEnum'
+        location_label:
+          type: string
+          readOnly: true
+        salary_min:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,15}(?:\.\d{0,0})?$
+          nullable: true
+        salary_max:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,15}(?:\.\d{0,0})?$
+          nullable: true
+        pay_basis:
+          $ref: '#/components/schemas/PayBasisEnum'
+        bounty_type:
+          $ref: '#/components/schemas/BountyTypeEnum'
+        bounty_pct:
+          type: integer
+          maximum: 30
+          minimum: 5
+          nullable: true
+        bounty_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,15}(?:\.\d{0,0})?$
+          nullable: true
+        skills:
+          type: array
+          items:
+            type: string
+            maxLength: 40
+        why_we_need_you:
+          type: string
+        published_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        joined:
+          type: boolean
+          readOnly: true
+        submitted_count:
+          type: integer
+          readOnly: true
+        recruiters_working:
+          type: integer
+          readOnly: true
+      required:
+      - company
+      - created_at
+      - id
+      - joined
+      - location_label
+      - recruiters_working
+      - submitted_count
+      - title
+      - why_we_need_you
     Me:
       type: object
       properties:
@@ -875,7 +2378,7 @@ components:
           type: string
           maxLength: 120
         kind:
-          $ref: '#/components/schemas/KindEnum'
+          $ref: '#/components/schemas/MeKindEnum'
         company:
           allOf:
           - $ref: '#/components/schemas/MeCompany'
@@ -909,6 +2412,16 @@ components:
       - name
       - profile_completed
       - role
+    MeKindEnum:
+      enum:
+      - company
+      - recruiter
+      - staff
+      type: string
+      description: |-
+        * `company` - Company
+        * `recruiter` - Recruiter
+        * `staff` - Staff
     MeRecruiter:
       type: object
       properties:
@@ -917,9 +2430,97 @@ components:
           format: uuid
         nickname:
           type: string
+        status:
+          type: string
       required:
       - id
       - nickname
+      - status
+    Message:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        channel:
+          type: string
+          format: uuid
+        kind:
+          $ref: '#/components/schemas/MessageKindEnum'
+        author_id:
+          type: string
+          format: uuid
+          readOnly: true
+          nullable: true
+        author_name:
+          type: string
+          readOnly: true
+        body:
+          type: string
+        attachment_name:
+          type: string
+          maxLength: 255
+        attachment_size:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+        attachment_url:
+          type: string
+          nullable: true
+          readOnly: true
+        quote_source:
+          type: string
+          maxLength: 120
+        quote_text:
+          type: string
+          maxLength: 1000
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - attachment_url
+      - author_id
+      - author_name
+      - channel
+      - created_at
+      - id
+    MessageCreateRequest:
+      type: object
+      properties:
+        body:
+          type: string
+        attachment:
+          type: string
+          format: binary
+          nullable: true
+        quote_source:
+          type: string
+          maxLength: 120
+        quote_text:
+          type: string
+          maxLength: 1000
+    MessageKindEnum:
+      enum:
+      - user
+      - system
+      type: string
+      description: |-
+        * `user` - User
+        * `system` - System
+    MessagePage:
+      type: object
+      properties:
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Message'
+        has_more:
+          type: boolean
+      required:
+      - has_more
+      - results
     NewApplicant:
       type: object
       properties:
@@ -944,6 +2545,13 @@ components:
       - is_duplicate
       - recruiter_nickname
       - submitted_at
+    NicknameCheck:
+      type: object
+      properties:
+        available:
+          type: boolean
+      required:
+      - available
     Office:
       type: object
       properties:
@@ -973,6 +2581,52 @@ components:
           $ref: '#/components/schemas/LocationEnum'
       required:
       - address
+    PaginatedApplicationListList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/ApplicationList'
+    PaginatedCandidateList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Candidate'
     PaginatedJobListItemList:
       type: object
       required:
@@ -996,6 +2650,111 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/JobListItem'
+    PaginatedMarketplaceJobListItemList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/MarketplaceJobListItem'
+    PaginatedRecruiterJobList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/RecruiterJob'
+    PatchedCandidateWriteRequest:
+      type: object
+      properties:
+        full_name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        current_title:
+          type: string
+          maxLength: 160
+        email:
+          oneOf:
+          - type: string
+            format: email
+            maxLength: 254
+          - type: string
+            maxLength: 0
+        phone:
+          type: string
+          maxLength: 128
+        dob:
+          type: string
+          format: date
+          nullable: true
+        location:
+          oneOf:
+          - $ref: '#/components/schemas/LocationEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+        is_expat:
+          type: boolean
+        languages:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 24
+        skills:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 40
+        years_experience:
+          type: integer
+          maximum: 32767
+          minimum: 0
+          nullable: true
+        current_salary:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,15}(?:\.\d{0,0})?$
+          nullable: true
+        expected_salary:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,15}(?:\.\d{0,0})?$
+          nullable: true
+        notes:
+          type: string
     PatchedCompanyRequest:
       type: object
       properties:
@@ -1102,6 +2861,36 @@ components:
             maxLength: 40
         note_for_recruiters:
           type: string
+    PatchedRecruiterProfileRequest:
+      type: object
+      properties:
+        nickname:
+          type: string
+          minLength: 1
+          maxLength: 60
+        phone:
+          type: string
+          maxLength: 128
+        expertise:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 24
+        years_experience:
+          type: integer
+          maximum: 32767
+          minimum: 0
+          nullable: true
+        linkedin:
+          oneOf:
+          - type: string
+            format: uri
+            maxLength: 200
+          - type: string
+            maxLength: 0
+        bio:
+          type: string
     PayBasisEnum:
       enum:
       - gross
@@ -1174,6 +2963,93 @@ components:
       - roles
       - title
       - why_we_need_you
+    ReadRequest:
+      type: object
+      properties:
+        last_read_at:
+          type: string
+          format: date-time
+    ReadResult:
+      type: object
+      properties:
+        last_read_at:
+          type: string
+          format: date-time
+        unread_count:
+          type: integer
+      required:
+      - last_read_at
+      - unread_count
+    RecruiterJob:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        title:
+          type: string
+          maxLength: 120
+        function:
+          $ref: '#/components/schemas/FunctionEnum'
+        status:
+          $ref: '#/components/schemas/JobStatusEnum'
+        company:
+          type: object
+          additionalProperties:
+            type: string
+          readOnly: true
+        work_model:
+          $ref: '#/components/schemas/WorkModelEnum'
+        location_label:
+          type: string
+          readOnly: true
+        salary_min:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,15}(?:\.\d{0,0})?$
+          nullable: true
+        salary_max:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,15}(?:\.\d{0,0})?$
+          nullable: true
+        bounty_type:
+          $ref: '#/components/schemas/BountyTypeEnum'
+        bounty_pct:
+          type: integer
+          maximum: 30
+          minimum: 5
+          nullable: true
+        bounty_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,15}(?:\.\d{0,0})?$
+          nullable: true
+        joined_at:
+          type: string
+          format: date-time
+          readOnly: true
+        submitted_count:
+          type: integer
+          readOnly: true
+        active_count:
+          type: integer
+          readOnly: true
+        last_activity_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+      required:
+      - active_count
+      - company
+      - id
+      - joined_at
+      - last_activity_at
+      - location_label
+      - submitted_count
+      - title
     RecruiterOnJob:
       type: object
       properties:
@@ -1188,6 +3064,111 @@ components:
       - cv_count
       - id
       - nickname
+    RecruiterOverview:
+      type: object
+      properties:
+        current_jobs:
+          type: integer
+        jobs_waiting_for_cv:
+          type: integer
+        cv_sent:
+          type: integer
+        cv_screened:
+          type: integer
+        cv_in_interviews:
+          type: integer
+        offer:
+          type: integer
+        marketplace_open_count:
+          type: integer
+        waiting_jobs:
+          type: array
+          items:
+            $ref: '#/components/schemas/WaitingJob'
+      required:
+      - current_jobs
+      - cv_in_interviews
+      - cv_screened
+      - cv_sent
+      - jobs_waiting_for_cv
+      - marketplace_open_count
+      - offer
+      - waiting_jobs
+    RecruiterProfile:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        email:
+          type: string
+          format: email
+          readOnly: true
+        full_name:
+          type: string
+          readOnly: true
+        nickname:
+          type: string
+          maxLength: 60
+        status:
+          allOf:
+          - $ref: '#/components/schemas/RecruiterProfileStatusEnum'
+          readOnly: true
+        phone:
+          type: string
+          maxLength: 128
+        expertise:
+          type: array
+          items:
+            type: string
+            maxLength: 24
+        years_experience:
+          type: integer
+          maximum: 32767
+          minimum: 0
+          nullable: true
+        linkedin:
+          oneOf:
+          - type: string
+            format: uri
+            maxLength: 200
+          - type: string
+            maxLength: 0
+        bio:
+          type: string
+        review_note:
+          type: string
+          readOnly: true
+        submitted_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        reviewed_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+      required:
+      - email
+      - full_name
+      - id
+      - nickname
+      - review_note
+      - reviewed_at
+      - status
+      - submitted_at
+    RecruiterProfileStatusEnum:
+      enum:
+      - pending
+      - approved
+      - rejected
+      type: string
+      description: |-
+        * `pending` - Pending review
+        * `approved` - Approved
+        * `rejected` - Rejected
     Rejection:
       type: object
       properties:
@@ -1202,6 +3183,47 @@ components:
       - candidate_name
       - reason
       - rejected_at
+    SignupRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          minLength: 1
+        full_name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        nickname:
+          type: string
+          minLength: 1
+          maxLength: 60
+        password:
+          type: string
+          writeOnly: true
+          minLength: 1
+        agreed_terms:
+          type: boolean
+      required:
+      - agreed_terms
+      - email
+      - full_name
+      - nickname
+      - password
+    SignupResult:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        nickname:
+          type: string
+        status:
+          type: string
+      required:
+      - id
+      - nickname
+      - status
     SizeRangeEnum:
       enum:
       - lt50
@@ -1216,16 +3238,74 @@ components:
         * `r100_500` - 100–500 employees
         * `r500_1000` - 500–1,000 employees
         * `gt1000` - 1,000+ employees
-    StatusEnum:
+    StageEnum:
       enum:
-      - pending
-      - active
-      - closed
+      - shortlisted
+      - new
+      - screen
+      - interview
+      - offer
+      - onboarded
+      - rejected
       type: string
       description: |-
-        * `pending` - Pending
-        * `active` - Active
-        * `closed` - Closed
+        * `shortlisted` - Shortlisted
+        * `new` - New applicant
+        * `screen` - Screen
+        * `interview` - Interview
+        * `offer` - Offer
+        * `onboarded` - Onboarded
+        * `rejected` - Rejected
+    WaitingJob:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        company_name:
+          type: string
+        location_label:
+          type: string
+        work_model:
+          type: string
+        salary_min:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,15}(?:\.\d{0,0})?$
+          nullable: true
+        salary_max:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,15}(?:\.\d{0,0})?$
+          nullable: true
+        bounty_type:
+          type: string
+        bounty_pct:
+          type: integer
+          nullable: true
+        bounty_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,15}(?:\.\d{0,0})?$
+          nullable: true
+        published_at:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+      - bounty_amount
+      - bounty_pct
+      - bounty_type
+      - company_name
+      - id
+      - location_label
+      - published_at
+      - salary_max
+      - salary_min
+      - title
+      - work_model
     WorkModelEnum:
       enum:
       - onsite

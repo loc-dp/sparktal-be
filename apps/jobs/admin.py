@@ -3,11 +3,10 @@ from django.db.models import QuerySet
 from django.http import HttpRequest
 from simple_history.admin import SimpleHistoryAdmin
 
-from apps.jobs.models import Job, JobStatus
+from apps.jobs.models import Job, JobAssignment, JobStatus
 
 
 @admin.register(Job)
-# simple_history ships no stubs, so its admin base is `Any`.
 class JobAdmin(SimpleHistoryAdmin):  # type: ignore[misc]
     list_display = ("title", "company", "function", "status", "created_at", "published_at")
     list_filter = ("status", "function", "company")
@@ -28,3 +27,11 @@ class JobAdmin(SimpleHistoryAdmin):  # type: ignore[misc]
             + (f" Skipped {skipped} not pending." if skipped else ""),
             messages.SUCCESS,
         )
+
+
+@admin.register(JobAssignment)
+class JobAssignmentAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
+    list_display = ("job", "recruiter", "joined_at", "left_at")
+    list_filter = ("job__company",)
+    search_fields = ("job__title", "recruiter__nickname")
+    autocomplete_fields = ("job", "recruiter")

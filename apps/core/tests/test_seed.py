@@ -4,7 +4,6 @@ from apps.core.seed import SeedContext, isolated_registry, register_seeder, run_
 def test_seeders_run_in_order_and_share_context() -> None:
     order: list[str] = []
 
-    # Isolated: the real seeders are registered globally and need a database.
     with isolated_registry():
 
         @register_seeder(order=99)

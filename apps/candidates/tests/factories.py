@@ -2,7 +2,7 @@ import factory
 from django.core.files.base import ContentFile
 from factory.django import DjangoModelFactory
 
-from apps.candidates.models import Application, Candidate, Stage
+from apps.candidates.models import Application, Candidate, CvParse, Stage
 from apps.core.testing.pdf import make_pdf
 from apps.jobs.tests.factories import JobFactory
 from apps.recruiters.tests.factories import RecruiterProfileFactory
@@ -16,6 +16,12 @@ class CandidateFactory(DjangoModelFactory[Candidate]):
     full_name = factory.Sequence(lambda n: f"Ứng viên {n}")
     current_title = "Backend Engineer · Tiki"
     email = factory.Sequence(lambda n: f"candidate{n}@example.com")
+    phone = factory.Sequence(lambda n: f"+8490917{n:04d}")
+    location = "hcm"
+    is_expat = False
+    languages = factory.List(["Vietnamese"])
+    skills = factory.List([])
+    years_experience = 5
 
 
 class ApplicationFactory(DjangoModelFactory[Application]):
@@ -32,3 +38,12 @@ class ApplicationFactory(DjangoModelFactory[Application]):
             make_pdf(f"{a.candidate.full_name}\n{a.candidate.current_title}"), name="cv.pdf"
         )
     )
+
+
+class CvParseFactory(DjangoModelFactory[CvParse]):
+    class Meta:
+        model = CvParse
+
+    owner = factory.SubFactory(RecruiterProfileFactory)
+    filename = "Truong-My-Hanh_CV_2026.pdf"
+    file = factory.LazyFunction(lambda: ContentFile(make_pdf("Truong My Hanh"), name="cv.pdf"))

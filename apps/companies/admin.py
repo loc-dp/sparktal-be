@@ -2,9 +2,6 @@ from django.contrib import admin
 
 from apps.companies.models import Company, CompanyMembership, Office
 
-# django-stubs types these as generic, but neither is subscriptable at runtime,
-# so the classes stay bare and the type-arg check is silenced per class.
-
 
 class OfficeInline(admin.TabularInline):  # type: ignore[type-arg]
     model = Office
@@ -27,7 +24,6 @@ class CompanyAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
 
 @admin.register(Office)
 class OfficeAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
-    # Registered so other admins can use `office` in autocomplete_fields.
     list_display = ("address", "company", "city", "position")
     list_filter = ("city",)
     search_fields = ("address", "company__name")

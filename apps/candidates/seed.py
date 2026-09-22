@@ -1,15 +1,19 @@
-from datetime import timedelta
+import hashlib
+import unicodedata
+from datetime import date, timedelta
+from typing import Any
 
 from django.core.files.base import ContentFile
 from django.utils import timezone
+from django.utils.text import slugify
 
 from apps.candidates.models import Application, Candidate, Stage
+from apps.companies.models import Location
 from apps.core.seed import DEMO_EMAILS, SeedContext, register_resetter, register_seeder
 from apps.core.testing.pdf import make_pdf
 from apps.jobs.models import Job
 from apps.recruiters.models import RecruiterProfile
 
-# Mirrors prototypes/assets/data.js `candidates` (job j1 = Senior Backend Engineer).
 BACKEND: list[tuple[str, str, str, str, int, bool]] = [
     ("Phạm Minh Quân", "Backend Engineer · Tiki", "NorthStar Talent", Stage.INTERVIEW, 22, False),
     ("Nguyễn Hoàng Anh", "Senior Go Engineer · MoMo", "NorthStar Talent", Stage.OFFER, 30, False),
@@ -34,6 +38,106 @@ OTHER: list[tuple[str, str, str, str, str, int]] = [
 REJECTION_REASON = (
     "Strong engineer, but no payments domain experience and the salary ask is above range."
 )
+
+POOL_ONLY: list[dict[str, Any]] = [
+    {
+        "nickname": "NorthStar Talent",
+        "full_name": "Đỗ Hải Yến",
+        "current_title": "Frontend Engineer · Shopee",
+        "skills": ["React", "TypeScript", "Next.js"],
+        "years_experience": 6,
+        "dob": date(1994, 3, 8),
+        "expected_salary": 45_000_000,
+    },
+    {
+        "nickname": "NorthStar Talent",
+        "full_name": "Ngô Tuấn Kiệt",
+        "current_title": "Fullstack Developer · MoMo",
+        "skills": ["React", "Node.js", "GraphQL"],
+        "years_experience": 5,
+        "dob": date(1995, 11, 22),
+        "expected_salary": 42_000_000,
+    },
+    {
+        "nickname": "NorthStar Talent",
+        "full_name": "Lương Bảo Trâm",
+        "current_title": "Junior Frontend Developer · Sapo",
+        "skills": ["React", "Redux"],
+        "years_experience": 1,
+        "dob": date(2001, 5, 2),
+        "expected_salary": 18_000_000,
+    },
+    {
+        "nickname": "NorthStar Talent",
+        "full_name": "Hồ Quốc Duy",
+        "current_title": "Backend Engineer · Zalo",
+        "skills": ["Go", "Kafka", "PostgreSQL"],
+        "years_experience": 8,
+        "dob": date(1992, 1, 17),
+        "expected_salary": 58_000_000,
+    },
+    {
+        "nickname": "Bluefin Search",
+        "full_name": "Nguyễn Kim Chi",
+        "current_title": "Frontend Engineer · VNG",
+        "skills": ["React", "Vue", "CSS"],
+        "years_experience": 4,
+        "dob": date(1996, 9, 30),
+        "expected_salary": 36_000_000,
+    },
+    {
+        "nickname": "Bluefin Search",
+        "full_name": "Marco Alvarez",
+        "current_title": "Fullstack Engineer · Grab",
+        "skills": ["React", "Python", "AWS"],
+        "years_experience": 9,
+        "dob": date(1989, 7, 12),
+        "expected_salary": 85_000_000,
+        "is_expat": True,
+        "languages": ["English", "Spanish"],
+    },
+]
+
+POOL_NOTE = "Sourced from the {title} community. Open to a move within the next quarter."
+
+
+def _pool_candidate(row: dict[str, Any], recruiter: RecruiterProfile) -> Candidate:
+    slug = slugify(
+        unicodedata.normalize("NFKD", row["full_name"]).encode("ascii", "ignore").decode()
+    )
+    stable = int(hashlib.sha256(row["full_name"].encode("utf-8")).hexdigest()[:8], 16)
+    candidate, _ = Candidate.objects.update_or_create(
+        full_name=row["full_name"],
+        owner=recruiter,
+        defaults={
+            "current_title": row["current_title"],
+            "email": f"{slug}@example.com",
+            "phone": f"+8493{stable % 10_000_000:07d}",
+            "dob": row["dob"],
+            "location": Location.HCM,
+            "is_expat": row.get("is_expat", False),
+            "languages": row.get("languages", ["Vietnamese", "English"]),
+            "skills": row["skills"],
+            "years_experience": row["years_experience"],
+            "expected_salary": row["expected_salary"],
+            "notes": POOL_NOTE.format(title=row["current_title"].split(" · ")[0]),
+        },
+    )
+    if not candidate.cv_file:
+        candidate.cv_file.save(
+            "cv.pdf",
+            ContentFile(
+                make_pdf(
+                    f"{row['full_name']}\n{row['current_title']}\n\n"
+                    f"Skills\n{', '.join(row['skills'])}\n\n"
+                    f"Summary\n{row['years_experience']} years of experience."
+                )
+            ),
+            save=False,
+        )
+        candidate.cv_filename = f"{slug}-cv.pdf"
+        candidate.save()
+    return candidate
 
 
 def _application(
@@ -95,6 +199,9 @@ def seed(ctx: SeedContext) -> None:
         )
 
     ctx.refs["applications"] = applications
+    ctx.refs["pool_candidates"] = [
+        _pool_candidate(row, recruiters[row["nickname"]]) for row in POOL_ONLY
+    ]
 
 
 @register_resetter(order=50)

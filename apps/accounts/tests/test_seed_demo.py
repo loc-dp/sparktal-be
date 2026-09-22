@@ -36,7 +36,5 @@ def test_seed_demo_reset_recreates_users() -> None:
 
 
 def test_seed_demo_refuses_to_run_with_debug_off() -> None:
-    # The demo accounts share a publicly known password, so the command must not
-    # run outside development without an explicit --force.
     with pytest.raises(CommandError, match="publicly known password"):
         call_command("seed_demo")

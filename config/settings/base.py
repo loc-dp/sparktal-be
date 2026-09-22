@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 import environ
+from celery.schedules import crontab
 from django.core.exceptions import ImproperlyConfigured
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
@@ -50,6 +51,8 @@ INSTALLED_APPS = [
     "apps.recruiters",
     "apps.jobs",
     "apps.candidates",
+    "apps.exports",
+    "apps.chat",
 ]
 
 MIDDLEWARE = [
@@ -110,10 +113,8 @@ AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
 ]
 
-# django-guardian: no anonymous user row (our User has no username field).
 ANONYMOUS_USER_NAME = None
 
-# django-allauth
 ACCOUNT_ADAPTER = "apps.accounts.adapter.AccountAdapter"
 ACCOUNT_LOGIN_METHODS = {"email"}
 ACCOUNT_SIGNUP_FIELDS = ["email*", "password1*"]
@@ -121,10 +122,8 @@ ACCOUNT_USER_MODEL_USERNAME_FIELD = None
 ACCOUNT_EMAIL_VERIFICATION = "optional"
 ACCOUNT_PREVENT_ENUMERATION = True
 ACCOUNT_PASSWORD_RESET_TOKEN_EXPIRY = 3 * 24 * 60 * 60  # 3 days for the invite email
-ACCOUNT_RATE_LIMITS = {
-    # Per account: 5 failures in 5 minutes. The per-IP budget is deliberately much
-    # larger — a company behind one NAT would otherwise lock out its own staff,
-    # and one attacker could lock out everyone in the office.
+ACCOUNT_RATE_LIMITS: dict[str, str | None] = {
+    "login": "120/m/ip",
     "login_failed": "30/5m/ip,5/5m/key",
     "reset_password": "3/10m/key",
     "reset_password_from_key": "10/10m/ip",
@@ -169,25 +168,28 @@ CHANNEL_LAYERS: dict[str, dict[str, Any]] = {
     },
 }
 
-# Redis, not the per-process LocMem default: allauth counts login and password
-# attempts here, and a `manage.py shell` clearing the cache must affect the
-# running server (the E2E suite relies on exactly that).
 CACHES = {
     "default": {
         "BACKEND": "django_redis.cache.RedisCache",
         "LOCATION": env.str("CACHE_URL", default=REDIS_URL.rsplit("/", 1)[0] + "/1"),
+        "OPTIONS": {"CLIENT_CLASS": "django_redis.client.DefaultClient"},
+        "KEY_PREFIX": "sparktal",
     }
 }
 
 CELERY_BROKER_URL = REDIS_URL
-# Long-running jobs (plan 06's CV export) keep their own status row, but a result
-# backend makes `.delay().get()` usable for smoke checks and short tasks.
 CELERY_RESULT_BACKEND = env.str("CELERY_RESULT_BACKEND", default=REDIS_URL)
 CELERY_TASK_ALWAYS_EAGER = False
 CELERY_TASK_EAGER_PROPAGATES = True
 CELERY_TIMEZONE = TIME_ZONE
 CELERY_TASK_SERIALIZER = "json"
 CELERY_ACCEPT_CONTENT = ["json"]
+CELERY_BEAT_SCHEDULE = {
+    "purge-expired-cv-exports": {
+        "task": "exports.purge_expired_cv_exports",
+        "schedule": crontab(minute=7),
+    },
+}
 
 EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
 DEFAULT_FROM_EMAIL = env.str("DEFAULT_FROM_EMAIL", default="Sparktal <no-reply@sparktal.com>")
@@ -212,6 +214,8 @@ REST_FRAMEWORK = {
     "DEFAULT_PAGINATION_CLASS": "apps.core.pagination.DefaultPagination",
     "PAGE_SIZE": 25,
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    "DEFAULT_THROTTLE_CLASSES": ["rest_framework.throttling.ScopedRateThrottle"],
+    "DEFAULT_THROTTLE_RATES": {"signup": "5/hour", "nickname": "30/min"},
 }
 
 SPECTACULAR_SETTINGS = {
@@ -221,10 +225,10 @@ SPECTACULAR_SETTINGS = {
     "SERVE_INCLUDE_SCHEMA": False,
     "COMPONENT_SPLIT_REQUEST": True,
     "SCHEMA_PATH_PREFIX": r"/api/v1",
-    # `Location` is reused by Company.located and Office.city; name it once so the
-    # generator stops warning about two names for one choice set.
     "ENUM_NAME_OVERRIDES": {
         "LocationEnum": "apps.companies.models.Location.choices",
+        "CvExportStatusEnum": "apps.exports.models.CvExportStatus.choices",
+        "JobStatusEnum": "apps.jobs.models.JobStatus.choices",
     },
     "SWAGGER_UI_DIST": "SIDECAR",
     "SWAGGER_UI_FAVICON_HREF": "SIDECAR",

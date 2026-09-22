@@ -1,8 +1,6 @@
 from apps.accounts.models import User, UserKind
 from apps.core.seed import DEMO_PASSWORD, SeedContext, register_seeder
 
-# (email, full_name, kind). Company memberships and recruiter nicknames are
-# attached by the companies (20) and recruiters (30) seeders in plan 03.
 DEMO_USERS: list[tuple[str, str, str]] = [
     ("nhung.le@velapay.vn", "Lê Hồng Nhung", UserKind.COMPANY),
     ("maianh.tran@velapay.vn", "Trần Mai Anh", UserKind.COMPANY),

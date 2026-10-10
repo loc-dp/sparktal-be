@@ -42,6 +42,7 @@ from apps.candidates.serializers import (
     CvParseSerializer,
     DuplicateCheckResultSerializer,
     DuplicateCheckSerializer,
+    RecruiterSubmissionDetailSerializer,
     RecruiterSubmissionSerializer,
     SubmissionCreateSerializer,
     SubmissionResultSerializer,
@@ -166,6 +167,14 @@ class SubmissionCreateView(APIView):
         )
 
 
+def my_submissions(request: Request) -> QuerySet[Application]:
+    """Only the caller's own submissions; anyone else's reads as 404, not 403."""
+    recruiter = approved_recruiter(cast(User, request.user))
+    return Application.objects.filter(recruiter=recruiter).select_related(
+        "job", "job__company", "candidate", "duplicate_of"
+    )
+
+
 @extend_schema_view(
     get=extend_schema(
         tags=["submissions"],
@@ -181,10 +190,7 @@ class RecruiterSubmissionListView(ListAPIView[Application]):
     permission_classes = (IsApprovedRecruiter,)
 
     def get_queryset(self) -> QuerySet[Application]:
-        recruiter = approved_recruiter(cast(User, self.request.user))
-        queryset = Application.objects.filter(recruiter=recruiter).select_related(
-            "job", "job__company", "candidate", "duplicate_of"
-        )
+        queryset = my_submissions(self.request)
         job_id = self.request.query_params.get("job")
         if job_id:
             try:
@@ -197,6 +203,34 @@ class RecruiterSubmissionListView(ListAPIView[Application]):
                 raise ValidationError({"stage": [f"Unknown stage '{stage}'."]})
             queryset = queryset.filter(stage=stage)
         return queryset.order_by("-submitted_at", "-id")
+
+
+@extend_schema_view(
+    get=extend_schema(tags=["submissions"], operation_id="recruiters_submissions_retrieve")
+)
+class RecruiterSubmissionDetailView(RetrieveAPIView[Application]):
+    serializer_class = RecruiterSubmissionDetailSerializer
+    permission_classes = (IsApprovedRecruiter,)
+    queryset = Application.objects.none()
+
+    def get_queryset(self) -> QuerySet[Application]:
+        return my_submissions(self.request)
+
+
+@extend_schema_view(
+    get=extend_schema(
+        tags=["submissions"],
+        operation_id="recruiters_submissions_cv_retrieve",
+        responses={(200, "application/octet-stream"): OpenApiTypes.BINARY},
+    )
+)
+class RecruiterSubmissionCvView(APIView):
+    """The CV file exactly as it was sent with this submission."""
+
+    permission_classes = (IsApprovedRecruiter,)
+
+    def get(self, request: Request, pk: Any) -> FileResponse:
+        return cv_response(get_object_or_404(my_submissions(request), pk=pk))
 
 
 def job_or_404(request: Request, job_id: Any) -> Job:
@@ -258,18 +292,23 @@ class ApplicationCvView(APIView):
         )
         if not can_view_job(cast(User, request.user), application.job):
             raise Http404
-        if not application.cv_file:
-            raise Http404
-        try:
-            handle = application.cv_file.open("rb")
-        except (FileNotFoundError, OSError) as exc:
-            raise Http404 from exc
+        return cv_response(application)
 
-        filename = application.cv_filename or "cv.pdf"
-        response = FileResponse(handle, content_type="application/octet-stream")
-        response["Content-Disposition"] = content_disposition(filename)
-        response["X-Content-Type-Options"] = "nosniff"
-        return response
+
+def cv_response(application: Application) -> FileResponse:
+    """Stream a submitted CV through the configured Django storage backend."""
+    if not application.cv_file:
+        raise Http404
+    try:
+        handle = application.cv_file.open("rb")
+    except (FileNotFoundError, OSError) as exc:
+        raise Http404 from exc
+
+    filename = application.cv_filename or "cv.pdf"
+    response = FileResponse(handle, content_type="application/octet-stream")
+    response["Content-Disposition"] = content_disposition(filename)
+    response["X-Content-Type-Options"] = "nosniff"
+    return response
 
 
 class CvParseCreateView(APIView):

@@ -191,3 +191,54 @@ def test_recruiter_list_is_private_and_filterable(
         client_for(recruiter_user).get("/api/v1/recruiters/me/submissions?stage=nope").status_code
         == 400
     )
+
+
+def test_recruiter_reads_own_submission_with_notes(
+    client_for: Any, recruiter_user: Any, recruiter_profile: Any, joined_job: Any
+) -> None:
+    mine = ApplicationFactory(
+        job=joined_job,
+        recruiter=recruiter_profile,
+        candidate=CandidateFactory(owner=recruiter_profile),
+        motivation="Larger projects",
+        consultant_note="Sharp in the screen",
+    )
+    response = client_for(recruiter_user).get(f"/api/v1/recruiters/me/submissions/{mine.pk}")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["id"] == str(mine.pk)
+    assert body["job"]["id"] == str(joined_job.pk)
+    assert body["motivation"] == "Larger projects"
+    assert body["consultant_note"] == "Sharp in the screen"
+    assert "rejected_reason" not in body
+
+
+def test_recruiter_cannot_read_a_rival_submission(
+    client_for: Any, recruiter_user: Any, joined_job: Any
+) -> None:
+    rival = RecruiterProfileFactory(nickname="Bluefin Search")
+    theirs = ApplicationFactory(
+        job=joined_job, recruiter=rival, candidate=CandidateFactory(owner=rival)
+    )
+    client = client_for(recruiter_user)
+    assert client.get(f"/api/v1/recruiters/me/submissions/{theirs.pk}").status_code == 404
+    assert client.get(f"/api/v1/recruiters/me/submissions/{theirs.pk}/cv").status_code == 404
+
+
+def test_recruiter_downloads_the_cv_they_submitted(
+    client_for: Any, recruiter_user: Any, recruiter_profile: Any, joined_job: Any
+) -> None:
+    mine = ApplicationFactory(
+        job=joined_job,
+        recruiter=recruiter_profile,
+        candidate=CandidateFactory(owner=recruiter_profile),
+        cv_filename="Nguyễn Văn A.pdf",
+    )
+    response = client_for(recruiter_user).get(f"/api/v1/recruiters/me/submissions/{mine.pk}/cv")
+    assert response.status_code == 200
+    assert b"%PDF" in b"".join(response.streaming_content)[:8]
+    assert "filename*=UTF-8''" in response["Content-Disposition"]
+
+    mine.cv_file.storage.delete(mine.cv_file.name)
+    response = client_for(recruiter_user).get(f"/api/v1/recruiters/me/submissions/{mine.pk}/cv")
+    assert response.status_code == 404

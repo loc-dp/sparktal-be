@@ -241,7 +241,7 @@ class RecruiterSubmissionSerializer(serializers.ModelSerializer[Application]):
 
     class Meta:
         model = Application
-        fields = (
+        fields: tuple[str, ...] = (
             "id",
             "job",
             "candidate",
@@ -252,8 +252,22 @@ class RecruiterSubmissionSerializer(serializers.ModelSerializer[Application]):
             "first_submitted_at",
             "cv_filename",
         )
-        read_only_fields = fields
+        read_only_fields: tuple[str, ...] = fields
 
     def get_first_submitted_at(self, application: Application) -> str | None:
         earlier = application.duplicate_of
         return earlier.submitted_at.isoformat() if earlier is not None else None
+
+
+class RecruiterSubmissionDetailSerializer(RecruiterSubmissionSerializer):
+    """One submission with the notes the recruiter sent alongside the CV."""
+
+    class Meta(RecruiterSubmissionSerializer.Meta):
+        fields = (
+            *RecruiterSubmissionSerializer.Meta.fields,
+            "reason_for_leaving",
+            "motivation",
+            "other_notes",
+            "consultant_note",
+        )
+        read_only_fields = fields

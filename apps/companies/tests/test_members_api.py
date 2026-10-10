@@ -83,18 +83,29 @@ def test_only_admin_can_invite(
 def test_email_already_in_use_is_rejected(
     client_for: ClientFor, company_admin: User, other_company_admin: User, taken: str
 ) -> None:
+    users, memberships = User.objects.count(), CompanyMembership.objects.count()
+
     response = invite(client_for(company_admin), email=taken)
 
     assert response.status_code == 400
     assert "email" in response.json()
     assert mail.outbox == []
+    assert User.objects.count() == users
+    assert CompanyMembership.objects.count() == memberships
 
 
 def test_recruiter_email_is_rejected(
     client_for: ClientFor, company_admin: User, recruiter_user: User
 ) -> None:
+    users, memberships = User.objects.count(), CompanyMembership.objects.count()
+
     response = invite(client_for(company_admin), email=recruiter_user.email)
+
     assert response.status_code == 400
+    assert "email" in response.json()
+    assert mail.outbox == []
+    assert User.objects.count() == users
+    assert CompanyMembership.objects.count() == memberships
 
 
 @pytest.mark.parametrize(
@@ -108,32 +119,113 @@ def test_invalid_payload_is_rejected(
     assert invite(client_for(company_admin), **bad).status_code == 400
 
 
+def make_inactive(email: str, *, kind: str = UserKind.COMPANY) -> User:
+    user = User.objects.create_user(email=email, password=None, full_name="Gone", kind=kind)
+    user.is_active = False
+    user.save()
+    return user
+
+
 def test_reinviting_a_removed_member_reactivates_the_same_user(
     client_for: ClientFor, company_admin: User, company: Company
 ) -> None:
-    former = User.objects.create_user(email="gone@velapay.vn", password=None, full_name="Gone")
-    former.is_active = False
+    former = make_inactive("gone@velapay.vn")
+    former.set_password("old-secret-123")
     former.save()
 
-    response = invite(client_for(company_admin), email="gone@velapay.vn", role="talent_acquisition")
+    response = invite(
+        client_for(company_admin),
+        email="gone@velapay.vn",
+        full_name="Back Again",
+        role="talent_acquisition",
+    )
 
     assert response.status_code == 201
+    assert response.json()["role"] == "talent_acquisition"
+    assert response.json()["status"] == "invited"
     former.refresh_from_db()
     assert former.is_active is True
-    assert CompanyMembership.objects.filter(user=former).count() == 1
+    assert former.full_name == "Back Again"
+    assert not former.has_usable_password()
+    memberships = CompanyMembership.objects.filter(user=former)
+    assert memberships.count() == 1
+    assert memberships.get().company == company
+    assert memberships.get().role == "talent_acquisition"
     assert User.objects.filter(email="gone@velapay.vn").count() == 1
+    assert [m.to for m in mail.outbox] == [["gone@velapay.vn"]]
 
 
-def test_a_failed_invite_email_rolls_everything_back(
-    client_for: ClientFor, company_admin: User, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("kind", [UserKind.RECRUITER, UserKind.STAFF])
+def test_inactive_non_company_user_is_rejected(
+    client_for: ClientFor, company_admin: User, kind: str
 ) -> None:
+    other = make_inactive("ex@elsewhere.vn", kind=kind)
+    memberships = CompanyMembership.objects.count()
+
+    response = invite(client_for(company_admin), email="ex@elsewhere.vn")
+
+    assert response.status_code == 400
+    assert "email" in response.json()
+    assert mail.outbox == []
+    other.refresh_from_db()
+    assert other.is_active is False
+    assert other.full_name == "Gone"
+    assert other.kind == kind
+    assert CompanyMembership.objects.count() == memberships
+
+
+def test_inactive_user_who_still_has_a_membership_is_rejected(
+    client_for: ClientFor, company_admin: User, other_company_admin: User
+) -> None:
+    other_company_admin.is_active = False
+    other_company_admin.save()
+    membership = other_company_admin.membership
+    memberships = CompanyMembership.objects.count()
+
+    response = invite(client_for(company_admin), email=other_company_admin.email)
+
+    assert response.status_code == 400
+    assert "email" in response.json()
+    assert mail.outbox == []
+    other_company_admin.refresh_from_db()
+    assert other_company_admin.is_active is False
+    assert CompanyMembership.objects.count() == memberships
+    membership.refresh_from_db()
+    assert membership.company_id == other_company_admin.membership.company_id
+
+
+@pytest.fixture
+def smtp_down(monkeypatch: pytest.MonkeyPatch) -> None:
     def boom(email: str) -> None:
         raise InviteError("smtp down")
 
     monkeypatch.setattr("apps.companies.api.send_password_invite", boom)
+
+
+@pytest.mark.usefixtures("smtp_down")
+def test_a_failed_invite_email_rolls_everything_back(
+    client_for: ClientFor, company_admin: User
+) -> None:
+    memberships = CompanyMembership.objects.count()
 
     response = invite(client_for(company_admin))
 
     assert response.status_code == 502
     assert "detail" in response.json()
     assert not User.objects.filter(email="new.hire@velapay.vn").exists()
+    assert CompanyMembership.objects.count() == memberships
+
+
+@pytest.mark.usefixtures("smtp_down")
+def test_a_failed_invite_email_rolls_back_a_reactivation(
+    client_for: ClientFor, company_admin: User
+) -> None:
+    former = make_inactive("gone@velapay.vn")
+
+    response = invite(client_for(company_admin), email="gone@velapay.vn", full_name="Back Again")
+
+    assert response.status_code == 502
+    former.refresh_from_db()
+    assert former.is_active is False
+    assert former.full_name == "Gone"
+    assert not CompanyMembership.objects.filter(user=former).exists()

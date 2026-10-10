@@ -1,13 +1,10 @@
 from argparse import ArgumentParser
 from typing import Any
 
-from allauth.account.forms import ResetPasswordForm
-from allauth.core import context
-from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
-from django.test import RequestFactory
 
+from apps.accounts.invites import InviteError, send_password_invite
 from apps.accounts.models import User, UserKind
 from apps.companies.models import Company, CompanyMembership, CompanyRole
 
@@ -43,11 +40,8 @@ class Command(BaseCommand):
         )
 
         if not options["no_email"]:
-            host = next(iter(settings.ALLOWED_HOSTS), "localhost")
-            request = RequestFactory().post("/", HTTP_HOST=host)
-            with context.request_context(request):
-                form = ResetPasswordForm(data={"email": email})
-                if not form.is_valid():
-                    raise CommandError(f"Could not send the invite: {form.errors.as_text()}")
-                form.save(request)
+            try:
+                send_password_invite(email)
+            except InviteError as exc:
+                raise CommandError(f"Could not send the invite: {exc}") from exc
             self.stdout.write(self.style.SUCCESS(f"Invite sent to {email}."))

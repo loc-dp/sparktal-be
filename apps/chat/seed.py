@@ -87,9 +87,50 @@ BLUEFIN: list[MessageSpec] = [
         "",
         "",
     ),
+    (
+        15,
+        "bluefin",
+        "Đặng Khánh Vy expects 55.000.000 ₫ gross. She is also interviewing with another fintech, "
+        "so moving quickly to round 2 will give Vela Pay a major advantage.",
+        "",
+        "",
+        "",
+    ),
+    (
+        12,
+        "khoa.nguyen@velapay.vn",
+        "We're setting up round 2 for Vy this Thursday at 14:00. The panel includes our Principal Architect.",
+        "",
+        "",
+        "",
+    ),
 ]
 
-RECRUITER_KEYS = {"northstar": "NorthStar Talent", "bluefin": "Bluefin Search"}
+ATLAS: list[MessageSpec] = [
+    (
+        20,
+        "atlas",
+        "Submitted Bùi Anh Tuấn for Senior Backend Engineer. Clean track record at Axon Active "
+        "delivering high-performance banking services.",
+        "",
+        "",
+        "",
+    ),
+    (
+        18,
+        "maianh.tran@velapay.vn",
+        "Thanks Atlas team! Reviewing his profile now. We'll update the pipeline status shortly.",
+        "",
+        "",
+        "",
+    ),
+]
+
+RECRUITER_KEYS = {
+    "northstar": "NorthStar Talent",
+    "bluefin": "Bluefin Search",
+    "atlas": "Atlas Hunters",
+}
 
 
 def _post(ctx: SeedContext, channel: Channel, spec: MessageSpec) -> None:
@@ -129,7 +170,7 @@ def seed(ctx: SeedContext) -> None:
     oldest = timezone.now() - timedelta(hours=80)
     channels: dict[str, Channel] = {}
 
-    for key, script in (("northstar", NORTHSTAR), ("bluefin", BLUEFIN)):
+    for key, script in (("northstar", NORTHSTAR), ("bluefin", BLUEFIN), ("atlas", ATLAS)):
         recruiter = ctx.refs["recruiters"][RECRUITER_KEYS[key]]
         channel, _ = ensure_channel(job, recruiter)
         Message.objects.filter(channel=channel, kind=MessageKind.SYSTEM).update(created_at=oldest)

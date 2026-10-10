@@ -6,6 +6,7 @@ from apps.companies.api import (
     CompanyHomeView,
     CompanyLogoView,
     CompanyView,
+    MemberListCreateView,
 )
 
 urlpatterns = [
@@ -14,4 +15,5 @@ urlpatterns = [
     path("company/complete", CompanyCompleteView.as_view(), name="company-complete"),
     path("company/logo", CompanyLogoView.as_view(), name="company-logo"),
     path("company/banner", CompanyBannerView.as_view(), name="company-banner"),
+    path("company/members", MemberListCreateView.as_view(), name="company-members"),
 ]

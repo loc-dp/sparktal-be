@@ -34,3 +34,7 @@ can_edit_company_profile = has_company_role(CompanyRole.ADMIN, CompanyRole.TALEN
 rules.add_perm("companies.view_company", is_company_member)
 rules.add_perm("companies.change_company", can_edit_company_profile)
 rules.add_perm("jobs.add_job", is_company_member)
+
+can_manage_members = is_company_admin
+
+rules.add_perm("companies.manage_members", can_manage_members)

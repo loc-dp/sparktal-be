@@ -3,23 +3,29 @@ from __future__ import annotations
 from typing import Any
 
 from django.core.files.uploadedfile import UploadedFile
+from django.db import transaction
+from django.db.models import QuerySet
 from drf_spectacular.utils import extend_schema, extend_schema_view
 from PIL import Image, UnidentifiedImageError
-from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
-from rest_framework.generics import RetrieveUpdateAPIView
+from rest_framework.exceptions import APIException, NotFound, PermissionDenied, ValidationError
+from rest_framework.generics import ListCreateAPIView, RetrieveUpdateAPIView
 from rest_framework.parsers import MultiPartParser
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.accounts.invites import InviteError, send_password_invite
 from apps.companies.access import company_of
 from apps.companies.home import home_payload
-from apps.companies.models import Company
+from apps.companies.members import invite_member
+from apps.companies.models import Company, CompanyMembership
 from apps.companies.serializers import (
     CompanyCompleteSerializer,
     CompanyHomeSerializer,
     CompanySerializer,
     ImageUploadSerializer,
+    MemberInviteSerializer,
+    MemberSerializer,
 )
 
 UPLOAD_REQUEST = {
@@ -165,3 +171,50 @@ class CompanyHomeView(APIView):
     def get(self, request: Request) -> Response:
         get_company_or_404(request)
         return Response(home_payload(request.user))  # type: ignore[arg-type]
+
+
+class InviteEmailFailed(APIException):
+    status_code = 502
+    default_detail = "We couldn't send the invite email, so nothing was saved. Please try again."
+    default_code = "invite_email_failed"
+
+
+def require_manage_members(request: Request, company: Company) -> None:
+    if not request.user.has_perm("companies.manage_members", company):
+        raise PermissionDenied("Only a Company Admin can manage the team.")
+
+
+@extend_schema_view(
+    get=extend_schema(
+        operation_id="company_members_list",
+        tags=["companies"],
+        responses=MemberSerializer(many=True),
+    ),
+    post=extend_schema(
+        operation_id="company_members_create",
+        tags=["companies"],
+        request=MemberInviteSerializer,
+        responses={201: MemberSerializer},
+    ),
+)
+class MemberListCreateView(ListCreateAPIView[CompanyMembership]):
+    serializer_class = MemberSerializer
+    pagination_class = None
+
+    def get_queryset(self) -> QuerySet[CompanyMembership]:
+        company = get_company_or_404(self.request)
+        return CompanyMembership.objects.filter(company=company).select_related("user")
+
+    def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        company = get_company_or_404(request)
+        require_manage_members(request, company)
+        payload = MemberInviteSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        with transaction.atomic():
+            membership = invite_member(company, **payload.validated_data)
+            try:
+                send_password_invite(membership.user.email)
+            except InviteError as exc:
+                raise InviteEmailFailed() from exc
+        data = MemberSerializer(membership, context=self.get_serializer_context()).data
+        return Response(data, status=201)

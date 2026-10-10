@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
+from uuid import UUID
 
 from django.core.files.uploadedfile import UploadedFile
 from django.db import transaction
@@ -17,7 +18,7 @@ from rest_framework.views import APIView
 from apps.accounts.invites import InviteError, send_password_invite
 from apps.companies.access import company_of
 from apps.companies.home import home_payload
-from apps.companies.members import invite_member
+from apps.companies.members import MemberRuleError, change_role, invite_member, remove_member
 from apps.companies.models import Company, CompanyMembership
 from apps.companies.serializers import (
     CompanyCompleteSerializer,
@@ -25,6 +26,7 @@ from apps.companies.serializers import (
     CompanySerializer,
     ImageUploadSerializer,
     MemberInviteSerializer,
+    MemberRoleSerializer,
     MemberSerializer,
 )
 
@@ -218,3 +220,63 @@ class MemberListCreateView(ListCreateAPIView[CompanyMembership]):
                 raise InviteEmailFailed() from exc
         data = MemberSerializer(membership, context=self.get_serializer_context()).data
         return Response(data, status=201)
+
+
+def member_or_404(request: Request, member_id: UUID) -> CompanyMembership:
+    company = get_company_or_404(request)
+    membership = (
+        CompanyMembership.objects.filter(company=company, pk=member_id)
+        .select_related("user", "company")
+        .first()
+    )
+    if membership is None:
+        raise NotFound("No such team member.")
+    return membership
+
+
+@extend_schema_view(
+    patch=extend_schema(
+        operation_id="company_member_partial_update",
+        tags=["companies"],
+        request=MemberRoleSerializer,
+        responses=MemberSerializer,
+    ),
+    delete=extend_schema(
+        operation_id="company_member_destroy", tags=["companies"], responses={204: None}
+    ),
+)
+class MemberDetailView(APIView):
+    def patch(self, request: Request, id: UUID) -> Response:
+        membership = member_or_404(request, id)
+        require_manage_members(request, membership.company)
+        payload = MemberRoleSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        change_role(membership, payload.validated_data["role"])
+        return Response(MemberSerializer(membership, context={"request": request}).data)
+
+    def delete(self, request: Request, id: UUID) -> Response:
+        membership = member_or_404(request, id)
+        require_manage_members(request, membership.company)
+        remove_member(membership, actor=request.user)  # type: ignore[arg-type]
+        return Response(status=204)
+
+
+@extend_schema_view(
+    post=extend_schema(
+        operation_id="company_member_resend_invite_create",
+        tags=["companies"],
+        request=None,
+        responses={204: None},
+    )
+)
+class MemberResendInviteView(APIView):
+    def post(self, request: Request, id: UUID) -> Response:
+        membership = member_or_404(request, id)
+        require_manage_members(request, membership.company)
+        if membership.user.has_usable_password():
+            raise MemberRuleError("This person has already set a password.")
+        try:
+            send_password_invite(membership.user.email)
+        except InviteError as exc:
+            raise InviteEmailFailed() from exc
+        return Response(status=204)

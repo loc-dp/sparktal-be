@@ -40,3 +40,30 @@ def invite_member(company: Company, *, email: str, full_name: str, role: str) ->
     user.set_unusable_password()
     user.save()
     return CompanyMembership.objects.create(user=user, company=company, role=role)
+
+
+LAST_ADMIN = "A company needs at least one admin. Make someone else an admin first."
+
+
+def change_role(membership: CompanyMembership, role: str) -> CompanyMembership:
+    if (
+        membership.role == CompanyRole.ADMIN
+        and role != CompanyRole.ADMIN
+        and admin_count(membership.company) <= 1
+    ):
+        raise MemberRuleError(LAST_ADMIN)
+    membership.role = role
+    membership.save(update_fields=["role"])
+    return membership
+
+
+@transaction.atomic
+def remove_member(membership: CompanyMembership, *, actor: User) -> None:
+    if membership.user_id == actor.pk:
+        raise MemberRuleError("You can't remove yourself. Ask another admin to do it.")
+    if membership.role == CompanyRole.ADMIN and admin_count(membership.company) <= 1:
+        raise MemberRuleError(LAST_ADMIN)
+    user = membership.user
+    membership.delete()
+    user.is_active = False
+    user.save(update_fields=["is_active"])

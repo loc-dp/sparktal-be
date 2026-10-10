@@ -1,14 +1,17 @@
 from decimal import Decimal
 from typing import Any
 
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.files.uploadedfile import UploadedFile
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from apps.candidates.stages import STAGE_ORDER
 from apps.companies.access import company_of
 from apps.companies.models import Office
+from apps.core.documents import validate_document
 from apps.jobs.functions import guess_function
-from apps.jobs.models import BOUNTY_PCT_MAX, BOUNTY_PCT_MIN, BountyType, Job, WorkModel
+from apps.jobs.models import BOUNTY_PCT_MAX, BOUNTY_PCT_MIN, BountyType, JdParse, Job, WorkModel
 
 MAX_SKILLS = 20
 
@@ -381,3 +384,38 @@ class LeaveResultSerializer(serializers.Serializer[dict[str, Any]]):
     assignment_id = serializers.UUIDField()
     joined = serializers.BooleanField()
     left_at = serializers.DateTimeField()
+
+
+JD_TYPE_MESSAGE = "Only PDF, DOCX or DOC files can be uploaded as a job description."
+JD_SIZE_MESSAGE = "Job description files must be 10 MB or smaller."
+
+
+class JdParseSerializer(serializers.ModelSerializer[JdParse]):
+    class Meta:
+        model = JdParse
+        fields = ("id", "status", "fields", "error", "filename", "created_at", "finished_at")
+        read_only_fields = fields
+
+
+class JdParseCreateSerializer(serializers.Serializer[JdParse]):
+    file = serializers.FileField(write_only=True)
+
+    def validate_file(self, upload: "UploadedFile[Any]") -> "UploadedFile[Any]":
+        try:
+            validate_document(upload, JD_TYPE_MESSAGE, JD_SIZE_MESSAGE)
+        except DjangoValidationError as error:
+            raise serializers.ValidationError(error.messages) from error
+        return upload
+
+    def create(self, validated_data: dict[str, Any]) -> JdParse:
+        upload = validated_data["file"]
+        return JdParse.objects.create(
+            company=self.context["company"],
+            uploaded_by=self.context["user"],
+            file=upload,
+            filename=upload.name or "jd.pdf",
+        )
+
+
+class JdParseAvailabilitySerializer(serializers.Serializer[dict[str, bool]]):
+    enabled = serializers.BooleanField()

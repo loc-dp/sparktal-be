@@ -3,7 +3,7 @@ from django.db.models import QuerySet
 from django.http import HttpRequest
 from simple_history.admin import SimpleHistoryAdmin
 
-from apps.jobs.models import Job, JobAssignment, JobStatus
+from apps.jobs.models import JdParse, Job, JobAssignment, JobStatus
 
 
 @admin.register(Job)
@@ -35,3 +35,29 @@ class JobAssignmentAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
     list_filter = ("job__company",)
     search_fields = ("job__title", "recruiter__nickname")
     autocomplete_fields = ("job", "recruiter")
+
+
+@admin.register(JdParse)
+class JdParseAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
+    list_display = (
+        "filename",
+        "company",
+        "uploaded_by",
+        "status",
+        "llm_model",
+        "input_tokens",
+        "output_tokens",
+        "created_at",
+        "finished_at",
+    )
+    list_filter = ("status", "llm_model", "company")
+    readonly_fields = (
+        "fields",
+        "error",
+        "llm_model",
+        "input_tokens",
+        "output_tokens",
+        "created_at",
+        "started_at",
+        "finished_at",
+    )

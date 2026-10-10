@@ -1,6 +1,9 @@
 from django.urls import path
 
 from apps.jobs.api import (
+    JdParseAvailabilityView,
+    JdParseCreateView,
+    JdParseDetailView,
     JobCloseView,
     JobCountsView,
     JobDetailView,
@@ -17,6 +20,13 @@ from apps.jobs.api import (
 urlpatterns = [
     path("jobs", JobListCreateView.as_view(), name="jobs"),
     path("jobs/counts", JobCountsView.as_view(), name="job-counts"),
+    path("jd-parses", JdParseCreateView.as_view(), name="jd-parses"),
+    path(
+        "jd-parses/availability",
+        JdParseAvailabilityView.as_view(),
+        name="jd-parse-availability",
+    ),
+    path("jd-parses/<uuid:pk>", JdParseDetailView.as_view(), name="jd-parse-detail"),
     path("jobs/<uuid:pk>", JobDetailView.as_view(), name="job-detail"),
     path("jobs/<uuid:pk>/close", JobCloseView.as_view(), name="job-close"),
     path("jobs/<uuid:pk>/reopen", JobReopenView.as_view(), name="job-reopen"),

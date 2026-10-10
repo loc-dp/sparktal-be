@@ -729,6 +729,64 @@ paths:
               schema:
                 $ref: '#/components/schemas/Health'
           description: ''
+  /api/v1/jd-parses:
+    post:
+      operationId: jd_parses_create
+      tags:
+      - jobs
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/JdParseCreateRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '202':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JdParse'
+          description: ''
+  /api/v1/jd-parses/{id}:
+    get:
+      operationId: jd_parses_retrieve
+      description: Only the uploader polls a parse; anyone else gets 404.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - jobs
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JdParse'
+          description: ''
+  /api/v1/jd-parses/availability:
+    get:
+      operationId: jd_parses_availability_retrieve
+      description: Create new job only shows the JD upload when the server can read
+        one.
+      tags:
+      - jobs
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JdParseAvailability'
+          description: ''
   /api/v1/jobs:
     get:
       operationId: jobs_list
@@ -1398,6 +1456,50 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PaginatedRecruiterSubmissionList'
+          description: ''
+  /api/v1/recruiters/me/submissions/{id}:
+    get:
+      operationId: recruiters_submissions_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - submissions
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecruiterSubmissionDetail'
+          description: ''
+  /api/v1/recruiters/me/submissions/{id}/cv:
+    get:
+      operationId: recruiters_submissions_cv_retrieve
+      description: The CV file exactly as it was sent with this submission.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - submissions
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
           description: ''
   /api/v1/recruiters/nickname-check:
     get:
@@ -2120,6 +2222,58 @@ components:
         * `real_estate_construction` - Real Estate & Construction
         * `fmcg` - FMCG
         * `energy_utilities` - Energy & Utilities
+    JdParse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/CvExportStatusEnum'
+          readOnly: true
+        fields:
+          readOnly: true
+        error:
+          type: string
+          readOnly: true
+        filename:
+          type: string
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        finished_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+      required:
+      - created_at
+      - error
+      - fields
+      - filename
+      - finished_at
+      - id
+      - status
+    JdParseAvailability:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+      required:
+      - enabled
+    JdParseCreateRequest:
+      type: object
+      properties:
+        file:
+          type: string
+          format: binary
+          writeOnly: true
+      required:
+      - file
     Job:
       type: object
       properties:
@@ -3589,6 +3743,71 @@ components:
       - id
       - is_duplicate
       - job
+      - stage
+      - stage_changed_at
+      - submitted_at
+    RecruiterSubmissionDetail:
+      type: object
+      description: One submission with the notes the recruiter sent alongside the
+        CV.
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        job:
+          allOf:
+          - $ref: '#/components/schemas/SubmissionJob'
+          readOnly: true
+        candidate:
+          allOf:
+          - $ref: '#/components/schemas/SubmissionCandidate'
+          readOnly: true
+        stage:
+          allOf:
+          - $ref: '#/components/schemas/StageEnum'
+          readOnly: true
+        submitted_at:
+          type: string
+          format: date-time
+          readOnly: true
+        stage_changed_at:
+          type: string
+          format: date-time
+          readOnly: true
+        is_duplicate:
+          type: boolean
+          readOnly: true
+        first_submitted_at:
+          type: string
+          nullable: true
+          readOnly: true
+        cv_filename:
+          type: string
+          readOnly: true
+        reason_for_leaving:
+          type: string
+          readOnly: true
+        motivation:
+          type: string
+          readOnly: true
+        other_notes:
+          type: string
+          readOnly: true
+        consultant_note:
+          type: string
+          readOnly: true
+      required:
+      - candidate
+      - consultant_note
+      - cv_filename
+      - first_submitted_at
+      - id
+      - is_duplicate
+      - job
+      - motivation
+      - other_notes
+      - reason_for_leaving
       - stage
       - stage_changed_at
       - submitted_at

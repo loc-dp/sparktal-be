@@ -1,10 +1,21 @@
 from datetime import UTC
 
 import factory
+from django.core.files.base import ContentFile
 from factory.django import DjangoModelFactory
 
+from apps.accounts.tests.factories import UserFactory
 from apps.companies.tests.factories import CompanyFactory, OfficeFactory
-from apps.jobs.models import BountyType, Job, JobAssignment, JobStatus, PayBasis, WorkModel
+from apps.core.testing.pdf import make_pdf
+from apps.jobs.models import (
+    BountyType,
+    JdParse,
+    Job,
+    JobAssignment,
+    JobStatus,
+    PayBasis,
+    WorkModel,
+)
 from apps.recruiters.tests.factories import RecruiterProfileFactory
 
 
@@ -38,3 +49,15 @@ class JobAssignmentFactory(DjangoModelFactory[JobAssignment]):
 
     job = factory.SubFactory(JobFactory)
     recruiter = factory.SubFactory(RecruiterProfileFactory)
+
+
+class JdParseFactory(DjangoModelFactory[JdParse]):
+    class Meta:
+        model = JdParse
+
+    company = factory.SubFactory(CompanyFactory)
+    uploaded_by = factory.SubFactory(UserFactory)
+    filename = "JD_Senior_Accountant.pdf"
+    file = factory.LazyFunction(
+        lambda: ContentFile(make_pdf("Senior Accountant\nResponsibilities"), name="jd.pdf")
+    )

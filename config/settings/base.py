@@ -193,6 +193,10 @@ CELERY_BEAT_SCHEDULE = {
         "task": "candidates.purge_stale_cv_parses",
         "schedule": crontab(minute=37),
     },
+    "purge-stale-jd-parses": {
+        "task": "jobs.purge_stale_jd_parses",
+        "schedule": crontab(minute=47),
+    },
 }
 
 EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
@@ -202,6 +206,10 @@ DEFAULT_FROM_EMAIL = env.str("DEFAULT_FROM_EMAIL", default="Sparktal <no-reply@s
 ANTHROPIC_API_KEY = env.str("ANTHROPIC_API_KEY", default="")
 CV_PARSE_MODEL = env.str("CV_PARSE_MODEL", default="")
 CV_PARSE_TIMEOUT_SECONDS = env.float("CV_PARSE_TIMEOUT_SECONDS", default=30.0)
+# Job description autofill on Create new job, with the same key. Without a model it is off.
+JD_PARSE_MODEL = env.str("JD_PARSE_MODEL", default="")
+# A JD is copied out line by line, so the reply is several times longer than a CV's.
+JD_PARSE_TIMEOUT_SECONDS = env.float("JD_PARSE_TIMEOUT_SECONDS", default=90.0)
 
 FRONTEND_URL = env.str("FRONTEND_URL", default="http://localhost:3000")
 
@@ -224,7 +232,12 @@ REST_FRAMEWORK = {
     "PAGE_SIZE": 25,
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
     "DEFAULT_THROTTLE_CLASSES": ["rest_framework.throttling.ScopedRateThrottle"],
-    "DEFAULT_THROTTLE_RATES": {"signup": "5/hour", "nickname": "30/min", "cv_parse": "60/hour"},
+    "DEFAULT_THROTTLE_RATES": {
+        "signup": "5/hour",
+        "nickname": "30/min",
+        "cv_parse": "60/hour",
+        "jd_parse": "60/hour",
+    },
 }
 
 SPECTACULAR_SETTINGS = {

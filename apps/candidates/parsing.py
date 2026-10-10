@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import re
-from pathlib import Path
 from typing import Any
 
-from django.core.files.base import File
+from apps.core.documents import extract_text, is_scanned
+
+__all__ = ["extract_text", "guess_fields", "is_scanned"]
 
 MAX_SKILLS = 20
 MAX_SKILL_LENGTH = 40
@@ -22,38 +23,6 @@ _SECTION_HEADING = re.compile(
 )
 _SPLIT_SKILLS = re.compile(r"[,;|·•/]| {2,}")
 _CONTACT_HINT = re.compile(r"@|https?://|linkedin|\d", re.I)
-
-
-def _pdf_text(upload: File[Any]) -> str:
-    from pypdf import PdfReader
-
-    reader = PdfReader(upload)
-    return "\n".join(page.extract_text() or "" for page in reader.pages)
-
-
-def _docx_text(upload: File[Any]) -> str:
-    from docx import Document
-
-    document = Document(upload)
-    lines = [paragraph.text for paragraph in document.paragraphs]
-    for table in document.tables:
-        for row in table.rows:
-            lines.extend(cell.text for cell in row.cells)
-    return "\n".join(lines)
-
-
-def extract_text(file: File[Any]) -> str:
-    extension = Path(file.name or "").suffix.lower()
-    reader = {".pdf": _pdf_text, ".docx": _docx_text}.get(extension)
-    if reader is None:
-        return ""
-    file.seek(0)
-    try:
-        return reader(file).strip()
-    except Exception:
-        return ""
-    finally:
-        file.seek(0)
 
 
 def _guess_phone(text: str) -> str:
@@ -136,11 +105,3 @@ def guess_fields(text: str) -> dict[str, Any]:
         "skills": _guess_skills(lines),
         "years_experience": years_value,
     }
-
-
-SCANNED_TEXT_THRESHOLD = 80
-
-
-def is_scanned(filename: str, text: str) -> bool:
-    """A PDF with almost no text layer is a picture of a CV."""
-    return Path(filename).suffix.lower() == ".pdf" and len(text.strip()) < SCANNED_TEXT_THRESHOLD

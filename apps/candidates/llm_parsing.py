@@ -2,21 +2,16 @@
 
 from __future__ import annotations
 
-import base64
-import logging
-from dataclasses import dataclass
-from pathlib import Path
-from typing import Any
-
 import anthropic
-from anthropic.types import ContentBlockParam, OutputConfigParam
+from anthropic.types import OutputConfigParam
 from django.conf import settings
 from django.utils import timezone
 from pydantic import BaseModel
 
 from apps.companies.models import Location
+from apps.core.documents import ClaudeRead, anthropic_client, read_with_claude, source_block
 
-logger = logging.getLogger(__name__)
+__all__ = ["ClaudeRead", "ParsedCv", "instructions", "llm_extract"]
 
 MAX_OUTPUT_TOKENS = 4000
 OUTPUT_CONFIG: OutputConfigParam = {"effort": "low"}
@@ -41,16 +36,6 @@ class ParsedCv(BaseModel):
     years_experience: int | None
     current_salary: int | None
     expected_salary: int | None
-
-
-@dataclass(frozen=True)
-class ClaudeRead:
-    """What one call returned and cost. fields is None when the reply was unusable."""
-
-    fields: dict[str, Any] | None
-    model: str
-    input_tokens: int
-    output_tokens: int
 
 
 def instructions() -> str:
@@ -87,72 +72,23 @@ def instructions() -> str:
 
 
 def _client() -> anthropic.Anthropic:
-    return anthropic.Anthropic(
-        api_key=settings.ANTHROPIC_API_KEY,
-        timeout=settings.CV_PARSE_TIMEOUT_SECONDS,
-        max_retries=1,
-    )
-
-
-PDF_HEADER = b"%PDF-"
-# Readers accept junk before the header within the first 1024 bytes; Claude does not.
-PDF_HEADER_WINDOW = 1024
-
-
-def _source_block(data: bytes, filename: str, text: str) -> ContentBlockParam | None:
-    if Path(filename).suffix.lower() == ".pdf":
-        start = data.find(PDF_HEADER, 0, PDF_HEADER_WINDOW)
-        if start > 0:
-            data = data[start:]
-        return {
-            "type": "document",
-            "source": {
-                "type": "base64",
-                "media_type": "application/pdf",
-                "data": base64.standard_b64encode(data).decode("ascii"),
-            },
-        }
-    if text:
-        return {"type": "text", "text": f"<cv>\n{text}\n</cv>"}
-    return None
+    return anthropic_client(settings.ANTHROPIC_API_KEY, settings.CV_PARSE_TIMEOUT_SECONDS)
 
 
 def llm_extract(data: bytes, filename: str, text: str) -> ClaudeRead | None:
     """Return Claude's raw fields and cost, or None when no reply came back at all."""
     if not (settings.ANTHROPIC_API_KEY and settings.CV_PARSE_MODEL):
         return None
-    source = _source_block(data, filename, text)
+    source = source_block(data, filename, text, "cv")
     if source is None:
         return None
-    try:
-        response = _client().messages.parse(
-            model=settings.CV_PARSE_MODEL,
-            max_tokens=MAX_OUTPUT_TOKENS,
-            output_config=OUTPUT_CONFIG,
-            messages=[
-                {"role": "user", "content": [source, {"type": "text", "text": instructions()}]}
-            ],
-            output_format=ParsedCv,
-        )
-    except anthropic.APIError:
-        logger.warning("Claude CV parse failed", exc_info=True)
-        return None
-    except ValueError as error:
-        # A pydantic error quotes the raw reply, which holds candidate data: log its type only.
-        logger.warning("Claude CV parse returned unusable output (%s)", type(error).__name__)
-        return None
-    fields = None
-    if response.stop_reason != "end_turn" or response.parsed_output is None:
-        logger.warning(
-            "Claude CV parse stopped with %s (request %s)",
-            response.stop_reason,
-            response._request_id,
-        )
-    else:
-        fields = response.parsed_output.model_dump()
-    return ClaudeRead(
-        fields=fields,
-        model=response.model,
-        input_tokens=response.usage.input_tokens,
-        output_tokens=response.usage.output_tokens,
+    return read_with_claude(
+        _client(),
+        model=settings.CV_PARSE_MODEL,
+        source=source,
+        instructions=instructions(),
+        output_format=ParsedCv,
+        max_tokens=MAX_OUTPUT_TOKENS,
+        output_config=OUTPUT_CONFIG,
+        label="CV",
     )

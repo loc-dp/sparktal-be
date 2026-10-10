@@ -8,7 +8,7 @@ from django.utils import timezone
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import status
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import APIException, ValidationError
 from rest_framework.filters import OrderingFilter
 from rest_framework.generics import (
     ListAPIView,
@@ -16,6 +16,7 @@ from rest_framework.generics import (
     RetrieveAPIView,
     RetrieveUpdateAPIView,
 )
+from rest_framework.parsers import MultiPartParser
 from rest_framework.permissions import AllowAny, BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -24,12 +25,17 @@ from rest_framework.views import APIView
 from apps.accounts.models import User
 from apps.candidates.models import Stage
 from apps.chat.signals import ensure_channel
+from apps.companies.access import company_of
 from apps.jobs.access import can_change_job, jobs_visible_to
 from apps.jobs.filters import JobFilterSet
+from apps.jobs.jd_parsing import is_enabled as jd_parsing_enabled
 from apps.jobs.marketplace import MarketplaceFilterSet, annotate_marketplace, marketplace_queryset
-from apps.jobs.models import Job, JobAssignment, JobStatus
+from apps.jobs.models import JdParse, Job, JobAssignment, JobStatus
 from apps.jobs.queries import annotate_job_metrics
 from apps.jobs.serializers import (
+    JdParseAvailabilitySerializer,
+    JdParseCreateSerializer,
+    JdParseSerializer,
     JobCountsSerializer,
     JobListItemSerializer,
     JobOverviewSerializer,
@@ -40,6 +46,7 @@ from apps.jobs.serializers import (
     MarketplaceJobSerializer,
     PublicJobSerializer,
 )
+from apps.jobs.tasks import parse_jd
 from apps.recruiters.access import IsApprovedRecruiter, approved_recruiter
 from apps.recruiters.models import RecruiterProfile
 
@@ -333,3 +340,71 @@ class MarketplaceLeaveView(MarketplaceActionView):
         assignment.save(update_fields=["left_at"])
         payload = {"assignment_id": assignment.pk, "joined": False, "left_at": assignment.left_at}
         return Response(LeaveResultSerializer(payload).data)
+
+
+class CanParseJd(BasePermission):
+    """Whoever may post a job may read a JD into the form; recruiters and staff may not."""
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        user = request.user
+        return isinstance(user, User) and user.has_perm("jobs.add_job")
+
+
+class JdParsingOff(APIException):
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_detail = "Reading job descriptions is turned off. Fill the form in yourself."
+    default_code = "jd_parsing_off"
+
+
+@extend_schema_view(
+    get=extend_schema(
+        operation_id="jd_parses_availability_retrieve",
+        tags=["jobs"],
+        responses=JdParseAvailabilitySerializer,
+    )
+)
+class JdParseAvailabilityView(APIView):
+    """Create new job only shows the JD upload when the server can read one."""
+
+    permission_classes = (CanParseJd,)
+
+    def get(self, request: Request) -> Response:
+        return Response({"enabled": jd_parsing_enabled()})
+
+
+class JdParseCreateView(APIView):
+    permission_classes = (CanParseJd,)
+    parser_classes = (MultiPartParser,)
+    throttle_scope = "jd_parse"
+
+    @extend_schema(
+        tags=["jobs"],
+        operation_id="jd_parses_create",
+        request={"multipart/form-data": JdParseCreateSerializer},
+        responses={202: JdParseSerializer},
+    )
+    def post(self, request: Request) -> Response:
+        if not jd_parsing_enabled():
+            raise JdParsingOff
+        form = JdParseCreateSerializer(
+            data=request.data,
+            context={"user": request.user, "company": company_of(_user(self))},
+        )
+        form.is_valid(raise_exception=True)
+        attempt = form.save()
+        transaction.on_commit(lambda: parse_jd.delay(str(attempt.pk)))
+        return Response(JdParseSerializer(attempt).data, status=status.HTTP_202_ACCEPTED)
+
+
+@extend_schema_view(
+    get=extend_schema(tags=["jobs"], operation_id="jd_parses_retrieve", responses=JdParseSerializer)
+)
+class JdParseDetailView(RetrieveAPIView[JdParse]):
+    """Only the uploader polls a parse; anyone else gets 404."""
+
+    permission_classes = (CanParseJd,)
+    serializer_class = JdParseSerializer
+    queryset = JdParse.objects.none()
+
+    def get_queryset(self) -> QuerySet[JdParse]:
+        return JdParse.objects.filter(uploaded_by=_user(self))

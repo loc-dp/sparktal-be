@@ -1,5 +1,6 @@
 import secrets
 import uuid
+from typing import Any
 
 from django.contrib.postgres.fields import ArrayField
 from django.core.validators import MaxValueValidator, MinValueValidator
@@ -149,3 +150,66 @@ class JobAssignment(models.Model):
     @property
     def is_active(self) -> bool:
         return self.left_at is None
+
+
+class JdParseStatus(models.TextChoices):
+    QUEUED = "queued", "Queued"
+    RUNNING = "running", "Running"
+    DONE = "done", "Done"
+    FAILED = "failed", "Failed"
+
+
+JD_LLM_USAGE_FIELDS = ("llm_model", "input_tokens", "output_tokens")
+
+
+class JdParse(models.Model):
+    """One job description read by Claude to prefill Create new job; purged after a day."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name="jd_parses")
+    uploaded_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name="jd_parses")
+    file = models.FileField(upload_to="jd-parses/%Y/%m/")
+    filename = models.CharField(max_length=255)
+    status = models.CharField(
+        max_length=8, choices=JdParseStatus.choices, default=JdParseStatus.QUEUED
+    )
+    fields = models.JSONField(default=dict)
+    error = models.TextField(blank=True)
+    # Claude's cost is kept even when its reply was unusable.
+    llm_model = models.CharField(max_length=64, blank=True)
+    input_tokens = models.PositiveIntegerField(default=0)
+    output_tokens = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ("-created_at",)
+        verbose_name = "JD parse"
+
+    def __str__(self) -> str:
+        return f"JD parse {self.pk} · {self.filename} · {self.status}"
+
+    def mark_running(self) -> None:
+        self.status = JdParseStatus.RUNNING
+        self.started_at = timezone.now()
+        self.save(update_fields=["status", "started_at"])
+
+    def record_llm_usage(self, model: str, input_tokens: int, output_tokens: int) -> None:
+        """Set Claude's cost; the next mark_done or mark_failed saves it."""
+        self.llm_model = model
+        self.input_tokens = input_tokens
+        self.output_tokens = output_tokens
+
+    def mark_done(self, fields: dict[str, Any]) -> None:
+        self.status = JdParseStatus.DONE
+        self.fields = fields
+        self.error = ""
+        self.finished_at = timezone.now()
+        self.save(update_fields=["status", "fields", "error", "finished_at", *JD_LLM_USAGE_FIELDS])
+
+    def mark_failed(self, error: str) -> None:
+        self.status = JdParseStatus.FAILED
+        self.error = error
+        self.finished_at = timezone.now()
+        self.save(update_fields=["status", "error", "finished_at", *JD_LLM_USAGE_FIELDS])

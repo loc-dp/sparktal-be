@@ -514,6 +514,112 @@ paths:
       responses:
         '204':
           description: No response body
+  /api/v1/company/members:
+    get:
+      operationId: company_members_list
+      tags:
+      - companies
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Member'
+          description: ''
+    post:
+      operationId: company_members_create
+      tags:
+      - companies
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MemberInviteRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/MemberInviteRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/MemberInviteRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Member'
+          description: ''
+  /api/v1/company/members/{id}:
+    patch:
+      operationId: company_member_partial_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - companies
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedMemberRoleRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedMemberRoleRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedMemberRoleRequest'
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Member'
+          description: ''
+    delete:
+      operationId: company_member_destroy
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - companies
+      security:
+      - cookieAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/company/members/{id}/resend-invite:
+    post:
+      operationId: company_member_resend_invite_create
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - companies
+      security:
+      - cookieAuth: []
+      responses:
+        '204':
+          description: No response body
   /api/v1/csrf:
     get:
       operationId: csrf_retrieve
@@ -2615,6 +2721,69 @@ components:
       - id
       - nickname
       - status
+    Member:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        full_name:
+          type: string
+          readOnly: true
+        email:
+          type: string
+          format: email
+          readOnly: true
+        role:
+          allOf:
+          - $ref: '#/components/schemas/RoleEnum'
+          readOnly: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/MemberStatusEnum'
+          readOnly: true
+        is_me:
+          type: boolean
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - email
+      - full_name
+      - id
+      - is_me
+      - role
+      - status
+    MemberInviteRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          minLength: 1
+          maxLength: 254
+        full_name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        role:
+          $ref: '#/components/schemas/RoleEnum'
+      required:
+      - email
+      - full_name
+      - role
+    MemberStatusEnum:
+      enum:
+      - active
+      - invited
+      type: string
+      description: |-
+        * `active` - active
+        * `invited` - invited
     Message:
       type: object
       properties:
@@ -3063,6 +3232,11 @@ components:
             maxLength: 40
         note_for_recruiters:
           type: string
+    PatchedMemberRoleRequest:
+      type: object
+      properties:
+        role:
+          $ref: '#/components/schemas/RoleEnum'
     PatchedRecruiterProfileRequest:
       type: object
       properties:
@@ -3432,6 +3606,16 @@ components:
       - candidate_name
       - reason
       - rejected_at
+    RoleEnum:
+      enum:
+      - admin
+      - hiring_manager
+      - talent_acquisition
+      type: string
+      description: |-
+        * `admin` - Company Admin
+        * `hiring_manager` - Hiring Manager
+        * `talent_acquisition` - Talent Acquisition
     SignupRequest:
       type: object
       properties:

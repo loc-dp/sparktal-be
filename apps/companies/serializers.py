@@ -3,9 +3,10 @@ from urllib.parse import urlparse
 
 from django.db.models.fields.files import FieldFile
 from django.utils import timezone
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
-from apps.companies.models import Company, Location, Office
+from apps.companies.models import Company, CompanyMembership, CompanyRole, Location, Office
 
 ABOUT_MIN = 100
 ABOUT_MAX = 2000
@@ -221,3 +222,33 @@ class CompanyHomeSerializer(serializers.Serializer[dict[str, Any]]):
     pipeline = HomePipelineSerializer()
     active_jobs = HomeJobRowSerializer(many=True)
     actions = HomeActionSerializer(many=True)
+
+
+class MemberSerializer(serializers.ModelSerializer[CompanyMembership]):
+    full_name = serializers.CharField(source="user.full_name", read_only=True)
+    email = serializers.EmailField(source="user.email", read_only=True)
+    status = serializers.SerializerMethodField()
+    is_me = serializers.SerializerMethodField()
+
+    class Meta:
+        model = CompanyMembership
+        fields = ("id", "full_name", "email", "role", "status", "is_me", "created_at")
+        read_only_fields = fields
+
+    @extend_schema_field(serializers.ChoiceField(choices=["active", "invited"]))
+    def get_status(self, obj: CompanyMembership) -> str:
+        return "active" if obj.user.has_usable_password() else "invited"
+
+    def get_is_me(self, obj: CompanyMembership) -> bool:
+        request = self.context.get("request")
+        return bool(request and obj.user_id == request.user.pk)
+
+
+class MemberInviteSerializer(serializers.Serializer[dict[str, str]]):
+    email = serializers.EmailField(max_length=254)
+    full_name = serializers.CharField(max_length=120)
+    role = serializers.ChoiceField(choices=CompanyRole.choices)
+
+
+class MemberRoleSerializer(serializers.Serializer[dict[str, str]]):
+    role = serializers.ChoiceField(choices=CompanyRole.choices)

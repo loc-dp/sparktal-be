@@ -27,6 +27,26 @@ class ApplicationAdmin(SimpleHistoryAdmin):  # type: ignore[misc]
 
 @admin.register(CvParse)
 class CvParseAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
-    list_display = ("filename", "owner", "status", "created_at", "finished_at")
-    list_filter = ("status",)
-    readonly_fields = ("fields", "error", "created_at", "finished_at")
+    list_display = (
+        "filename",
+        "owner",
+        "status",
+        "reader",
+        "llm_model",
+        "input_tokens",
+        "output_tokens",
+        "created_at",
+        "finished_at",
+    )
+    list_filter = ("status", "reader", "llm_model")
+    readonly_fields = (
+        "fields",
+        "error",
+        "reader",
+        "llm_model",
+        "input_tokens",
+        "output_tokens",
+        "created_at",
+        "started_at",
+        "finished_at",
+    )

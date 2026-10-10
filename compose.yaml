@@ -79,6 +79,25 @@ services:
       redis:
         condition: service_healthy
 
+  beat:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    # Fires CELERY_BEAT_SCHEDULE (the export and CV-parse purges); the worker runs them.
+    # The schedule state file stays out of the bind-mounted source tree.
+    command: celery -A config beat -l info --schedule /tmp/celerybeat-schedule
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.dev
+      DJANGO_DEBUG: "True"
+      DATABASE_URL: postgres://sparktal:sparktal@postgres:5432/sparktal
+      REDIS_URL: redis://redis:6379/0
+      CACHE_URL: redis://redis:6379/1
+    volumes:
+      - .:/app
+    depends_on:
+      redis:
+        condition: service_healthy
+
 volumes:
   pgdata:
   redisdata:

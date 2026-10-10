@@ -78,6 +78,12 @@ def job(company: Company, company_ta: User) -> Job:
 
 
 @pytest.fixture
+def joined_job(job: Job, recruiter_profile: RecruiterProfile) -> Job:
+    JobAssignment.objects.create(job=job, recruiter=recruiter_profile)
+    return job
+
+
+@pytest.fixture
 def company_hm(company: Company) -> User:
     return _member(company, CompanyRole.HIRING_MANAGER, "hm@velapay.vn")
 

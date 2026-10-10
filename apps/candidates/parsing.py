@@ -136,3 +136,11 @@ def guess_fields(text: str) -> dict[str, Any]:
         "skills": _guess_skills(lines),
         "years_experience": years_value,
     }
+
+
+SCANNED_TEXT_THRESHOLD = 80
+
+
+def is_scanned(filename: str, text: str) -> bool:
+    """A PDF with almost no text layer is a picture of a CV."""
+    return Path(filename).suffix.lower() == ".pdf" and len(text.strip()) < SCANNED_TEXT_THRESHOLD

@@ -49,5 +49,5 @@ uv run mypy .
 uv run python manage.py spectacular --file openapi.yaml --validate
 ```
 
-Demo password: `sparktal-demo-2026` (users listed in `apps/accounts/seed.py`).
+Demo password: `demo123` (users listed in `apps/accounts/seed.py`).
 `seed_demo` refuses to run with `DEBUG=False` unless you pass `--force`.

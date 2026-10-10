@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+from datetime import date
 from typing import Any, ClassVar
 
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.files.uploadedfile import UploadedFile
 from rest_framework import serializers
 
+from apps.candidates.cv_fields import MAX_AGE, MIN_AGE, is_working_age
 from apps.candidates.cv_files import validate_cv
 from apps.candidates.models import Application, Candidate, CvParse
+from apps.candidates.parsing import MAX_YEARS
 
 
 class ApplicationCandidateSerializer(serializers.Serializer[object]):
@@ -67,6 +70,7 @@ class CvParseCreateSerializer(serializers.Serializer[CvParse]):
 
 MAX_POOL_SKILLS = 20
 MAX_LANGUAGES = 10
+SALARY_NOT_NEGATIVE = "Salary can't be negative."
 
 
 class CandidateSerializer(serializers.ModelSerializer[Candidate]):
@@ -126,8 +130,27 @@ class CandidateWriteSerializer(serializers.ModelSerializer[Candidate]):
                     "blank": "Enter the full name",
                     "required": "Enter the full name",
                 }
-            }
+            },
+            "years_experience": {
+                "max_value": MAX_YEARS,
+                "error_messages": {"max_value": f"Up to {MAX_YEARS} years."},
+            },
+            "current_salary": {
+                "min_value": 0,
+                "error_messages": {"min_value": SALARY_NOT_NEGATIVE},
+            },
+            "expected_salary": {
+                "min_value": 0,
+                "error_messages": {"min_value": SALARY_NOT_NEGATIVE},
+            },
         }
+
+    def validate_dob(self, value: date | None) -> date | None:
+        if value is not None and not is_working_age(value):
+            raise serializers.ValidationError(
+                f"Enter a date of birth for someone aged {MIN_AGE} to {MAX_AGE}."
+            )
+        return value
 
     def validate_skills(self, value: list[str]) -> list[str]:
         if len(value) > MAX_POOL_SKILLS:
@@ -152,3 +175,85 @@ class CandidateCvSerializer(serializers.Serializer[Candidate]):
         except DjangoValidationError as error:
             raise serializers.ValidationError(error.messages) from error
         return upload
+
+
+class CandidateMatchSerializer(serializers.Serializer[Any]):
+    """Who a new profile would be: any one of these can tie it to someone already in the pool."""
+
+    email = serializers.CharField(max_length=254, required=False, allow_blank=True, default="")
+    phone = serializers.CharField(max_length=32, required=False, allow_blank=True, default="")
+    full_name = serializers.CharField(max_length=200, required=False, allow_blank=True, default="")
+    dob = serializers.DateField(required=False, allow_null=True, default=None)
+
+
+class DuplicateCheckSerializer(serializers.Serializer[Any]):
+    candidate_id = serializers.UUIDField()
+
+
+class DuplicateCheckResultSerializer(serializers.Serializer[Any]):
+    duplicate = serializers.BooleanField()
+    first_submitted_at = serializers.DateTimeField(allow_null=True)
+    window_months = serializers.IntegerField()
+
+
+class SubmissionCreateSerializer(serializers.Serializer[Any]):
+    candidate_id = serializers.UUIDField()
+    reason_for_leaving = serializers.CharField(max_length=4000, trim_whitespace=True)
+    motivation = serializers.CharField(max_length=4000, trim_whitespace=True)
+    other_notes = serializers.CharField(
+        max_length=4000, required=False, allow_blank=True, default=""
+    )
+    consultant_note = serializers.CharField(
+        max_length=4000, required=False, allow_blank=True, default=""
+    )
+    cv_file = serializers.FileField(required=False)
+
+    def validate_cv_file(self, upload: UploadedFile[Any]) -> UploadedFile[Any]:
+        try:
+            validate_cv(upload)
+        except DjangoValidationError as error:
+            raise serializers.ValidationError(error.messages) from error
+        return upload
+
+
+class SubmissionResultSerializer(serializers.Serializer[Any]):
+    application_id = serializers.UUIDField()
+    is_duplicate = serializers.BooleanField()
+
+
+class SubmissionJobSerializer(serializers.Serializer[Any]):
+    id = serializers.UUIDField(read_only=True)
+    title = serializers.CharField(read_only=True)
+    status = serializers.CharField(read_only=True)
+    company_name = serializers.CharField(source="company.name", read_only=True)
+
+
+class SubmissionCandidateSerializer(serializers.Serializer[Any]):
+    id = serializers.UUIDField(read_only=True)
+    full_name = serializers.CharField(read_only=True)
+    current_title = serializers.CharField(read_only=True)
+
+
+class RecruiterSubmissionSerializer(serializers.ModelSerializer[Application]):
+    job = SubmissionJobSerializer(read_only=True)
+    candidate = SubmissionCandidateSerializer(read_only=True)
+    first_submitted_at = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Application
+        fields = (
+            "id",
+            "job",
+            "candidate",
+            "stage",
+            "submitted_at",
+            "stage_changed_at",
+            "is_duplicate",
+            "first_submitted_at",
+            "cv_filename",
+        )
+        read_only_fields = fields
+
+    def get_first_submitted_at(self, application: Application) -> str | None:
+        earlier = application.duplicate_of
+        return earlier.submitted_at.isoformat() if earlier is not None else None

@@ -36,6 +36,7 @@ dependencies = [
     "pillow~=12.3",
     "django-health-check~=4.6",
     "sentry-sdk[django,celery]~=2.69",
+    "anthropic>=1,<2",
 ]
 
 [dependency-groups]
@@ -70,6 +71,8 @@ ignore = ["RUF001", "RUF002", "RUF003"]
 
 [tool.ruff.lint.per-file-ignores]
 "**/migrations/*.py" = ["E501", "RUF012"]
+# Demo seed data is prose (bios, notes, chat lines); wrapping every sentence hurts more than it helps.
+"apps/*/seed.py" = ["E501"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["apps", "config"]

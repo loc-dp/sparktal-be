@@ -222,6 +222,37 @@ paths:
               schema:
                 $ref: '#/components/schemas/Candidate'
           description: ''
+  /api/v1/candidates/matches:
+    post:
+      operationId: candidates_matches
+      description: |-
+        Profiles in your own pool that look like the same person, so a new CV doesn't copy them.
+
+        POST rather than GET: the email and phone stay out of URLs and access logs.
+      tags:
+      - candidates
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CandidateMatchRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/CandidateMatchRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/CandidateMatchRequest'
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Candidate'
+          description: ''
   /api/v1/chat/channels:
     get:
       operationId: chat_channels_list
@@ -752,6 +783,66 @@ paths:
               schema:
                 $ref: '#/components/schemas/CvExport'
           description: ''
+  /api/v1/jobs/{job_id}/submissions:
+    post:
+      operationId: jobs_submissions_create
+      parameters:
+      - in: path
+        name: job_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - submissions
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SubmissionCreateRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubmissionResult'
+          description: ''
+  /api/v1/jobs/{job_id}/submissions/check:
+    post:
+      operationId: jobs_submissions_check_create
+      parameters:
+      - in: path
+        name: job_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - submissions
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DuplicateCheckRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/DuplicateCheckRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/DuplicateCheckRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DuplicateCheckResult'
+          description: ''
   /api/v1/jobs/{id}:
     get:
       operationId: jobs_retrieve
@@ -1158,6 +1249,50 @@ paths:
               schema:
                 $ref: '#/components/schemas/RecruiterOverview'
           description: ''
+  /api/v1/recruiters/me/submissions:
+    get:
+      operationId: recruiters_submissions_list
+      parameters:
+      - in: query
+        name: job
+        schema:
+          type: string
+          format: uuid
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - in: query
+        name: stage
+        schema:
+          type: string
+          enum:
+          - interview
+          - new
+          - offer
+          - onboarded
+          - rejected
+          - screen
+          - shortlisted
+      tags:
+      - submissions
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedRecruiterSubmissionList'
+          description: ''
   /api/v1/recruiters/nickname-check:
     get:
       operationId: recruiters_nickname_check_retrieve
@@ -1396,6 +1531,27 @@ components:
           writeOnly: true
       required:
       - file
+    CandidateMatchRequest:
+      type: object
+      description: 'Who a new profile would be: any one of these can tie it to someone
+        already in the pool.'
+      properties:
+        email:
+          type: string
+          default: ''
+          maxLength: 254
+        phone:
+          type: string
+          default: ''
+          maxLength: 32
+        full_name:
+          type: string
+          default: ''
+          maxLength: 200
+        dob:
+          type: string
+          format: date
+          nullable: true
     CandidateWriteRequest:
       type: object
       properties:
@@ -1440,7 +1596,7 @@ components:
             maxLength: 40
         years_experience:
           type: integer
-          maximum: 32767
+          maximum: 60
           minimum: 0
           nullable: true
         current_salary:
@@ -1704,6 +1860,29 @@ components:
           writeOnly: true
       required:
       - file
+    DuplicateCheckRequest:
+      type: object
+      properties:
+        candidate_id:
+          type: string
+          format: uuid
+      required:
+      - candidate_id
+    DuplicateCheckResult:
+      type: object
+      properties:
+        duplicate:
+          type: boolean
+        first_submitted_at:
+          type: string
+          format: date-time
+          nullable: true
+        window_months:
+          type: integer
+      required:
+      - duplicate
+      - first_submitted_at
+      - window_months
     FunctionEnum:
       enum:
       - finance
@@ -2696,6 +2875,29 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/RecruiterJob'
+    PaginatedRecruiterSubmissionList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/RecruiterSubmission'
     PatchedCandidateWriteRequest:
       type: object
       properties:
@@ -2740,7 +2942,7 @@ components:
             maxLength: 40
         years_experience:
           type: integer
-          maximum: 32767
+          maximum: 60
           minimum: 0
           nullable: true
         current_salary:
@@ -3169,6 +3371,53 @@ components:
         * `pending` - Pending review
         * `approved` - Approved
         * `rejected` - Rejected
+    RecruiterSubmission:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        job:
+          allOf:
+          - $ref: '#/components/schemas/SubmissionJob'
+          readOnly: true
+        candidate:
+          allOf:
+          - $ref: '#/components/schemas/SubmissionCandidate'
+          readOnly: true
+        stage:
+          allOf:
+          - $ref: '#/components/schemas/StageEnum'
+          readOnly: true
+        submitted_at:
+          type: string
+          format: date-time
+          readOnly: true
+        stage_changed_at:
+          type: string
+          format: date-time
+          readOnly: true
+        is_duplicate:
+          type: boolean
+          readOnly: true
+        first_submitted_at:
+          type: string
+          nullable: true
+          readOnly: true
+        cv_filename:
+          type: string
+          readOnly: true
+      required:
+      - candidate
+      - cv_filename
+      - first_submitted_at
+      - id
+      - is_duplicate
+      - job
+      - stage
+      - stage_changed_at
+      - submitted_at
     Rejection:
       type: object
       properties:
@@ -3256,6 +3505,84 @@ components:
         * `offer` - Offer
         * `onboarded` - Onboarded
         * `rejected` - Rejected
+    SubmissionCandidate:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        full_name:
+          type: string
+          readOnly: true
+        current_title:
+          type: string
+          readOnly: true
+      required:
+      - current_title
+      - full_name
+      - id
+    SubmissionCreateRequest:
+      type: object
+      properties:
+        candidate_id:
+          type: string
+          format: uuid
+        reason_for_leaving:
+          type: string
+          minLength: 1
+          maxLength: 4000
+        motivation:
+          type: string
+          minLength: 1
+          maxLength: 4000
+        other_notes:
+          type: string
+          default: ''
+          maxLength: 4000
+        consultant_note:
+          type: string
+          default: ''
+          maxLength: 4000
+        cv_file:
+          type: string
+          format: binary
+      required:
+      - candidate_id
+      - motivation
+      - reason_for_leaving
+    SubmissionJob:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        title:
+          type: string
+          readOnly: true
+        status:
+          type: string
+          readOnly: true
+        company_name:
+          type: string
+          readOnly: true
+      required:
+      - company_name
+      - id
+      - status
+      - title
+    SubmissionResult:
+      type: object
+      properties:
+        application_id:
+          type: string
+          format: uuid
+        is_duplicate:
+          type: boolean
+      required:
+      - application_id
+      - is_duplicate
     WaitingJob:
       type: object
       properties:

@@ -3,7 +3,7 @@ import io
 from django.core.files.uploadedfile import SimpleUploadedFile
 from docx import Document
 
-from apps.candidates.parsing import extract_text, guess_fields
+from apps.candidates.parsing import extract_text, guess_fields, is_scanned
 from apps.core.testing.pdf import make_pdf
 
 CV_TEXT = """Truong My Hanh
@@ -134,3 +134,14 @@ def test_empty_text_gives_empty_values_and_never_raises() -> None:
         "skills": [],
         "years_experience": None,
     }
+
+
+def test_a_pdf_with_almost_no_text_counts_as_scanned() -> None:
+    assert is_scanned("cv.pdf", "") is True
+    assert is_scanned("CV.PDF", "  Page 1  ") is True
+    assert is_scanned("cv.pdf", CV_TEXT) is False
+
+
+def test_only_pdfs_can_be_scanned() -> None:
+    assert is_scanned("cv.docx", "") is False
+    assert is_scanned("cv.doc", "") is False

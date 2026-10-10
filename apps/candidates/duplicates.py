@@ -1,12 +1,20 @@
+import calendar
 import hashlib
 import re
 import unicodedata
+from datetime import datetime
 from typing import TYPE_CHECKING
 
 import phonenumbers
+from django.db.models import Q
+from django.utils import timezone
 
 if TYPE_CHECKING:
-    from apps.candidates.models import Candidate
+    from apps.candidates.models import Application, Candidate
+    from apps.companies.models import Company
+
+DEFAULT_WINDOW_MONTHS = 12
+HASH_FIELDS = ("email_hash", "phone_hash", "name_dob_hash")
 
 
 def normalise_name(value: str) -> str:
@@ -37,3 +45,37 @@ def identity_hashes(candidate: "Candidate") -> dict[str, str]:
         "phone_hash": _digest(phone),
         "name_dob_hash": _digest(name_dob),
     }
+
+
+def window_start(months: int = DEFAULT_WINDOW_MONTHS, *, now: datetime | None = None) -> datetime:
+    moment = now if now is not None else timezone.now()
+    year_shift, month_index = divmod(moment.month - 1 - months, 12)
+    year = moment.year + year_shift
+    month = month_index + 1
+    return moment.replace(
+        year=year, month=month, day=min(moment.day, calendar.monthrange(year, month)[1])
+    )
+
+
+def find_duplicate(
+    company: "Company", candidate: "Candidate", *, within_months: int = DEFAULT_WINDOW_MONTHS
+) -> "Application | None":
+    from apps.candidates.models import Application
+
+    hashes = identity_hashes(candidate)
+    clauses = [
+        Q(**{f"candidate__{field}": hashes[field]}) for field in HASH_FIELDS if hashes[field]
+    ]
+    if not clauses:
+        return None
+    matches = clauses[0]
+    for clause in clauses[1:]:
+        matches |= clause
+    return (
+        Application.objects.filter(
+            job__company=company, submitted_at__gte=window_start(within_months)
+        )
+        .filter(matches)
+        .order_by("submitted_at", "id")
+        .first()
+    )

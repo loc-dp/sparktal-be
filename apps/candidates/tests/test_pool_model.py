@@ -3,6 +3,7 @@ from decimal import Decimal
 
 import pytest
 from django.core.files.base import ContentFile
+from django.db import IntegrityError, transaction
 
 from apps.candidates.models import Candidate
 from apps.candidates.tests.factories import CandidateFactory
@@ -110,3 +111,19 @@ def test_a_candidate_without_contact_details_still_saves(
     assert candidate.phone_hash == ""
     # No dob, so the name+dob hash has nothing to bind the name to.
     assert candidate.name_dob_hash == ""
+
+
+@pytest.mark.parametrize(
+    "values",
+    [
+        {"years_experience": 61},
+        {"current_salary": Decimal("-1")},
+        {"expected_salary": Decimal("-1")},
+    ],
+)
+def test_the_database_refuses_numbers_out_of_range(
+    recruiter_profile: RecruiterProfile, values: dict[str, object]
+) -> None:
+    # Admin, shell scripts and imports skip the serializer; the table still holds the line.
+    with pytest.raises(IntegrityError), transaction.atomic():
+        CandidateFactory(owner=recruiter_profile, **values)

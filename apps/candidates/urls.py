@@ -5,12 +5,27 @@ from apps.candidates.api import (
     CandidateCvView,
     CandidateDetailView,
     CandidateListCreateView,
+    CandidateMatchView,
     CvParseCreateView,
     CvParseDetailView,
     JobApplicationListView,
+    RecruiterSubmissionListView,
+    SubmissionCheckView,
+    SubmissionCreateView,
 )
 
 urlpatterns = [
+    path(
+        "jobs/<uuid:job_id>/submissions/check",
+        SubmissionCheckView.as_view(),
+        name="job-submissions-check",
+    ),
+    path("jobs/<uuid:job_id>/submissions", SubmissionCreateView.as_view(), name="job-submissions"),
+    path(
+        "recruiters/me/submissions",
+        RecruiterSubmissionListView.as_view(),
+        name="recruiter-submissions",
+    ),
     path(
         "jobs/<uuid:job_id>/applications",
         JobApplicationListView.as_view(),
@@ -20,6 +35,7 @@ urlpatterns = [
     path("cv-parses", CvParseCreateView.as_view(), name="cv-parses"),
     path("cv-parses/<uuid:pk>", CvParseDetailView.as_view(), name="cv-parse-detail"),
     path("candidates", CandidateListCreateView.as_view(), name="candidates"),
+    path("candidates/matches", CandidateMatchView.as_view(), name="candidate-matches"),
     path("candidates/<uuid:pk>", CandidateDetailView.as_view(), name="candidate-detail"),
     path("candidates/<uuid:pk>/cv", CandidateCvView.as_view(), name="candidate-cv"),
 ]

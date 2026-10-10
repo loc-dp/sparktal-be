@@ -3,6 +3,7 @@ from django.core.management import call_command
 
 from apps.candidates.models import Application, Candidate, Stage
 from apps.candidates.search import parse_boolean
+from apps.candidates.seed import demo_identity
 
 pytestmark = pytest.mark.django_db
 
@@ -11,7 +12,7 @@ def test_seed_fills_the_backend_pipeline() -> None:
     call_command("seed_demo", "--force")
 
     backend = Application.objects.filter(job__title="Senior Backend Engineer")
-    assert backend.count() == 11
+    assert backend.count() == 12
     assert backend.filter(stage=Stage.INTERVIEW).count() == 3
     assert backend.filter(stage=Stage.OFFER).count() == 1
     assert backend.filter(stage=Stage.REJECTED).count() == 1
@@ -43,7 +44,10 @@ def test_seed_is_idempotent() -> None:
     call_command("seed_demo", "--force")
     call_command("seed_demo", "--force")
 
-    assert Application.objects.filter(job__title="Senior Backend Engineer").count() == 11
+    assert Application.objects.filter(job__title="Senior Backend Engineer").count() == 12
+    assert Application.objects.count() == 16
+    assert Candidate.objects.count() == 22
+    assert Application.objects.filter(is_duplicate=True).count() == 1
 
 
 def test_the_pool_has_candidates_that_were_never_submitted() -> None:
@@ -72,4 +76,26 @@ def test_every_pool_candidate_has_identity_hashes() -> None:
 def test_seeding_twice_does_not_duplicate_the_pool() -> None:
     call_command("seed_demo", "--force")
     call_command("seed_demo", "--force")
-    assert Candidate.objects.count() == 21
+    assert Candidate.objects.count() == 22
+
+
+def test_the_duplicate_pair_is_real() -> None:
+    call_command("seed_demo", "--force")
+    duplicate = Application.objects.get(is_duplicate=True)
+    assert duplicate.recruiter.nickname == "Bluefin Search"
+    assert duplicate.candidate.full_name == "Phạm Minh Quân"
+    assert duplicate.duplicate_of is not None
+    assert duplicate.duplicate_of.recruiter.nickname == "NorthStar Talent"
+    assert duplicate.duplicate_of.submitted_at < duplicate.submitted_at
+
+
+def test_seed_identity_and_assessment_are_stable() -> None:
+    call_command("seed_demo", "--force")
+    before = Candidate.objects.get(full_name="Lê Thu Trang").email_hash
+    call_command("seed_demo", "--force")
+    assert Candidate.objects.get(full_name="Lê Thu Trang").email_hash == before
+    assert demo_identity("Lê Thu Trang") == demo_identity("Lê Thu Trang")
+    assert all(
+        a.reason_for_leaving and a.motivation and a.consultant_note
+        for a in Application.objects.all()
+    )

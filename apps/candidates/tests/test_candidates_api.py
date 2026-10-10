@@ -1,6 +1,8 @@
 from collections.abc import Callable
+from datetime import date
 
 import pytest
+from django.utils import timezone
 from rest_framework.response import Response
 from rest_framework.test import APIClient
 
@@ -192,6 +194,55 @@ def test_more_than_twenty_skills_is_rejected(recruiter_client: APIClient) -> Non
 
     assert response.status_code == 400
     assert "20" in str(response.json()["skills"])
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("years_experience", 61, "Up to 60 years."),
+        ("current_salary", "-1", "Salary can't be negative."),
+        ("expected_salary", "-1", "Salary can't be negative."),
+    ],
+)
+def test_a_number_out_of_range_is_rejected(
+    recruiter_client: APIClient, field: str, value: object, message: str
+) -> None:
+    response = recruiter_client.post(
+        CANDIDATES, {"full_name": "Trương Mỹ Hạnh", field: value}, format="json"
+    )
+
+    assert response.status_code == 400
+    assert response.json()[field] == [message]
+
+
+@pytest.mark.parametrize("years_ago", [15, 82])
+def test_a_date_of_birth_outside_working_age_is_rejected(
+    recruiter_client: APIClient, years_ago: int
+) -> None:
+    born = date(timezone.localdate().year - years_ago, 1, 1)
+
+    response = recruiter_client.post(
+        CANDIDATES, {"full_name": "Trương Mỹ Hạnh", "dob": born.isoformat()}, format="json"
+    )
+
+    assert response.status_code == 400
+    assert response.json()["dob"] == ["Enter a date of birth for someone aged 16 to 80."]
+
+
+def test_the_edges_of_every_range_are_accepted(recruiter_client: APIClient) -> None:
+    response = recruiter_client.post(
+        CANDIDATES,
+        {
+            "full_name": "Trương Mỹ Hạnh",
+            "dob": date(timezone.localdate().year - 30, 1, 1).isoformat(),
+            "years_experience": 60,
+            "current_salary": "0",
+            "expected_salary": "0",
+        },
+        format="json",
+    )
+
+    assert response.status_code == 201
 
 
 def test_the_owner_cannot_be_forged(

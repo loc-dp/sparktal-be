@@ -29,3 +29,7 @@ CELERY_BROKER_URL = "memory://"
 EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
 
 MIDDLEWARE = [m for m in MIDDLEWARE if m != "whitenoise.middleware.WhiteNoiseMiddleware"]
+
+# Never call the real Claude API from tests, even if a developer's .env has a key.
+ANTHROPIC_API_KEY = ""
+CV_PARSE_MODEL = ""

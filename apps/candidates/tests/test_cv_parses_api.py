@@ -3,8 +3,10 @@ from __future__ import annotations
 from collections.abc import Callable
 
 import pytest
+from django.core.cache import cache
 from django.core.files.base import ContentFile
 from rest_framework.test import APIClient
+from rest_framework.throttling import ScopedRateThrottle
 
 from apps.accounts.models import User
 from apps.candidates.models import CvParse, CvParseStatus
@@ -126,3 +128,18 @@ def test_a_pending_recruiter_is_blocked(
 
 def test_anonymous_is_rejected(api_client: APIClient) -> None:
     assert api_client.post(PARSES, {"file": cv_upload()}, format="multipart").status_code == 403
+
+
+def test_cv_parse_uploads_are_rate_limited(
+    client_for: ClientFor, recruiter_user: User, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cache.clear()
+    monkeypatch.setattr(ScopedRateThrottle, "THROTTLE_RATES", {"cv_parse": "2/hour"})
+    client = client_for(recruiter_user)
+
+    codes = [
+        client.post(PARSES, {"file": cv_upload()}, format="multipart").status_code for _ in range(3)
+    ]
+
+    assert codes == [202, 202, 429]
+    cache.clear()

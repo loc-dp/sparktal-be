@@ -15,7 +15,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any
 
-DEMO_PASSWORD = "sparktal-demo-2026"
+DEMO_PASSWORD = "demo123"
 
 DEMO_EMAILS: list[str] = [
     "nhung.le@velapay.vn",

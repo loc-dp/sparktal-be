@@ -1,4 +1,5 @@
 import base64
+import io
 from types import SimpleNamespace
 from typing import Any
 
@@ -6,6 +7,7 @@ import anthropic
 import pytest
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
+from docx import Document
 from pydantic import BaseModel
 
 from apps.core.documents import (
@@ -122,3 +124,64 @@ def test_a_broken_reply_is_logged_without_its_content(caplog: pytest.LogCaptureF
     assert ask(error=ValueError("raw reply: Velapay secret salary 99")) is None
     assert "Claude JD parse returned unusable output (ValueError)" in caplog.text
     assert "Velapay" not in caplog.text
+
+
+def docx_upload(build: Any) -> SimpleUploadedFile:
+    document = Document()
+    build(document)
+    buffer = io.BytesIO()
+    document.save(buffer)
+    return SimpleUploadedFile("jd.docx", buffer.getvalue())
+
+
+def test_a_docx_reads_in_order_with_its_tables_in_place() -> None:
+    # Tables used to come after every paragraph, far from the heading they belong to.
+    def build(document: Any) -> None:
+        document.add_paragraph("Mô tả công việc")
+        table = document.add_table(rows=1, cols=2)
+        table.cell(0, 0).text = "Chức danh"
+        table.cell(0, 1).text = "Kế toán trưởng"
+        document.add_paragraph("Yêu cầu")
+
+    lines = extract_text(docx_upload(build)).splitlines()
+
+    assert lines == ["Mô tả công việc", "Chức danh | Kế toán trưởng", "Yêu cầu"]
+
+
+def test_a_merged_cell_is_read_once() -> None:
+    # A JD form merges its summary across the row; it came back three times.
+    def build(document: Any) -> None:
+        table = document.add_table(rows=3, cols=3)
+        summary = table.cell(0, 0).merge(table.cell(0, 2))
+        summary.text = "Tóm lược công việc"
+        label = table.cell(1, 0).merge(table.cell(2, 0))
+        label.text = "Nhiệm vụ"
+        table.cell(1, 1).text = "Lập báo cáo tài chính"
+        table.cell(2, 1).text = "Quản lý dòng tiền"
+
+    text = extract_text(docx_upload(build))
+
+    assert text.count("Tóm lược công việc") == 1
+    assert text.count("Nhiệm vụ") == 1
+    assert "Nhiệm vụ | Lập báo cáo tài chính" in text
+    assert "Quản lý dòng tiền" in text
+
+
+def test_a_short_two_line_label_cell_stays_on_one_line() -> None:
+    def build(document: Any) -> None:
+        table = document.add_table(rows=1, cols=2)
+        table.cell(0, 0).text = "Tên chức danh\nPosition Title"
+        table.cell(0, 1).text = "Trưởng phòng QA"
+
+    assert extract_text(docx_upload(build)) == "Tên chức danh / Position Title | Trưởng phòng QA"
+
+
+def test_list_paragraphs_keep_a_bullet() -> None:
+    def build(document: Any) -> None:
+        document.add_paragraph("Quyền lợi")
+        document.add_paragraph("Thưởng tháng 13", style="List Bullet")
+        document.add_paragraph("• Bảo hiểm đầy đủ", style="List Bullet")
+
+    lines = extract_text(docx_upload(build)).splitlines()
+
+    assert lines == ["Quyền lợi", "- Thưởng tháng 13", "• Bảo hiểm đầy đủ"]

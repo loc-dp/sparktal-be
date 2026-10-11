@@ -24,6 +24,7 @@ def raw(**overrides: Any) -> dict[str, Any]:
         "salary": None,
         "pay_basis": None,
         "work_model": None,
+        "location": None,
         "city": None,
         "skills": [],
         **overrides,
@@ -79,7 +80,8 @@ def test_list_items_become_clean_lines() -> None:
                 "• Own the payout service",
                 "  - Review   designs ",
                 "",
-                "1. Mentor two engineers",
+                "1. Mentor two engineers;",
+                "Báo cáo tiến độ cho nhân viên .",
             ],
             qualifications=[
                 "* 5+ years with Go",
@@ -92,7 +94,10 @@ def test_list_items_become_clean_lines() -> None:
         [],
     )
 
-    assert fields["roles"] == "Own the payout service\nReview designs\nMentor two engineers"
+    assert fields["roles"] == (
+        "Own the payout service\nReview designs\nMentor two engineers\n"
+        "Báo cáo tiến độ cho nhân viên."
+    )
     assert fields["qualifications"] == "5+ years with Go\nPostgres\n1.5 years in fintech"
     assert fields["benefits"] == "Lương tháng 13\nBảo hiểm PVI"
 
@@ -115,6 +120,48 @@ def test_why_we_need_you_keeps_paragraphs_and_its_draft_flag() -> None:
     assert fields["why_we_need_you_drafted"] is True
 
 
+JD_TEXT = """Senior Backend Engineer
+About the role:
+Our payout volume  tripled this year, and the
+team that runs it needs a second senior engineer.
+Responsibilities
+- Own the payout service
+- Review designs"""
+
+
+def test_a_paragraph_found_in_the_jd_is_not_flagged_whatever_claude_says() -> None:
+    # Line wraps, case and punctuation differ from the file; the words are the JD's.
+    why = (
+        "Our payout volume tripled this year, and the team that runs it needs a second "
+        "SENIOR engineer"
+    )
+    fields = normalize_jd(
+        raw(why_we_need_you=why, why_we_need_you_drafted=True, roles=["• Own the payout service"]),
+        [],
+        JD_TEXT,
+    )
+
+    assert fields["why_we_need_you_drafted"] is False
+
+
+def test_reworded_text_is_flagged_even_when_claude_calls_it_copied() -> None:
+    why = "Our payout volume tripled this year. This hire will own the payout service."
+    fields = normalize_jd(
+        raw(why_we_need_you=why, why_we_need_you_drafted=False, roles=["Own the payout service"]),
+        [],
+        JD_TEXT,
+    )
+
+    assert fields["why_we_need_you_drafted"] is True
+
+
+@pytest.mark.parametrize("source", ["", "%PDF garbage the text layer could not read"])
+def test_claudes_flag_stands_when_the_jd_text_cannot_be_checked(source: str) -> None:
+    fields = normalize_jd(raw(why_we_need_you_drafted=True), [], source)
+
+    assert fields["why_we_need_you_drafted"] is True
+
+
 def test_an_empty_draft_is_not_flagged() -> None:
     fields = normalize_jd(raw(why_we_need_you=None, why_we_need_you_drafted=True), [])
 
@@ -128,8 +175,9 @@ def test_an_empty_draft_is_not_flagged() -> None:
         (salary(None, 40_000_000), (None, 40_000_000)),
         (salary(25_000_000, None, currency="vnđ", period=None), (25_000_000, None)),
         (salary(15_000_000, 20_000_000, currency="₫"), (15_000_000, 20_000_000)),
+        (salary(300_000_000, 400_000_000, period="year"), (25_000_000, 33_300_000)),
     ],
-    ids=("range", "up-to", "no-period-means-monthly", "dong-sign"),
+    ids=("range", "up-to", "no-period-means-monthly", "dong-sign", "yearly-as-monthly"),
 )
 def test_a_monthly_vnd_salary_is_kept(
     given: dict[str, Any], expected: tuple[int | None, int | None]
@@ -143,7 +191,7 @@ def test_a_monthly_vnd_salary_is_kept(
     "given",
     [
         salary(1500, 2500, currency="USD"),
-        salary(300_000_000, 400_000_000, period="year"),
+        salary(15_000_000, 20_000_000, period="week"),
         salary(15, 20),
         salary(20_000_000, 15_000_000),
         salary("lots", None),
@@ -154,7 +202,7 @@ def test_a_monthly_vnd_salary_is_kept(
     ],
     ids=(
         "usd",
-        "yearly",
+        "weekly",
         "millions-not-expanded",
         "max-below-min",
         "text",
@@ -211,3 +259,15 @@ def test_a_city_without_a_single_office_is_named_for_the_form_to_flag() -> None:
     assert normalize_jd(raw(city="dn", work_model="remote"), OFFICES)["unmatched_city"] == ""
     assert normalize_jd(raw(city="other"), OFFICES)["unmatched_city"] == ""
     assert normalize_jd(raw(city="atlantis"), OFFICES)["unmatched_city"] == ""
+
+
+def test_a_place_without_a_city_code_is_named_as_written() -> None:
+    assert normalize_jd(raw(location="  Vũng  Tàu "), OFFICES)["unmatched_city"] == "Vũng Tàu"
+    several = normalize_jd(raw(location="Hà Nội, TP.HCM"), OFFICES)
+    assert (several["office"], several["unmatched_city"]) == ("", "Hà Nội, TP.HCM")
+    # A code still wins: its label is translated in the form, the JD's spelling is not.
+    assert normalize_jd(raw(city="dn", location="Hải Châu"), OFFICES)["unmatched_city"] == "Da Nang"
+    assert normalize_jd(raw(city="hcm", location="Quận 7"), OFFICES)["unmatched_city"] == ""
+    remote = raw(location="Cần Giờ", work_model="remote")
+    assert normalize_jd(remote, OFFICES)["unmatched_city"] == ""
+    assert len(normalize_jd(raw(location="Khu " * 40), OFFICES)["unmatched_city"]) <= 80

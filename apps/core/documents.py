@@ -53,15 +53,113 @@ def _pdf_text(upload: File[Any]) -> str:
     return "\n".join(page.extract_text() or "" for page in reader.pages)
 
 
+# A table cell this short is a label ("Tên chức danh / Position Title"), kept on one line.
+DOCX_LABEL_LENGTH = 60
+DOCX_BULLETS = ("•", "●", "○", "◦", "▪", "■", "►", "-", "–", "*", "+", "✓", "✔", "➢")
+
+
+def _docx_list_level(paragraph: Any) -> int | None:
+    """How deep in a bulleted or numbered list a paragraph sits; None outside a list."""
+    p_pr = paragraph._p.pPr
+    num_pr = p_pr.numPr if p_pr is not None else None
+    if num_pr is None:
+        style = paragraph.style.name if paragraph.style is not None else ""
+        return 0 if style.startswith("List") else None
+    if num_pr.numId is not None and num_pr.numId.val == 0:
+        return None
+    return num_pr.ilvl.val if num_pr.ilvl is not None else 0
+
+
+def _docx_text_boxes(paragraph: Any) -> list[str]:
+    from docx.oxml.ns import qn
+
+    lines: list[str] = []
+    # A text box is stored twice (drawing and VML fallback); keep the first copy.
+    for box in paragraph._p.iter(qn("w:txbxContent")):
+        for p in box.iter(qn("w:p")):
+            line = " ".join("".join(t.text or "" for t in p.iter(qn("w:t"))).split())
+            if line and line not in lines:
+                lines.append(line)
+    return lines
+
+
+def _docx_paragraph(paragraph: Any) -> list[str]:
+    lines = [" ".join(part.split()) for part in paragraph.text.splitlines()]
+    lines = [line for line in lines if line]
+    level = _docx_list_level(paragraph)
+    if lines and level is not None and not lines[0].startswith(DOCX_BULLETS):
+        indent = "  " * level
+        lines = [f"{indent}- {lines[0]}", *(f"{indent}  {line}" for line in lines[1:])]
+    return lines + _docx_text_boxes(paragraph)
+
+
+def _docx_cell(lines: list[str]) -> list[str]:
+    """A short bilingual label cell reads as one line; a cell of bullets keeps its lines."""
+    if 1 < len(lines) <= 3 and all(
+        len(line) <= DOCX_LABEL_LENGTH and not line.lstrip().startswith(DOCX_BULLETS)
+        for line in lines
+    ):
+        return [" / ".join(lines)]
+    return lines
+
+
+def _docx_table(table: Any) -> list[str]:
+    """Row by row, cells side by side; a merged cell is read once."""
+    from docx.table import _Cell
+
+    lines: list[str] = []
+    for tr in table._tbl.tr_lst:
+        row: list[str] = []
+        for tc in tr.tc_lst:
+            if tc.vMerge == "continue":
+                continue
+            cell = _docx_cell(_docx_blocks(tc, _Cell(tc, table)))
+            if len(cell) == 1:
+                row.append(cell[0])
+                continue
+            if row:
+                lines.append(" | ".join(row))
+                row = []
+            lines.extend(cell)
+        if row:
+            lines.append(" | ".join(row))
+    return lines
+
+
+def _docx_blocks(element: Any, parent: Any) -> list[str]:
+    """Paragraphs and tables in reading order, including those inside content controls."""
+    from docx.oxml.ns import qn
+    from docx.table import Table
+    from docx.text.paragraph import Paragraph
+
+    lines: list[str] = []
+    for child in element.iterchildren():
+        if child.tag == qn("w:p"):
+            lines.extend(_docx_paragraph(Paragraph(child, parent)))
+        elif child.tag == qn("w:tbl"):
+            lines.extend(_docx_table(Table(child, parent)))
+        elif child.tag == qn("w:sdt"):
+            content = child.find(qn("w:sdtContent"))
+            if content is not None:
+                lines.extend(_docx_blocks(content, parent))
+    return lines
+
+
 def _docx_text(upload: File[Any]) -> str:
+    """The document as Claude and people should read it: in order, lists and tables kept.
+
+    The first page header comes first: forms often put the title or company there.
+    """
     from docx import Document
 
     document = Document(upload)
-    lines = [paragraph.text for paragraph in document.paragraphs]
-    for table in document.tables:
-        for row in table.rows:
-            lines.extend(cell.text for cell in row.cells)
-    return "\n".join(lines)
+    lines: list[str] = []
+    header = document.sections[0].header if document.sections else None
+    if header is not None and not header.is_linked_to_previous:
+        lines.extend(_docx_blocks(header._element, header))
+    lines.extend(_docx_blocks(document.element.body, document))
+    deduped = [line for index, line in enumerate(lines) if index == 0 or line != lines[index - 1]]
+    return "\n".join(deduped)
 
 
 def extract_text(file: File[Any]) -> str:

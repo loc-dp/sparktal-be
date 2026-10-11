@@ -26,6 +26,7 @@ def parsed(**overrides: Any) -> ParsedJd:
             "salary": None,
             "pay_basis": None,
             "work_model": None,
+            "location": None,
             "city": None,
             "skills": [],
             **overrides,
@@ -142,6 +143,14 @@ def test_the_prompt_lists_city_codes_but_not_other() -> None:
     assert "other = " not in prompt
 
 
+def test_the_prompt_maps_old_provinces_to_the_merged_ones() -> None:
+    # A JD from before July 2025 still says Bình Dương; the office list only knows hcm.
+    prompt = instructions()
+
+    assert "Bình Dương" in prompt
+    assert "bd = " not in prompt
+
+
 def test_the_prompt_marks_a_drafted_why_we_need_you() -> None:
     prompt = instructions()
 
@@ -179,3 +188,15 @@ def test_no_requirement_bullet_is_dropped() -> None:
 
     assert "never drop one" in prompt
     assert "stays whole in qualifications" in prompt
+
+
+def test_the_prompt_files_the_working_arrangement_under_benefits() -> None:
+    # Hours, days and contract terms sat outside any benefits block and were lost.
+    prompt = instructions()
+
+    assert "Also the working arrangement wherever the JD states it" in prompt
+
+
+def test_the_prompt_keeps_one_language_of_a_bilingual_jd() -> None:
+    # A bilingual form came back with every duty twice, once per language.
+    assert "Never output an item and its translation as two items" in instructions()

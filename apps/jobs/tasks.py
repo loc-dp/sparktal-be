@@ -46,7 +46,7 @@ def parse_jd(parse_id: str) -> None:
             old_doc = Path(attempt.filename).suffix.lower() == ".doc"
             attempt.mark_failed(OLD_DOC if old_doc else UNREADABLE)
             return
-        fields = normalize_jd(claude.fields, offices_of(attempt))
+        fields = normalize_jd(claude.fields, offices_of(attempt), text)
         if not has_content(fields):
             attempt.mark_failed(NOT_A_JD)
             return

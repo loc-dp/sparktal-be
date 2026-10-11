@@ -47,6 +47,7 @@ def claude_returns(
         "salary": {"minimum": 30_000_000, "maximum": 45_000_000, "currency": "VND", "period": None},
         "pay_basis": "gross",
         "work_model": None,
+        "location": None,
         "city": "hcm",
         "skills": ["IFRS"],
     }

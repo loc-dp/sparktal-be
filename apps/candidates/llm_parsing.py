@@ -8,7 +8,7 @@ from django.conf import settings
 from django.utils import timezone
 from pydantic import BaseModel
 
-from apps.companies.models import Location
+from apps.companies.models import location_codes
 from apps.core.documents import ClaudeRead, anthropic_client, read_with_claude, source_block
 
 __all__ = ["ClaudeRead", "ParsedCv", "instructions", "llm_extract"]
@@ -39,7 +39,7 @@ class ParsedCv(BaseModel):
 
 
 def instructions() -> str:
-    codes = ", ".join(f"{value} = {label}" for value, label in Location.choices)
+    codes = location_codes(with_other=True)
     return (
         "Extract the candidate's details from this CV. It may be in Vietnamese, English or both.\n"
         f"Today is {timezone.localdate().isoformat()}.\n"
@@ -55,8 +55,10 @@ def instructions() -> str:
         "- email, phone: the candidate's own, only one each (the first if several), "
         "copied exactly as written in the CV.\n"
         "- dob: date of birth as YYYY-MM-DD; null if only an age or a year is given.\n"
-        f"- location: where the candidate lives, as one of these codes: {codes}. "
-        "Use 'other' for any other Vietnamese province; null if abroad or not stated.\n"
+        f"- location: where the candidate lives, as one of these codes: {codes}. The codes "
+        "are provinces after the July 2025 merger, so an old province merged into one gets "
+        "its code. Use 'other' for any other Vietnamese province; null if abroad or not "
+        "stated.\n"
         "- is_expat: true only if the candidate is clearly a foreign national; else null.\n"
         "- languages: spoken languages in English, e.g. ['Vietnamese', 'English'].\n"
         "- skills: up to 20 professional skills, most important first, each a short name.\n"

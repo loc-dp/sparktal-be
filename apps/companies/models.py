@@ -36,15 +36,38 @@ class SizeRange(models.TextChoices):
 
 
 class Location(models.TextChoices):
+    """The hiring hubs, as provinces after the merger of 1 July 2025 (see MERGED_PROVINCES)."""
+
     HCM = "hcm", "Ho Chi Minh City"
     HANOI = "hn", "Ha Noi"
     DA_NANG = "dn", "Da Nang"
     HAI_PHONG = "hp", "Hai Phong"
     CAN_THO = "ct", "Can Tho"
-    BINH_DUONG = "bd", "Binh Duong"
     DONG_NAI = "dnai", "Dong Nai"
     BAC_NINH = "bn", "Bac Ninh"
     OTHER = "other", "Other province"
+
+
+# Old provinces merged into a hub on 1 July 2025, as CVs and job descriptions still name them.
+MERGED_PROVINCES: dict[str, tuple[str, ...]] = {
+    Location.HCM: ("Bình Dương", "Bà Rịa - Vũng Tàu"),
+    Location.DA_NANG: ("Quảng Nam",),
+    Location.HAI_PHONG: ("Hải Dương",),
+    Location.CAN_THO: ("Sóc Trăng", "Hậu Giang"),
+    Location.DONG_NAI: ("Bình Phước",),
+    Location.BAC_NINH: ("Bắc Giang",),
+}
+
+
+def location_codes(*, with_other: bool) -> str:
+    """The codes for a Claude prompt, each with the old provinces it now covers."""
+    codes = []
+    for value, label in Location.choices:
+        if value == Location.OTHER and not with_other:
+            continue
+        merged = MERGED_PROVINCES.get(value)
+        codes.append(f"{value} = {label}" + (f" (incl. {', '.join(merged)})" if merged else ""))
+    return "; ".join(codes)
 
 
 class CompanyRole(models.TextChoices):

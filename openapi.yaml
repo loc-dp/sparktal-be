@@ -1668,7 +1668,6 @@ paths:
         schema:
           type: string
           enum:
-          - bd
           - bn
           - ct
           - dn
@@ -1683,7 +1682,6 @@ paths:
           * `dn` - Da Nang
           * `hp` - Hai Phong
           * `ct` - Can Tho
-          * `bd` - Binh Duong
           * `dnai` - Dong Nai
           * `bn` - Bac Ninh
           * `other` - Other province
@@ -3522,7 +3520,6 @@ components:
       - dn
       - hp
       - ct
-      - bd
       - dnai
       - bn
       - other
@@ -3533,7 +3530,6 @@ components:
         * `dn` - Da Nang
         * `hp` - Hai Phong
         * `ct` - Can Tho
-        * `bd` - Binh Duong
         * `dnai` - Dong Nai
         * `bn` - Bac Ninh
         * `other` - Other province

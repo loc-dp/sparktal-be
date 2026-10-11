@@ -1,7 +1,20 @@
-import pytest
-from django.db import IntegrityError
+from importlib import import_module
+from types import SimpleNamespace
 
-from apps.companies.models import Company, CompanyRole, Industry, Location, Office, SizeRange
+import pytest
+from django.apps import apps as django_apps
+from django.db import IntegrityError, connection
+
+from apps.candidates.tests.factories import CandidateFactory
+from apps.companies.models import (
+    Company,
+    CompanyRole,
+    Industry,
+    Location,
+    Office,
+    SizeRange,
+    location_codes,
+)
 from apps.companies.tests.factories import (
     CompanyFactory,
     CompanyMembershipFactory,
@@ -56,3 +69,29 @@ def test_str_is_useful_in_admin() -> None:
     assert str(company) == "Vela Pay"
     assert str(Office(company=company, address="1 Lê Duẩn")) == "Vela Pay — 1 Lê Duẩn"
     assert isinstance(Company.objects.get(pk=company.pk), Company)
+
+
+def test_binh_duong_is_part_of_ho_chi_minh_city_since_the_2025_merger() -> None:
+    assert "bd" not in Location.values
+    codes = location_codes(with_other=False)
+    assert "hcm = Ho Chi Minh City (incl. Bình Dương, Bà Rịa - Vũng Tàu)" in codes
+    assert "other = " not in codes
+    assert location_codes(with_other=True).endswith("other = Other province")
+
+
+def test_rows_in_binh_duong_move_to_ho_chi_minh_city() -> None:
+    office = OfficeFactory(city="bd")
+    Company.objects.filter(pk=office.company_id).update(located="bd")
+    candidate = CandidateFactory(location="bd")
+    editor = SimpleNamespace(connection=connection)
+
+    for migration in (
+        "apps.companies.migrations.0002_binh_duong_into_hcm",
+        "apps.candidates.migrations.0008_binh_duong_into_hcm",
+    ):
+        import_module(migration).binh_duong_into_hcm(django_apps, editor)
+
+    office.refresh_from_db()
+    candidate.refresh_from_db()
+    assert (office.city, candidate.location) == ("hcm", "hcm")
+    assert Company.objects.get(pk=office.company_id).located == "hcm"

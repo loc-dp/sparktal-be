@@ -2,6 +2,7 @@ from collections.abc import Callable
 from typing import cast
 
 import pytest
+from django.core.cache import cache
 from rest_framework.test import APIClient
 
 from apps.accounts.models import User
@@ -12,6 +13,12 @@ from apps.companies.tests.factories import CompanyFactory, CompanyMembershipFact
 from apps.jobs.models import Job, JobAssignment
 from apps.recruiters.models import RecruiterProfile, RecruiterStatus
 from apps.recruiters.tests.factories import RecruiterProfileFactory
+
+
+@pytest.fixture(autouse=True)
+def _clear_cache() -> None:
+    """Start every test with an empty cache so throttle counters never leak between tests."""
+    cache.clear()
 
 
 @pytest.fixture

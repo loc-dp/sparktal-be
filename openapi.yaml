@@ -1074,6 +1074,55 @@ paths:
       responses:
         '204':
           description: No response body
+  /api/v1/company/talent-pool:
+    get:
+      operationId: company_talent_pool_list
+      parameters:
+      - in: query
+        name: job
+        schema:
+          type: string
+          format: uuid
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - in: query
+        name: search
+        schema:
+          type: string
+        description: Candidate name or current title.
+      - in: query
+        name: stage
+        schema:
+          type: string
+          enum:
+          - interview
+          - new
+          - offer
+          - onboarded
+          - rejected
+          - screen
+          - shortlisted
+      tags:
+      - companies
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedCompanyPoolEntryList'
+          description: ''
   /api/v1/csrf:
     get:
       operationId: csrf_retrieve
@@ -2690,6 +2739,93 @@ components:
       - active_jobs
       - jobs
       - pipeline
+    CompanyPoolApplication:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        job:
+          allOf:
+          - $ref: '#/components/schemas/PoolJob'
+          readOnly: true
+        recruiter:
+          allOf:
+          - $ref: '#/components/schemas/ApplicationRecruiter'
+          readOnly: true
+        stage:
+          allOf:
+          - $ref: '#/components/schemas/StageEnum'
+          readOnly: true
+        submitted_at:
+          type: string
+          format: date-time
+          readOnly: true
+        stage_changed_at:
+          type: string
+          format: date-time
+          readOnly: true
+        cv_filename:
+          type: string
+          readOnly: true
+        is_duplicate:
+          type: boolean
+          readOnly: true
+      required:
+      - cv_filename
+      - id
+      - is_duplicate
+      - job
+      - recruiter
+      - stage
+      - stage_changed_at
+      - submitted_at
+    CompanyPoolEntry:
+      type: object
+      description: 'One person as the company knows them: what their CV says, never
+        how to reach them.'
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        full_name:
+          type: string
+          readOnly: true
+        current_title:
+          type: string
+          readOnly: true
+        location:
+          type: string
+          readOnly: true
+        years_experience:
+          type: integer
+          readOnly: true
+          nullable: true
+        skills:
+          type: array
+          items:
+            type: string
+          readOnly: true
+        last_submitted_at:
+          type: string
+          format: date-time
+          readOnly: true
+        applications:
+          type: array
+          items:
+            $ref: '#/components/schemas/CompanyPoolApplication'
+          readOnly: true
+      required:
+      - applications
+      - current_title
+      - full_name
+      - id
+      - last_submitted_at
+      - location
+      - skills
+      - years_experience
     CompanyTypeEnum:
       enum:
       - fdi
@@ -4073,6 +4209,29 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Candidate'
+    PaginatedCompanyPoolEntryList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/CompanyPoolEntry'
     PaginatedJobListItemList:
       type: object
       required:
@@ -4422,6 +4581,19 @@ components:
       required:
       - full_name
       - id
+    PoolJob:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        title:
+          type: string
+          readOnly: true
+      required:
+      - id
+      - title
     PublicJob:
       type: object
       description: 'What anyone with the share link may see: no bounty, no internal

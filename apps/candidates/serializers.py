@@ -44,6 +44,43 @@ class ApplicationListSerializer(serializers.ModelSerializer[Application]):
         read_only_fields = fields
 
 
+class PoolJobSerializer(serializers.Serializer[object]):
+    id = serializers.UUIDField(read_only=True)
+    title = serializers.CharField(read_only=True)
+
+
+class CompanyPoolApplicationSerializer(serializers.ModelSerializer[Application]):
+    job = PoolJobSerializer(read_only=True)
+    recruiter = ApplicationRecruiterSerializer(read_only=True)
+
+    class Meta:
+        model = Application
+        fields = (
+            "id",
+            "job",
+            "recruiter",
+            "stage",
+            "submitted_at",
+            "stage_changed_at",
+            "cv_filename",
+            "is_duplicate",
+        )
+        read_only_fields = fields
+
+
+class CompanyPoolEntrySerializer(serializers.Serializer[object]):
+    """One person as the company knows them: what their CV says, never how to reach them."""
+
+    id = serializers.UUIDField(read_only=True)
+    full_name = serializers.CharField(read_only=True)
+    current_title = serializers.CharField(read_only=True)
+    location = serializers.CharField(read_only=True)
+    years_experience = serializers.IntegerField(read_only=True, allow_null=True)
+    skills = serializers.ListField(child=serializers.CharField(), read_only=True)
+    last_submitted_at = serializers.DateTimeField(read_only=True)
+    applications = CompanyPoolApplicationSerializer(many=True, read_only=True)
+
+
 class CvParseSerializer(serializers.ModelSerializer[CvParse]):
     class Meta:
         model = CvParse

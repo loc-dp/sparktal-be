@@ -15,6 +15,7 @@ from apps.candidates.api import (
     SubmissionCheckView,
     SubmissionCreateView,
 )
+from apps.candidates.company_pool import CompanyTalentPoolView
 
 urlpatterns = [
     path(
@@ -47,6 +48,7 @@ urlpatterns = [
     path("cv-parses", CvParseCreateView.as_view(), name="cv-parses"),
     path("cv-parses/<uuid:pk>", CvParseDetailView.as_view(), name="cv-parse-detail"),
     path("candidates", CandidateListCreateView.as_view(), name="candidates"),
+    path("company/talent-pool", CompanyTalentPoolView.as_view(), name="company-talent-pool"),
     path("candidates/matches", CandidateMatchView.as_view(), name="candidate-matches"),
     path("candidates/<uuid:pk>", CandidateDetailView.as_view(), name="candidate-detail"),
     path("candidates/<uuid:pk>/cv", CandidateCvView.as_view(), name="candidate-cv"),

@@ -38,6 +38,14 @@ class Channel(models.Model):
 class Message(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     channel = models.ForeignKey(Channel, on_delete=models.CASCADE, related_name="messages")
+    # Set when the message is about one candidate (the Discussion panel on candidate detail).
+    application = models.ForeignKey(
+        "candidates.Application",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="messages",
+    )
     author = models.ForeignKey(
         User, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
     )

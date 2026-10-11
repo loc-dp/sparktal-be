@@ -42,7 +42,6 @@ from apps.candidates.serializers import (
     CvParseSerializer,
     DuplicateCheckResultSerializer,
     DuplicateCheckSerializer,
-    RecruiterSubmissionDetailSerializer,
     RecruiterSubmissionSerializer,
     SubmissionCreateSerializer,
     SubmissionResultSerializer,
@@ -50,6 +49,7 @@ from apps.candidates.serializers import (
 from apps.candidates.tasks import parse_cv
 from apps.core.http import content_disposition
 from apps.core.pagination import DefaultPagination
+from apps.hiring.serializers import SubmissionDetailSerializer
 from apps.jobs.access import can_submit_to_job, can_view_job, jobs_joined_by
 from apps.jobs.models import Job
 from apps.recruiters.access import IsApprovedRecruiter, approved_recruiter
@@ -209,12 +209,12 @@ class RecruiterSubmissionListView(ListAPIView[Application]):
     get=extend_schema(tags=["submissions"], operation_id="recruiters_submissions_retrieve")
 )
 class RecruiterSubmissionDetailView(RetrieveAPIView[Application]):
-    serializer_class = RecruiterSubmissionDetailSerializer
+    serializer_class = SubmissionDetailSerializer
     permission_classes = (IsApprovedRecruiter,)
     queryset = Application.objects.none()
 
     def get_queryset(self) -> QuerySet[Application]:
-        return my_submissions(self.request)
+        return my_submissions(self.request).prefetch_related("interviews")
 
 
 @extend_schema_view(

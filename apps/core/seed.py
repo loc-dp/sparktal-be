@@ -6,7 +6,7 @@ Each app that ships demo data has an `apps/<app>/seed.py` with:
     def seed(ctx: SeedContext) -> None: ...
 
 Orders already assigned: accounts 10, companies 20, recruiters 30, jobs 40,
-job assignments 45, candidates 50, chat 70. Seeders must be idempotent
+job assignments 45, candidates 50, chat 70, hiring 80. Seeders must be idempotent
 (use `update_or_create`).
 """
 

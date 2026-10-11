@@ -2,6 +2,7 @@ from typing import Any, ClassVar
 
 import nh3
 from django.core.exceptions import ValidationError as DjangoValidationError
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from apps.accounts.models import User, UserKind
@@ -24,7 +25,16 @@ def sanitise_body(value: str) -> str:
     return nh3.clean(value or "", tags=set(), attributes={}, strip_comments=True).strip()
 
 
+class MessageApplicationSerializer(serializers.Serializer[Any]):
+    """The candidate a message is about, so Chat can link to candidate detail."""
+
+    id = serializers.UUIDField()
+    job_id = serializers.UUIDField()
+    candidate_name = serializers.CharField()
+
+
 class MessageSerializer(serializers.ModelSerializer[Message]):
+    application = serializers.SerializerMethodField()
     author_id = serializers.UUIDField(source="author.id", read_only=True, allow_null=True)
     author_name = serializers.SerializerMethodField()
     attachment_url = serializers.SerializerMethodField()
@@ -34,6 +44,7 @@ class MessageSerializer(serializers.ModelSerializer[Message]):
         fields = (
             "id",
             "channel",
+            "application",
             "kind",
             "author_id",
             "author_name",
@@ -45,6 +56,17 @@ class MessageSerializer(serializers.ModelSerializer[Message]):
             "quote_text",
             "created_at",
         )
+
+    @extend_schema_field(MessageApplicationSerializer(allow_null=True))
+    def get_application(self, message: Message) -> dict[str, str] | None:
+        application = message.application
+        if application is None:
+            return None
+        return {
+            "id": str(application.pk),
+            "job_id": str(application.job_id),
+            "candidate_name": application.candidate.full_name,
+        }
 
     def get_author_name(self, message: Message) -> str:
         return display_name(message.author)

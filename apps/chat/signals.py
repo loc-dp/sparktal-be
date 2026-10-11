@@ -29,6 +29,7 @@ def create_channel_for_application(
     channel, _ = ensure_channel(instance.job, instance.recruiter)
     Message.objects.create(
         channel=channel,
+        application=instance,
         author=None,
         kind=MessageKind.SYSTEM,
         body=(f"{instance.recruiter.nickname} submitted {instance.candidate.full_name}"),

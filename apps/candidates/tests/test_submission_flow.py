@@ -210,7 +210,7 @@ def test_recruiter_reads_own_submission_with_notes(
     assert body["job"]["id"] == str(joined_job.pk)
     assert body["motivation"] == "Larger projects"
     assert body["consultant_note"] == "Sharp in the screen"
-    assert "rejected_reason" not in body
+    assert body["rejected_reason"] == ""
 
 
 def test_recruiter_cannot_read_a_rival_submission(

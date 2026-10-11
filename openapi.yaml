@@ -4,6 +4,117 @@ info:
   version: 1.0.0
   description: Sparktal Platform V.1 — Company portal API.
 paths:
+  /api/v1/applications/{id}:
+    get:
+      operationId: applications_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - hiring
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApplicationDetail'
+          description: ''
+  /api/v1/applications/{id}/approval-requests:
+    post:
+      operationId: applications_approval_requests_create
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - hiring
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApprovalCreateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ApprovalCreateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ApprovalCreateRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApplicationDetail'
+          description: ''
+  /api/v1/applications/{id}/approvers:
+    get:
+      operationId: applications_approvers_list
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - hiring
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Teammate'
+          description: ''
+  /api/v1/applications/{id}/archive:
+    post:
+      operationId: applications_archive_create
+      description: POST runs one stage command and answers with the fresh detail.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - hiring
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ArchiveRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ArchiveRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ArchiveRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApplicationDetail'
+          description: ''
   /api/v1/applications/{id}/cv:
     get:
       operationId: applications_cv_retrieve
@@ -26,6 +137,349 @@ paths:
               schema:
                 type: string
                 format: binary
+          description: ''
+  /api/v1/applications/{id}/cv/inline:
+    get:
+      operationId: applications_cv_inline_retrieve
+      description: The submitted PDF for the in-page viewer; other formats have no
+        inline view.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - hiring
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+          description: ''
+  /api/v1/applications/{id}/cv/text:
+    get:
+      operationId: applications_cv_text_retrieve
+      description: 'The CV''s text layer: how a DOCX is shown. Empty for DOC files
+        and scans.'
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - hiring
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CvText'
+          description: ''
+  /api/v1/applications/{id}/feedback:
+    get:
+      operationId: applications_feedback_list
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - hiring
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Feedback'
+          description: ''
+  /api/v1/applications/{id}/hire:
+    post:
+      operationId: applications_hire_create
+      description: POST runs one stage command and answers with the fresh detail.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - hiring
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApplicationDetail'
+          description: ''
+  /api/v1/applications/{id}/interviews:
+    post:
+      operationId: applications_interviews_create
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - hiring
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InterviewCreateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/InterviewCreateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/InterviewCreateRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApplicationDetail'
+          description: ''
+  /api/v1/applications/{id}/messages:
+    get:
+      operationId: applications_messages_list
+      description: Messages about this candidate in the (job, recruiter) channel;
+        both sides can post.
+      parameters:
+      - in: query
+        name: before
+        schema:
+          type: string
+          format: date-time
+        description: Return older messages.
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      - in: query
+        name: limit
+        schema:
+          type: integer
+        description: 1–50, default 30.
+      tags:
+      - hiring
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessagePage'
+          description: ''
+    post:
+      operationId: applications_messages_create
+      description: Messages about this candidate in the (job, recruiter) channel;
+        both sides can post.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - hiring
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DiscussionMessageCreateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/DiscussionMessageCreateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/DiscussionMessageCreateRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: ''
+  /api/v1/applications/{id}/move-forward:
+    post:
+      operationId: applications_move_forward_create
+      description: POST runs one stage command and answers with the fresh detail.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - hiring
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApplicationDetail'
+          description: ''
+  /api/v1/applications/{id}/notes:
+    get:
+      operationId: applications_notes_list
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - hiring
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CandidateNote'
+          description: ''
+    post:
+      operationId: applications_notes_create
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - hiring
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NoteCreateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/NoteCreateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/NoteCreateRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CandidateNote'
+          description: ''
+  /api/v1/applications/{id}/offer:
+    post:
+      operationId: applications_offer_create
+      description: POST runs one stage command and answers with the fresh detail.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - hiring
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApplicationDetail'
+          description: ''
+  /api/v1/approval-requests/{id}/decision:
+    post:
+      operationId: approval_requests_decision_create
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - hiring
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApprovalDecisionRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ApprovalDecisionRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ApprovalDecisionRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApplicationDetail'
+          description: ''
+  /api/v1/approval-requests/waiting:
+    get:
+      operationId: approval_requests_waiting_list
+      description: Requests waiting for the caller's decision, oldest first (the Home
+        box).
+      tags:
+      - hiring
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/WaitingApproval'
           description: ''
   /api/v1/candidates:
     get:
@@ -729,6 +1183,41 @@ paths:
               schema:
                 $ref: '#/components/schemas/Health'
           description: ''
+  /api/v1/interviews/{id}/feedback:
+    put:
+      operationId: interviews_feedback_update
+      description: Each teammate keeps one verdict per round; saving again replaces
+        it.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - hiring
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FeedbackWriteRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/FeedbackWriteRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/FeedbackWriteRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Feedback'
+          description: ''
   /api/v1/jd-parses:
     post:
       operationId: jd_parses_create
@@ -1314,6 +1803,23 @@ paths:
               schema:
                 $ref: '#/components/schemas/Me'
           description: ''
+  /api/v1/notes/{id}:
+    delete:
+      operationId: notes_destroy
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - hiring
+      security:
+      - cookieAuth: []
+      responses:
+        '204':
+          description: No response body
   /api/v1/public/jobs/{share_token}:
     get:
       operationId: public_jobs_retrieve
@@ -1476,7 +1982,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/RecruiterSubmissionDetail'
+                $ref: '#/components/schemas/SubmissionDetail'
           description: ''
   /api/v1/recruiters/me/submissions/{id}/cv:
     get:
@@ -1551,6 +2057,24 @@ paths:
           description: ''
 components:
   schemas:
+    ApplicationActionEnum:
+      enum:
+      - move_forward
+      - set_interview
+      - next_interview
+      - request_approval
+      - offer
+      - hire
+      - archive
+      type: string
+      description: |-
+        * `move_forward` - Move forward
+        * `set_interview` - Set interview
+        * `next_interview` - Next interview
+        * `request_approval` - Request approval
+        * `offer` - Offer
+        * `hire` - Mark hired
+        * `archive` - Archive
     ApplicationCandidate:
       type: object
       properties:
@@ -1563,6 +2087,114 @@ components:
       required:
       - current_title
       - full_name
+    ApplicationDetail:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        job:
+          allOf:
+          - $ref: '#/components/schemas/DetailJob'
+          readOnly: true
+        candidate:
+          allOf:
+          - $ref: '#/components/schemas/CandidateFacts'
+          readOnly: true
+        recruiter:
+          allOf:
+          - $ref: '#/components/schemas/ApplicationRecruiter'
+          readOnly: true
+        stage:
+          allOf:
+          - $ref: '#/components/schemas/StageEnum'
+          readOnly: true
+        submitted_at:
+          type: string
+          format: date-time
+          readOnly: true
+        stage_changed_at:
+          type: string
+          format: date-time
+          readOnly: true
+        rejected_reason:
+          type: string
+          readOnly: true
+        is_duplicate:
+          type: boolean
+          readOnly: true
+        first_submitted_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        cv_filename:
+          type: string
+          readOnly: true
+        cv_kind:
+          allOf:
+          - $ref: '#/components/schemas/CvKindEnum'
+          readOnly: true
+        reason_for_leaving:
+          type: string
+          readOnly: true
+        motivation:
+          type: string
+          readOnly: true
+        other_notes:
+          type: string
+          readOnly: true
+        consultant_note:
+          type: string
+          readOnly: true
+        interviews:
+          type: array
+          items:
+            $ref: '#/components/schemas/Interview'
+          readOnly: true
+        pending_approval:
+          allOf:
+          - $ref: '#/components/schemas/PendingApproval'
+          nullable: true
+          readOnly: true
+        last_decline:
+          allOf:
+          - $ref: '#/components/schemas/Decline'
+          nullable: true
+          readOnly: true
+        history:
+          type: array
+          items:
+            $ref: '#/components/schemas/StageEntry'
+          readOnly: true
+        actions:
+          type: array
+          items:
+            $ref: '#/components/schemas/ApplicationActionEnum'
+          readOnly: true
+      required:
+      - actions
+      - candidate
+      - consultant_note
+      - cv_filename
+      - cv_kind
+      - first_submitted_at
+      - history
+      - id
+      - interviews
+      - is_duplicate
+      - job
+      - last_decline
+      - motivation
+      - other_notes
+      - pending_approval
+      - reason_for_leaving
+      - recruiter
+      - rejected_reason
+      - stage
+      - stage_changed_at
+      - submitted_at
     ApplicationList:
       type: object
       properties:
@@ -1619,6 +2251,38 @@ components:
       required:
       - id
       - nickname
+    ApprovalCreateRequest:
+      type: object
+      properties:
+        approver_id:
+          type: string
+          format: uuid
+        note:
+          type: string
+          default: ''
+          maxLength: 1000
+      required:
+      - approver_id
+    ApprovalDecisionRequest:
+      type: object
+      properties:
+        approve:
+          type: boolean
+        note:
+          type: string
+          default: ''
+          maxLength: 1000
+      required:
+      - approve
+    ArchiveRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 1000
+      required:
+      - reason
     BlankEnum:
       enum:
       - ''
@@ -1739,6 +2403,57 @@ components:
           writeOnly: true
       required:
       - file
+    CandidateFacts:
+      type: object
+      description: What the CV says about the person; never how to reach them.
+      properties:
+        full_name:
+          type: string
+          readOnly: true
+        current_title:
+          type: string
+          readOnly: true
+        location:
+          allOf:
+          - $ref: '#/components/schemas/LocationEnum'
+          readOnly: true
+        languages:
+          type: array
+          items:
+            type: string
+            maxLength: 24
+          readOnly: true
+        skills:
+          type: array
+          items:
+            type: string
+            maxLength: 40
+          readOnly: true
+        years_experience:
+          type: integer
+          readOnly: true
+          nullable: true
+        current_salary:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,15}(?:\.\d{0,0})?$
+          readOnly: true
+          nullable: true
+        expected_salary:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,15}(?:\.\d{0,0})?$
+          readOnly: true
+          nullable: true
+      required:
+      - current_salary
+      - current_title
+      - expected_salary
+      - full_name
+      - languages
+      - location
+      - skills
+      - years_experience
     CandidateMatchRequest:
       type: object
       description: 'Who a new profile would be: any one of these can tie it to someone
@@ -1760,6 +2475,32 @@ components:
           type: string
           format: date
           nullable: true
+    CandidateNote:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        body:
+          type: string
+          readOnly: true
+        author_name:
+          type: string
+          readOnly: true
+        is_mine:
+          type: boolean
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - author_name
+      - body
+      - created_at
+      - id
+      - is_mine
     CandidateWriteRequest:
       type: object
       properties:
@@ -2023,6 +2764,18 @@ components:
         * `running` - Running
         * `done` - Done
         * `failed` - Failed
+    CvKindEnum:
+      enum:
+      - pdf
+      - docx
+      - doc
+      - other
+      type: string
+      description: |-
+        * `pdf` - PDF
+        * `docx` - Word (DOCX)
+        * `doc` - Word 97–2003 (DOC)
+        * `other` - Other
     CvParse:
       type: object
       properties:
@@ -2068,6 +2821,59 @@ components:
           writeOnly: true
       required:
       - file
+    CvText:
+      type: object
+      properties:
+        text:
+          type: string
+          readOnly: true
+      required:
+      - text
+    Decline:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        approver_name:
+          type: string
+          readOnly: true
+        reason:
+          type: string
+          readOnly: true
+        decided_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+      required:
+      - approver_name
+      - decided_at
+      - id
+      - reason
+    DetailJob:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        title:
+          type: string
+          readOnly: true
+      required:
+      - id
+      - title
+    DiscussionMessageCreateRequest:
+      type: object
+      properties:
+        body:
+          type: string
+          minLength: 1
+          maxLength: 4000
+      required:
+      - body
     DuplicateCheckRequest:
       type: object
       properties:
@@ -2091,6 +2897,57 @@ components:
       - duplicate
       - first_submitted_at
       - window_months
+    Feedback:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        interview_id:
+          type: string
+          format: uuid
+          readOnly: true
+        round:
+          type: integer
+          readOnly: true
+        verdict:
+          allOf:
+          - $ref: '#/components/schemas/VerdictEnum'
+          readOnly: true
+        body:
+          type: string
+          readOnly: true
+        author_name:
+          type: string
+          readOnly: true
+        is_mine:
+          type: boolean
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - author_name
+      - body
+      - id
+      - interview_id
+      - is_mine
+      - round
+      - updated_at
+      - verdict
+    FeedbackWriteRequest:
+      type: object
+      properties:
+        verdict:
+          $ref: '#/components/schemas/VerdictEnum'
+        body:
+          type: string
+          default: ''
+          maxLength: 4000
+      required:
+      - verdict
     FunctionEnum:
       enum:
       - finance
@@ -2222,6 +3079,65 @@ components:
         * `real_estate_construction` - Real Estate & Construction
         * `fmcg` - FMCG
         * `energy_utilities` - Energy & Utilities
+    Interview:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        round:
+          type: integer
+          readOnly: true
+        starts_at:
+          type: string
+          format: date-time
+          readOnly: true
+        ends_at:
+          type: string
+          format: date-time
+          readOnly: true
+        format:
+          allOf:
+          - $ref: '#/components/schemas/InterviewFormatEnum'
+          readOnly: true
+        location:
+          type: string
+          readOnly: true
+      required:
+      - ends_at
+      - format
+      - id
+      - location
+      - round
+      - starts_at
+    InterviewCreateRequest:
+      type: object
+      properties:
+        starts_at:
+          type: string
+          format: date-time
+        ends_at:
+          type: string
+          format: date-time
+        format:
+          $ref: '#/components/schemas/InterviewFormatEnum'
+        location:
+          type: string
+          default: ''
+          maxLength: 500
+      required:
+      - ends_at
+      - format
+      - starts_at
+    InterviewFormatEnum:
+      enum:
+      - in_person
+      - online
+      type: string
+      description: |-
+        * `in_person` - In person
+        * `online` - Online
     JdParse:
       type: object
       properties:
@@ -2948,6 +3864,11 @@ components:
         channel:
           type: string
           format: uuid
+        application:
+          allOf:
+          - $ref: '#/components/schemas/MessageApplication'
+          nullable: true
+          readOnly: true
         kind:
           $ref: '#/components/schemas/MessageKindEnum'
         author_id:
@@ -2982,12 +3903,30 @@ components:
           format: date-time
           readOnly: true
       required:
+      - application
       - attachment_url
       - author_id
       - author_name
       - channel
       - created_at
       - id
+    MessageApplication:
+      type: object
+      description: The candidate a message is about, so Chat can link to candidate
+        detail.
+      properties:
+        id:
+          type: string
+          format: uuid
+        job_id:
+          type: string
+          format: uuid
+        candidate_name:
+          type: string
+      required:
+      - candidate_name
+      - id
+      - job_id
     MessageCreateRequest:
       type: object
       properties:
@@ -3054,6 +3993,15 @@ components:
           type: boolean
       required:
       - available
+    NoteCreateRequest:
+      type: object
+      properties:
+        body:
+          type: string
+          minLength: 1
+          maxLength: 4000
+      required:
+      - body
     Office:
       type: object
       properties:
@@ -3429,6 +4377,55 @@ components:
       description: |-
         * `gross` - Gross
         * `net` - Net
+    PendingApproval:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        approver:
+          allOf:
+          - $ref: '#/components/schemas/Person'
+          readOnly: true
+        requested_by_name:
+          type: string
+          readOnly: true
+        stage:
+          allOf:
+          - $ref: '#/components/schemas/StageEnum'
+          readOnly: true
+        note:
+          type: string
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        can_decide:
+          type: boolean
+          readOnly: true
+      required:
+      - approver
+      - can_decide
+      - created_at
+      - id
+      - note
+      - requested_by_name
+      - stage
+    Person:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        full_name:
+          type: string
+          readOnly: true
+      required:
+      - full_name
+      - id
     PublicJob:
       type: object
       description: 'What anyone with the share link may see: no bounty, no internal
@@ -3746,74 +4743,12 @@ components:
       - stage
       - stage_changed_at
       - submitted_at
-    RecruiterSubmissionDetail:
+    Rejection:
       type: object
-      description: One submission with the notes the recruiter sent alongside the
-        CV.
       properties:
         id:
           type: string
           format: uuid
-          readOnly: true
-        job:
-          allOf:
-          - $ref: '#/components/schemas/SubmissionJob'
-          readOnly: true
-        candidate:
-          allOf:
-          - $ref: '#/components/schemas/SubmissionCandidate'
-          readOnly: true
-        stage:
-          allOf:
-          - $ref: '#/components/schemas/StageEnum'
-          readOnly: true
-        submitted_at:
-          type: string
-          format: date-time
-          readOnly: true
-        stage_changed_at:
-          type: string
-          format: date-time
-          readOnly: true
-        is_duplicate:
-          type: boolean
-          readOnly: true
-        first_submitted_at:
-          type: string
-          nullable: true
-          readOnly: true
-        cv_filename:
-          type: string
-          readOnly: true
-        reason_for_leaving:
-          type: string
-          readOnly: true
-        motivation:
-          type: string
-          readOnly: true
-        other_notes:
-          type: string
-          readOnly: true
-        consultant_note:
-          type: string
-          readOnly: true
-      required:
-      - candidate
-      - consultant_note
-      - cv_filename
-      - first_submitted_at
-      - id
-      - is_duplicate
-      - job
-      - motivation
-      - other_notes
-      - reason_for_leaving
-      - stage
-      - stage_changed_at
-      - submitted_at
-    Rejection:
-      type: object
-      properties:
         candidate_name:
           type: string
         reason:
@@ -3823,6 +4758,7 @@ components:
           format: date-time
       required:
       - candidate_name
+      - id
       - reason
       - rejected_at
     RoleEnum:
@@ -3890,6 +4826,25 @@ components:
         * `r100_500` - 100–500 employees
         * `r500_1000` - 500–1,000 employees
         * `gt1000` - 1,000+ employees
+    StageEntry:
+      type: object
+      properties:
+        stage:
+          allOf:
+          - $ref: '#/components/schemas/StageEnum'
+          readOnly: true
+        at:
+          type: string
+          format: date-time
+          readOnly: true
+        by:
+          type: string
+          readOnly: true
+          nullable: true
+      required:
+      - at
+      - by
+      - stage
     StageEnum:
       enum:
       - shortlisted
@@ -3925,6 +4880,62 @@ components:
       - current_title
       - full_name
       - id
+    SubmissionCandidateFacts:
+      type: object
+      description: What the CV says about the person; never how to reach them.
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        full_name:
+          type: string
+          readOnly: true
+        current_title:
+          type: string
+          readOnly: true
+        location:
+          allOf:
+          - $ref: '#/components/schemas/LocationEnum'
+          readOnly: true
+        languages:
+          type: array
+          items:
+            type: string
+            maxLength: 24
+          readOnly: true
+        skills:
+          type: array
+          items:
+            type: string
+            maxLength: 40
+          readOnly: true
+        years_experience:
+          type: integer
+          readOnly: true
+          nullable: true
+        current_salary:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,15}(?:\.\d{0,0})?$
+          readOnly: true
+          nullable: true
+        expected_salary:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,15}(?:\.\d{0,0})?$
+          readOnly: true
+          nullable: true
+      required:
+      - current_salary
+      - current_title
+      - expected_salary
+      - full_name
+      - id
+      - languages
+      - location
+      - skills
+      - years_experience
     SubmissionCreateRequest:
       type: object
       properties:
@@ -3954,6 +4965,93 @@ components:
       - candidate_id
       - motivation
       - reason_for_leaving
+    SubmissionDetail:
+      type: object
+      description: |-
+        The recruiter's own submission: progress and the archive reason, never company notes,
+        feedback or approvals.
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        job:
+          allOf:
+          - $ref: '#/components/schemas/SubmissionJob'
+          readOnly: true
+        candidate:
+          allOf:
+          - $ref: '#/components/schemas/SubmissionCandidateFacts'
+          readOnly: true
+        stage:
+          allOf:
+          - $ref: '#/components/schemas/StageEnum'
+          readOnly: true
+        submitted_at:
+          type: string
+          format: date-time
+          readOnly: true
+        stage_changed_at:
+          type: string
+          format: date-time
+          readOnly: true
+        is_duplicate:
+          type: boolean
+          readOnly: true
+        first_submitted_at:
+          type: string
+          nullable: true
+          readOnly: true
+        cv_filename:
+          type: string
+          readOnly: true
+        reason_for_leaving:
+          type: string
+          readOnly: true
+        motivation:
+          type: string
+          readOnly: true
+        other_notes:
+          type: string
+          readOnly: true
+        consultant_note:
+          type: string
+          readOnly: true
+        rejected_reason:
+          type: string
+          readOnly: true
+        cv_kind:
+          allOf:
+          - $ref: '#/components/schemas/CvKindEnum'
+          readOnly: true
+        interviews:
+          type: array
+          items:
+            $ref: '#/components/schemas/Interview'
+          readOnly: true
+        history:
+          type: array
+          items:
+            $ref: '#/components/schemas/StageEntry'
+          readOnly: true
+      required:
+      - candidate
+      - consultant_note
+      - cv_filename
+      - cv_kind
+      - first_submitted_at
+      - history
+      - id
+      - interviews
+      - is_duplicate
+      - job
+      - motivation
+      - other_notes
+      - reason_for_leaving
+      - rejected_reason
+      - stage
+      - stage_changed_at
+      - submitted_at
     SubmissionJob:
       type: object
       properties:
@@ -3986,6 +5084,86 @@ components:
       required:
       - application_id
       - is_duplicate
+    Teammate:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        full_name:
+          type: string
+          readOnly: true
+        role:
+          allOf:
+          - $ref: '#/components/schemas/RoleEnum'
+          readOnly: true
+      required:
+      - full_name
+      - id
+      - role
+    VerdictEnum:
+      enum:
+      - strong_yes
+      - 'yes'
+      - 'no'
+      - strong_no
+      type: string
+      description: |-
+        * `strong_yes` - Strong yes
+        * `yes` - Yes
+        * `no` - No
+        * `strong_no` - Strong no
+    WaitingApplication:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        job:
+          allOf:
+          - $ref: '#/components/schemas/DetailJob'
+          readOnly: true
+        candidate_name:
+          type: string
+          readOnly: true
+        stage:
+          allOf:
+          - $ref: '#/components/schemas/StageEnum'
+          readOnly: true
+      required:
+      - candidate_name
+      - id
+      - job
+      - stage
+    WaitingApproval:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        application:
+          allOf:
+          - $ref: '#/components/schemas/WaitingApplication'
+          readOnly: true
+        requested_by_name:
+          type: string
+          readOnly: true
+        note:
+          type: string
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - application
+      - created_at
+      - id
+      - note
+      - requested_by_name
     WaitingJob:
       type: object
       properties:

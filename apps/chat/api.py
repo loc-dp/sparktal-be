@@ -1,6 +1,7 @@
 from typing import Any, cast
 
 from django.db import transaction
+from django.db.models import QuerySet
 from django.http import FileResponse, Http404
 from django.utils import timezone
 from drf_spectacular.types import OpenApiTypes
@@ -27,7 +28,7 @@ from apps.core.http import content_disposition
 MAX_PAGE = 50
 DEFAULT_PAGE = 30
 CHANNEL_QS_HINTS = ("job", "job__company", "recruiter")
-MESSAGE_QS_HINTS = ("author", "author__recruiter")
+MESSAGE_QS_HINTS = ("author", "author__recruiter", "application", "application__candidate")
 
 
 def get_channel_or_404(request: Request, pk: Any) -> Channel:
@@ -35,6 +36,45 @@ def get_channel_or_404(request: Request, pk: Any) -> Channel:
     if channel is None or not can_access_channel(cast(User, request.user), channel):
         raise Http404
     return channel
+
+
+MESSAGE_PAGE_PARAMETERS = [
+    OpenApiParameter("before", OpenApiTypes.DATETIME, description="Return older messages."),
+    OpenApiParameter(
+        "limit",
+        OpenApiTypes.INT,
+        description=f"1–{MAX_PAGE}, default {DEFAULT_PAGE}.",
+    ),
+]
+
+
+def page_limit(request: Request) -> int:
+    raw = request.query_params.get("limit")
+    if raw is None:
+        return DEFAULT_PAGE
+    try:
+        value = int(raw)
+    except ValueError as error:
+        raise serializers.ValidationError({"limit": ["Enter a whole number."]}) from error
+    if not 1 <= value <= MAX_PAGE:
+        raise serializers.ValidationError({"limit": [f"limit must be between 1 and {MAX_PAGE}."]})
+    return value
+
+
+def message_page(request: Request, queryset: QuerySet[Message]) -> dict[str, Any]:
+    """One window of messages, oldest first, and whether older ones exist."""
+    limit = page_limit(request)
+    queryset = queryset.select_related(*MESSAGE_QS_HINTS)
+    before = request.query_params.get("before")
+    if before:
+        parsed = serializers.DateTimeField().to_internal_value(before)
+        queryset = queryset.filter(created_at__lt=parsed)
+    window = list(queryset.order_by("-created_at", "-id")[: limit + 1])
+    page = list(reversed(window[:limit]))
+    return {
+        "results": MessageSerializer(page, many=True, context={"request": request}).data,
+        "has_more": len(window) > limit,
+    }
 
 
 @extend_schema_view(
@@ -57,14 +97,7 @@ class ChannelListView(APIView):
     get=extend_schema(
         tags=["chat"],
         operation_id="chat_channels_messages_list",
-        parameters=[
-            OpenApiParameter("before", OpenApiTypes.DATETIME, description="Return older messages."),
-            OpenApiParameter(
-                "limit",
-                OpenApiTypes.INT,
-                description=f"1–{MAX_PAGE}, default {DEFAULT_PAGE}.",
-            ),
-        ],
+        parameters=MESSAGE_PAGE_PARAMETERS,
         responses=MessagePageSerializer,
     ),
     post=extend_schema(
@@ -77,21 +110,7 @@ class ChannelListView(APIView):
 class ChannelMessagesView(APIView):
     def get(self, request: Request, pk: Any) -> Response:
         channel = get_channel_or_404(request, pk)
-        limit = self._limit(request)
-        queryset = channel.messages.select_related(*MESSAGE_QS_HINTS)
-        before = request.query_params.get("before")
-        if before:
-            parsed = serializers.DateTimeField().to_internal_value(before)
-            queryset = queryset.filter(created_at__lt=parsed)
-        window = list(queryset.order_by("-created_at", "-id")[: limit + 1])
-        has_more = len(window) > limit
-        page = list(reversed(window[:limit]))
-        return Response(
-            {
-                "results": MessageSerializer(page, many=True, context={"request": request}).data,
-                "has_more": has_more,
-            }
-        )
+        return Response(message_page(request, channel.messages.all()))
 
     def post(self, request: Request, pk: Any) -> Response:
         channel = get_channel_or_404(request, pk)
@@ -105,21 +124,6 @@ class ChannelMessagesView(APIView):
             MessageSerializer(message, context={"request": request}).data,
             status=status.HTTP_201_CREATED,
         )
-
-    @staticmethod
-    def _limit(request: Request) -> int:
-        raw = request.query_params.get("limit")
-        if raw is None:
-            return DEFAULT_PAGE
-        try:
-            value = int(raw)
-        except ValueError as error:
-            raise serializers.ValidationError({"limit": ["Enter a whole number."]}) from error
-        if not 1 <= value <= MAX_PAGE:
-            raise serializers.ValidationError(
-                {"limit": [f"limit must be between 1 and {MAX_PAGE}."]}
-            )
-        return value
 
 
 @extend_schema_view(

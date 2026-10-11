@@ -53,6 +53,7 @@ INSTALLED_APPS = [
     "apps.candidates",
     "apps.exports",
     "apps.chat",
+    "apps.hiring",
 ]
 
 MIDDLEWARE = [
@@ -251,6 +252,10 @@ SPECTACULAR_SETTINGS = {
         "LocationEnum": "apps.companies.models.Location.choices",
         "CvExportStatusEnum": "apps.exports.models.CvExportStatus.choices",
         "JobStatusEnum": "apps.jobs.models.JobStatus.choices",
+        "InterviewFormatEnum": "apps.hiring.models.InterviewFormat.choices",
+        "VerdictEnum": "apps.hiring.models.Verdict.choices",
+        "ApplicationActionEnum": "apps.hiring.workflow.Action.choices",
+        "CvKindEnum": "apps.hiring.cv.CvKind.choices",
     },
     "SWAGGER_UI_DIST": "SIDECAR",
     "SWAGGER_UI_FAVICON_HREF": "SIDECAR",

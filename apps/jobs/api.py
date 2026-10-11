@@ -231,6 +231,7 @@ class JobOverviewView(JobActionView):
             ],
             "rejection_log": [
                 {
+                    "id": application.id,
                     "candidate_name": application.candidate.full_name,
                     "reason": application.rejected_reason,
                     "rejected_at": application.stage_changed_at,

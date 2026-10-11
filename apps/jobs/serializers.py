@@ -289,6 +289,7 @@ class NewApplicantSerializer(serializers.Serializer[dict[str, object]]):
 
 
 class RejectionSerializer(serializers.Serializer[dict[str, object]]):
+    id = serializers.UUIDField()
     candidate_name = serializers.CharField()
     reason = serializers.CharField(allow_blank=True)
     rejected_at = serializers.DateTimeField()

@@ -7,7 +7,7 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from apps.accounts.models import User
-from apps.candidates.models import Stage
+from apps.candidates.models import Application, Stage
 from apps.candidates.tests.factories import ApplicationFactory
 from apps.companies.models import Company
 from apps.jobs.models import JobStatus
@@ -59,6 +59,8 @@ def test_overview_lists_new_applicants_and_rejections(
     assert body["new_applicants"][0]["recruiter_nickname"]
     assert body["rejection_log"][0]["candidate_name"] == "Vũ Khánh Linh"
     assert body["rejection_log"][0]["reason"] == "No payments experience"
+    rejected = Application.objects.get(job=job_with_pipeline, stage=Stage.REJECTED)
+    assert body["rejection_log"][0]["id"] == str(rejected.id)
 
 
 def test_overview_groups_recruiters_by_cv_count(

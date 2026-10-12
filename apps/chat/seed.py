@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from django.core.files.base import ContentFile
 from django.utils import timezone
@@ -12,6 +12,7 @@ from apps.core.seed import (
     register_seeder,
 )
 from apps.core.testing.pdf import make_pdf
+from apps.jobs.models import JobAssignment
 
 type MessageSpec = tuple[int, str, str, str, str, str]
 
@@ -164,6 +165,30 @@ def _post(ctx: SeedContext, channel: Channel, spec: MessageSpec) -> None:
     )
 
 
+def _backdate_system_messages(channel: Channel, ceiling: datetime | None = None) -> None:
+    """Date "submitted" and "joined" lines when they happened, not when the seeder ran.
+
+    `ceiling` keeps them before the scripted human conversation of a channel."""
+    joined = JobAssignment.objects.filter(job=channel.job, recruiter=channel.recruiter).first()
+    for message in channel.messages.filter(kind=MessageKind.SYSTEM).select_related("application"):
+        if message.application is not None:
+            happened = message.application.submitted_at
+        elif joined is not None:
+            happened = joined.joined_at
+        else:
+            happened = message.created_at
+        if ceiling is not None:
+            happened = min(happened, ceiling)
+        Message.objects.filter(pk=message.pk).update(created_at=happened)
+
+
+def _refresh_last_message(channel: Channel) -> None:
+    newest = channel.messages.order_by("-created_at", "-id").first()
+    Channel.objects.filter(pk=channel.pk).update(
+        last_message_at=newest.created_at if newest else None
+    )
+
+
 @register_seeder(order=70)
 def seed(ctx: SeedContext) -> None:
     job = ctx.refs["jobs"]["Senior Backend Engineer"]
@@ -173,15 +198,19 @@ def seed(ctx: SeedContext) -> None:
     for key, script in (("northstar", NORTHSTAR), ("bluefin", BLUEFIN), ("atlas", ATLAS)):
         recruiter = ctx.refs["recruiters"][RECRUITER_KEYS[key]]
         channel, _ = ensure_channel(job, recruiter)
-        Message.objects.filter(channel=channel, kind=MessageKind.SYSTEM).update(created_at=oldest)
+        _backdate_system_messages(channel, oldest)
         for spec in script:
             _post(ctx, channel, spec)
-        newest = channel.messages.order_by("-created_at", "-id").first()
-        Channel.objects.filter(pk=channel.pk).update(
-            last_message_at=newest.created_at if newest else None
-        )
+        _refresh_last_message(channel)
         channel.refresh_from_db()
         channels[f"{job.title} · {recruiter.nickname}"] = channel
+
+    scripted = [channel.pk for channel in channels.values()]
+    for channel in Channel.objects.filter(recruiter__user__email__in=DEMO_EMAILS).exclude(
+        pk__in=scripted
+    ):
+        _backdate_system_messages(channel)
+        _refresh_last_message(channel)
 
     ctx.refs["channels"] = channels
 

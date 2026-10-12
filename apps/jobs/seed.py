@@ -61,7 +61,9 @@ JOBS: list[dict[str, Any]] = [
         "days_ago": 10,
         "status": JobStatus.ACTIVE,
         "salary": (50_000_000, 70_000_000),
-        "bounty_pct": 18,
+        "office": 1,
+        "bounty_type": BountyType.FIXED,
+        "bounty_amount": 120_000_000,
         "work_model": WorkModel.ONSITE,
         "skills": ["AML", "SBV reporting", "KYC", "Regulatory affairs", "Risk assessment"],
         "why": "State Bank of Vietnam (SBV) regulations on payment intermediaries and biometric verification are updating next quarter. We need an experienced compliance officer to lead regulatory reporting and transaction surveillance.",
@@ -119,7 +121,7 @@ def seed(ctx: SeedContext) -> None:
     jobs: dict[str, Job] = {}
     for spec in JOBS:
         created = now - timedelta(days=spec["days_ago"])
-        office = None if spec["work_model"] == WorkModel.REMOTE else offices[0]
+        office = None if spec["work_model"] == WorkModel.REMOTE else offices[spec.get("office", 0)]
         job, _ = Job.objects.update_or_create(
             company=company,
             title=spec["title"],
@@ -136,8 +138,9 @@ def seed(ctx: SeedContext) -> None:
                 "pay_basis": PayBasis.GROSS,
                 "work_model": spec["work_model"],
                 "office": office,
-                "bounty_type": BountyType.PCT,
-                "bounty_pct": spec["bounty_pct"],
+                "bounty_type": spec.get("bounty_type", BountyType.PCT),
+                "bounty_pct": spec.get("bounty_pct"),
+                "bounty_amount": spec.get("bounty_amount"),
                 "skills": spec["skills"],
                 "status": spec["status"],
                 "note_for_recruiters": spec.get("note_for_recruiters", ""),
@@ -162,7 +165,12 @@ def reset() -> None:
 
 
 ASSIGNMENTS: dict[str, list[str]] = {
-    "NorthStar Talent": ["Senior Backend Engineer", "Data Analyst", "Compliance Manager"],
+    "NorthStar Talent": [
+        "Senior Backend Engineer",
+        "Data Analyst",
+        "Compliance Manager",
+        "QA Engineer",
+    ],
     "Bluefin Search": ["Senior Backend Engineer", "Product Designer", "Compliance Manager"],
 }
 
@@ -183,6 +191,11 @@ def seed_assignments(ctx: SeedContext) -> None:
             if assignment.left_at is not None:
                 assignment.left_at = None
                 assignment.save(update_fields=["left_at"])
+            # `joined_at` is auto_now_add: join a few days after the job went live.
+            published = jobs[title].published_at or timezone.now()
+            JobAssignment.objects.filter(pk=assignment.pk).update(
+                joined_at=min(published + timedelta(days=2), timezone.now())
+            )
             created.append(assignment)
     ctx.refs["assignments"] = created
 

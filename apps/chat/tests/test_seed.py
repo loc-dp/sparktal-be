@@ -38,3 +38,12 @@ def test_reset_does_not_duplicate_system_messages() -> None:
     before = Message.objects.count()
     call_command("seed_demo", reset=True, force=True)
     assert Message.objects.count() == before
+
+
+def test_system_lines_in_other_channels_carry_the_real_dates() -> None:
+    from apps.candidates.models import Application
+
+    call_command("seed_demo", force=True)
+    qa = Application.objects.get(job__title="QA Engineer")
+    line = Message.objects.get(application=qa, kind="system")
+    assert line.created_at == qa.submitted_at

@@ -1,5 +1,7 @@
 from typing import Any
 
+from django.utils import timezone
+
 from apps.accounts.models import User
 from apps.core.seed import SeedContext, register_resetter, register_seeder
 from apps.recruiters.models import RecruiterProfile, RecruiterStatus
@@ -10,6 +12,7 @@ RECRUITERS: list[tuple[str, str, str]] = [
     ("northstar@example.com", "NorthStar Talent", RecruiterStatus.APPROVED),
     ("bluefin@example.com", "Bluefin Search", RecruiterStatus.APPROVED),
     ("atlas@example.com", "Atlas Hunters", RecruiterStatus.PENDING),
+    ("quasar@example.com", "Quasar Sourcing", RecruiterStatus.REJECTED),
 ]
 
 RECRUITER_DATA: dict[str, dict[str, Any]] = {
@@ -20,12 +23,7 @@ RECRUITER_DATA: dict[str, dict[str, Any]] = {
             "Payments and Banking technology leadership across Southeast Asia. Over 100 "
             "senior engineering placements in Vietnam since 2018."
         ),
-        "expertise": [
-            "Fintech & Payments",
-            "Distributed Systems",
-            "Engineering Leadership",
-            "Data Engineering",
-        ],
+        "expertise": ["finance", "engineering", "data"],
         "years_experience": 8,
         "linkedin": "https://www.linkedin.com/company/northstar-talent-vn",
         "review_note": "Verified top-tier headhunting partner. Consistently delivers pre-vetted senior profiles within 72 hours.",
@@ -36,12 +34,7 @@ RECRUITER_DATA: dict[str, dict[str, Any]] = {
             "High-velocity technology recruitment agency focused on E-commerce, Consumer Tech "
             "and SaaS scale-ups in Ho Chi Minh City, Hanoi and Singapore."
         ),
-        "expertise": [
-            "E-commerce & Retail Tech",
-            "Fullstack & Mobile",
-            "Product & Design",
-            "DevOps & Cloud",
-        ],
+        "expertise": ["engineering", "design", "operations"],
         "years_experience": 6,
         "linkedin": "https://www.linkedin.com/company/bluefin-search-asia",
         "review_note": "Strong talent network in consumer internet and modern frontend/backend frameworks.",
@@ -52,17 +45,26 @@ RECRUITER_DATA: dict[str, dict[str, Any]] = {
             "Specialist headhunting practice dedicated to Systems Architecture, Cloud Infrastructure, "
             "and SRE/Cybersecurity talent across Vietnam's tech hubs."
         ),
-        "expertise": [
-            "System Architecture",
-            "Cloud Infrastructure & SRE",
-            "Cybersecurity",
-            "Core Banking",
-        ],
+        "expertise": ["engineering", "operations", "finance"],
         "years_experience": 5,
         "linkedin": "https://www.linkedin.com/company/atlas-hunters",
         "review_note": (
             "Pending business license and tax code verification from Department of Planning and "
             "Investment. Track record references verified."
+        ),
+    },
+    "Quasar Sourcing": {
+        "status": RecruiterStatus.REJECTED,
+        "bio": (
+            "Volume sourcing for junior and mid-level technology roles, working from "
+            "a shared candidate database across Vietnam."
+        ),
+        "expertise": ["other"],
+        "years_experience": 1,
+        "linkedin": "https://www.linkedin.com/company/quasar-sourcing",
+        "review_note": (
+            "We could not verify a business registration or any placement history. "
+            "Please reapply with your business license and two client references."
         ),
     },
 }
@@ -87,6 +89,12 @@ def seed(ctx: SeedContext) -> None:
                 "linkedin": data.get("linkedin", ""),
             },
         )
+        if profile.status == RecruiterStatus.REJECTED:
+            profile.reviewed_by = users.get("admin@sparktal.vn") or User.objects.get(
+                email="admin@sparktal.vn"
+            )
+            profile.reviewed_at = timezone.now()
+            profile.save(update_fields=["reviewed_by", "reviewed_at"])
         profiles[nickname] = profile
     ctx.refs["recruiters"] = profiles
 

@@ -11,7 +11,7 @@ from apps.companies.models import (
     Office,
     SizeRange,
 )
-from apps.core.seed import DEMO_PASSWORD, SeedContext, register_seeder
+from apps.core.seed import DEMO_PASSWORD, SeedContext, register_resetter, register_seeder
 
 ABOUT = (
     "Vela Pay builds payment infrastructure for Southeast Asian merchants: QR checkout, "
@@ -64,6 +64,17 @@ def seed(ctx: SeedContext) -> None:
             user=user, defaults={"company": company, "role": role}
         )
 
+    # Invited but has not set a password yet: the Team page shows "Invited".
+    invited, _ = User.objects.update_or_create(
+        email="tuan.vo@velapay.vn",
+        defaults={"full_name": "Võ Anh Tuấn", "kind": UserKind.COMPANY, "is_active": True},
+    )
+    invited.set_unusable_password()
+    invited.save(update_fields=["password"])
+    CompanyMembership.objects.update_or_create(
+        user=invited, defaults={"company": company, "role": CompanyRole.TALENT_ACQUISITION}
+    )
+
     onboarding, _ = Company.objects.update_or_create(
         name="Kestrel Logistics",
         defaults={
@@ -93,3 +104,9 @@ def seed(ctx: SeedContext) -> None:
 
     ctx.refs["company"] = company
     ctx.refs["onboarding_company"] = onboarding
+
+
+@register_resetter(order=20)
+def reset() -> None:
+    """Teammates the E2E suite invited (and failed to clean up) are not part of the demo."""
+    User.objects.filter(email__startswith="e2e.", email__endswith="@velapay.vn").delete()

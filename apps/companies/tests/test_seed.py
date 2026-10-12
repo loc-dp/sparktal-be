@@ -1,7 +1,7 @@
 import pytest
 from django.core.management import call_command
 
-from apps.companies.models import Company, CompanyRole
+from apps.companies.models import Company, CompanyMembership, CompanyRole
 from apps.recruiters.models import RecruiterProfile
 
 pytestmark = pytest.mark.django_db
@@ -20,13 +20,14 @@ def test_seed_creates_vela_pay_with_members_and_offices() -> None:
     assert roles["khoa.nguyen@velapay.vn"] == CompanyRole.HIRING_MANAGER
 
 
-def test_seed_creates_three_recruiters_with_nicknames() -> None:
+def test_seed_creates_four_recruiters_with_nicknames() -> None:
     call_command("seed_demo", "--force")
 
     assert set(RecruiterProfile.objects.values_list("nickname", flat=True)) == {
         "NorthStar Talent",
         "Bluefin Search",
         "Atlas Hunters",
+        "Quasar Sourcing",
     }
 
 
@@ -58,3 +59,30 @@ def test_seed_is_idempotent() -> None:
     call_command("seed_demo", "--force")
 
     assert Company.objects.filter(name="Vela Pay").count() == 1
+
+
+def test_seed_has_an_invited_member_without_a_password() -> None:
+    call_command("seed_demo", "--force")
+
+    member = CompanyMembership.objects.get(user__email="tuan.vo@velapay.vn")
+    assert member.company.name == "Vela Pay"
+    assert not member.user.has_usable_password()
+
+
+def test_reset_removes_teammates_left_behind_by_e2e() -> None:
+    from apps.accounts.models import User
+    from apps.companies.seed import reset
+
+    call_command("seed_demo", "--force")
+    leftover = User.objects.create_user(
+        email="e2e.123@velapay.vn", password=None, full_name="E2E Teammate", kind="company"
+    )
+    CompanyMembership.objects.create(
+        user=leftover,
+        company=Company.objects.get(name="Vela Pay"),
+        role=CompanyRole.TALENT_ACQUISITION,
+    )
+
+    reset()
+
+    assert not User.objects.filter(email="e2e.123@velapay.vn").exists()

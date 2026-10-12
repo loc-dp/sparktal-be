@@ -58,3 +58,33 @@ def test_seed_is_idempotent() -> None:
     call_command("seed_demo", "--force")
 
     assert Job.objects.filter(title="Senior Backend Engineer").count() == 1
+
+
+def test_seed_has_one_fixed_bounty_job() -> None:
+    from apps.jobs.models import BountyType
+
+    call_command("seed_demo", "--force")
+
+    fixed = Job.objects.filter(company__name="Vela Pay", bounty_type=BountyType.FIXED)
+    assert [job.title for job in fixed] == ["Compliance Manager"]
+    assert fixed[0].bounty_amount == 120_000_000
+    assert fixed[0].bounty_pct is None
+
+
+def test_compliance_manager_sits_in_the_hanoi_office_its_brief_names() -> None:
+    call_command("seed_demo", "--force")
+
+    job = Job.objects.get(title="Compliance Manager")
+    assert job.office is not None
+    assert job.office.city == "hn"
+
+
+def test_seeded_assignments_joined_after_the_job_went_live() -> None:
+    from apps.jobs.models import JobAssignment
+
+    call_command("seed_demo", "--force")
+
+    for assignment in JobAssignment.objects.select_related("job"):
+        published_at = assignment.job.published_at
+        assert published_at is not None
+        assert assignment.joined_at > published_at

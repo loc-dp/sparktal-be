@@ -26,3 +26,20 @@ def test_reset_removes_e2e_signup_accounts() -> None:
     )
     reset()
     assert not User.objects.filter(email__endswith="@e2e.example.com").exists()
+
+
+def test_seed_includes_a_rejected_recruiter_with_a_review_note() -> None:
+    call_command("seed_demo", force=True)
+    quasar = RecruiterProfile.objects.get(nickname="Quasar Sourcing")
+    assert quasar.status == RecruiterStatus.REJECTED
+    assert quasar.review_note
+    assert quasar.reviewed_by is not None
+    assert quasar.reviewed_at is not None
+
+
+def test_seeded_expertise_uses_values_the_profile_form_accepts() -> None:
+    from apps.recruiters.serializers import clean_expertise
+
+    call_command("seed_demo", force=True)
+    for profile in RecruiterProfile.objects.all():
+        assert clean_expertise(profile.expertise) == profile.expertise

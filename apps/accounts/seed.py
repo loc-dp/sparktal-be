@@ -9,6 +9,7 @@ DEMO_USERS: list[tuple[str, str, str]] = [
     ("northstar@example.com", "Võ Thanh Bình", UserKind.RECRUITER),
     ("bluefin@example.com", "Lý Hải Yến", UserKind.RECRUITER),
     ("atlas@example.com", "Hà Quang Minh", UserKind.RECRUITER),
+    ("quasar@example.com", "Ngô Bảo Châu", UserKind.RECRUITER),
     ("admin@sparktal.vn", "Sparktal Admin", UserKind.STAFF),
 ]
 

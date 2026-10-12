@@ -8,3 +8,12 @@ __pycache__/
 media/
 staticfiles/
 htmlcov/
+.env
+.env.*
+!.env.example
+!.env.production.example
+.github/
+.idea/
+.vscode/
+compose*.yaml
+Dockerfile*

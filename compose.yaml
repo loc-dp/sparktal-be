@@ -34,7 +34,7 @@ services:
   api:
     build:
       context: .
-      dockerfile: Dockerfile.dev
+      target: dev
     command: python manage.py runserver 0.0.0.0:8000
     environment:
       DJANGO_SETTINGS_MODULE: config.settings.dev
@@ -60,7 +60,7 @@ services:
   worker:
     build:
       context: .
-      dockerfile: Dockerfile.dev
+      target: dev
     # Linux containers fork cleanly, so the default prefork pool works here —
     # unlike a worker started on the macOS host, which needs --pool=solo.
     command: celery -A config worker -l info
@@ -82,7 +82,7 @@ services:
   beat:
     build:
       context: .
-      dockerfile: Dockerfile.dev
+      target: dev
     # Fires CELERY_BEAT_SCHEDULE (the export and CV-parse purges); the worker runs them.
     # The schedule state file stays out of the bind-mounted source tree.
     command: celery -A config beat -l info --schedule /tmp/celerybeat-schedule

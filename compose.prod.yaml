@@ -1,0 +1,111 @@
+# Production stack: postgres, redis, a one-shot migrate, the API, the Celery worker and beat.
+#
+#   cp .env.production.example .env.production      # then fill it in
+#   docker compose --env-file .env.production -f compose.prod.yaml up -d --build
+#
+# --env-file is needed because Compose itself reads ${POSTGRES_*} from it; the containers get
+# the same file through env_file. TLS and the public host names belong to a reverse proxy on the
+# host (Caddy, nginx, a cloud load balancer): it forwards api.<domain> to 127.0.0.1:8000, passes
+# WebSocket upgrades on /ws/ and sets X-Forwarded-Proto.
+
+name: sparktal-prod
+
+x-app: &app
+  build:
+    context: .
+    target: prod
+  image: sparktal-be:prod
+  env_file: .env.production
+  environment:
+    # The services are named here, so .env.production never repeats the passwords.
+    DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+    REDIS_URL: redis://redis:6379/0
+    CACHE_URL: redis://redis:6379/1
+  restart: unless-stopped
+
+services:
+  postgres:
+    image: postgres:18-trixie
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      # Postgres 18 images keep PGDATA under /var/lib/postgresql/18/docker,
+      # so the volume mounts the parent directory (not .../data).
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:8.10
+    # Chat and the Celery queue live here. Append-only keeps queued work across a restart.
+    command: redis-server --appendonly yes
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  migrate:
+    <<: *app
+    command: python manage.py migrate --noinput
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    <<: *app
+    ports:
+      # Loopback only: the reverse proxy is the one public entrance.
+      - "127.0.0.1:${API_PORT:-8000}:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    healthcheck:
+      # The Host header must be an allowed host, so use the first one from the settings.
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import os, urllib.request as u;
+          u.urlopen(u.Request("http://127.0.0.1:8000/api/v1/health",
+          headers={"Host": os.environ["DJANGO_ALLOWED_HOSTS"].split(",")[0].lstrip(".")}), timeout=4)
+      interval: 15s
+      timeout: 6s
+      retries: 5
+      start_period: 20s
+
+  worker:
+    <<: *app
+    command: celery -A config worker -l info
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+  beat:
+    <<: *app
+    # Fires CELERY_BEAT_SCHEDULE (the export and CV/JD-parse purges); the worker runs them.
+    command: celery -A config beat -l info --schedule /tmp/celerybeat-schedule
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  redisdata:

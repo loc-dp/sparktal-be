@@ -51,3 +51,22 @@ uv run python manage.py spectacular --file openapi.yaml --validate
 
 Demo password: `demo123` (users listed in `apps/accounts/seed.py`).
 `seed_demo` refuses to run with `DEBUG=False` unless you pass `--force`.
+
+## Production
+
+`Dockerfile` builds one image for the API (gunicorn with uvicorn workers, so the chat
+WebSockets work), the Celery worker and beat. `compose.prod.yaml` runs them with Postgres, Redis
+and a one-shot `migrate`. Settings live in `config/settings/prod.py`.
+
+```bash
+cp .env.production.example .env.production      # fill in every blank value
+docker compose --env-file .env.production -f compose.prod.yaml up -d --build
+docker compose --env-file .env.production -f compose.prod.yaml exec api python manage.py createsuperuser
+```
+
+- The API listens on `127.0.0.1:8000`. Put a reverse proxy in front for TLS: it must pass
+  WebSocket upgrades on `/ws/`, set `X-Forwarded-Proto` and send `Host: <first DJANGO_ALLOWED_HOSTS>`.
+- Uploads go to S3-compatible storage (`USE_S3=True`); production refuses to start without it.
+- The app and the API must be sibling hosts (`app.example.com`, `api.example.com`) with
+  `COOKIE_DOMAIN=.example.com`, so the browser and the app's server both see the session.
+- `.env.production` is git-ignored and never enters the image.

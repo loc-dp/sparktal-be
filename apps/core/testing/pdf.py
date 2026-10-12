@@ -4,11 +4,13 @@ import unicodedata
 
 
 def _to_latin1(text: str) -> str:
-    """Strip Vietnamese diacritics so the text fits the standard Helvetica encoding."""
+    """Strip Vietnamese diacritics so the text fits the standard Helvetica encoding.
+
+    The font declares WinAnsiEncoding (cp1252), so bullets and dashes survive."""
     text = text.replace("đ", "d").replace("Đ", "D")
     decomposed = unicodedata.normalize("NFKD", text)
     stripped = "".join(ch for ch in decomposed if not unicodedata.combining(ch))
-    return stripped.encode("latin-1", "replace").decode("latin-1")
+    return stripped.encode("cp1252", "replace").decode("cp1252")
 
 
 def _escape(line: str) -> str:
@@ -24,7 +26,7 @@ def make_pdf(text: str) -> bytes:
             ops.append("T*")
         ops.append(f"({_escape(line)}) Tj")
     ops.append("ET")
-    stream = "\n".join(ops).encode("latin-1")
+    stream = "\n".join(ops).encode("cp1252")
 
     objects = [
         b"<< /Type /Catalog /Pages 2 0 R >>",

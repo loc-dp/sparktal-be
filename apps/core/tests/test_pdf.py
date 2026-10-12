@@ -17,3 +17,14 @@ def test_make_pdf_is_readable_and_has_one_page(tmp_path: Path) -> None:
 
 def test_make_pdf_starts_with_pdf_magic() -> None:
     assert make_pdf("hello").startswith(b"%PDF-")
+
+
+def test_make_pdf_keeps_bullets_and_dashes(tmp_path: Path) -> None:
+    path = tmp_path / "cv.pdf"
+    path.write_bytes(make_pdf("• Engineer (2022 – Present)"))
+
+    text = PdfReader(str(path)).pages[0].extract_text()
+
+    assert "•" in text
+    assert "–" in text
+    assert "?" not in text

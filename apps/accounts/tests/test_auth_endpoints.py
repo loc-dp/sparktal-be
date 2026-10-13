@@ -134,5 +134,5 @@ def test_password_reset_request_for_unknown_email_reveals_nothing(client: APICli
 
     assert response.status_code == 200
     assert len(mail.outbox) == 1
-    assert "Unknown Account" in mail.outbox[0].subject
+    assert "No Sparktal account" in mail.outbox[0].subject
     assert "reset-password?key=" not in mail.outbox[0].body

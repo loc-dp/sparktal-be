@@ -1,0 +1,7 @@
+{% extends "email/base.txt" %}{% block content %}
+Hello {{ nickname }}, an update on your application.
+
+We could not approve your recruiter account this time. Our reviewer left you a note:
+
+{{ review_note }}
+{% endblock %}

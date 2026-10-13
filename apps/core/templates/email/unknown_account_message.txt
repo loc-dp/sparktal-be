@@ -1,0 +1,9 @@
+{% extends "email/base.txt" %}{% block content %}
+We could not find your account.
+
+Someone asked to reset the password for {{ email }}, but no Sparktal account uses this address.
+
+If you expected an account, it may be registered under a different email address.
+
+Did not ask for this? You can ignore this email. Nothing was changed.
+{% endblock %}

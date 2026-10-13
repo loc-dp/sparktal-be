@@ -1,25 +1,17 @@
 from django.conf import settings
-from django.core.mail import send_mail
 
+from apps.core.emails import build_email
 from apps.recruiters.models import RecruiterProfile, RecruiterStatus
-
-APPROVED_SUBJECT = "Your Sparktal recruiter account is approved"
-REJECTED_SUBJECT = "About your Sparktal recruiter application"
 
 
 def send_review_result(profile: RecruiterProfile) -> None:
-    if profile.status == RecruiterStatus.APPROVED:
-        subject = APPROVED_SUBJECT
-        body = (
-            f"Hello {profile.nickname},\n\n"
-            "Your recruiter account is live. Sign in to browse the jobs marketplace "
-            f"at {settings.FRONTEND_URL}/r/chat.\n"
-        )
-    else:
-        subject = REJECTED_SUBJECT
-        body = (
-            f"Hello {profile.nickname},\n\n"
-            "We could not approve your recruiter account this time.\n\n"
-            f"{profile.review_note}\n"
-        )
-    send_mail(subject, body, settings.DEFAULT_FROM_EMAIL, [profile.user.email])
+    approved = profile.status == RecruiterStatus.APPROVED
+    build_email(
+        "email/recruiter_approved" if approved else "email/recruiter_rejected",
+        profile.user.email,
+        {
+            "nickname": profile.nickname,
+            "review_note": profile.review_note,
+            "jobs_url": f"{settings.FRONTEND_URL}/r/chat",
+        },
+    ).send()

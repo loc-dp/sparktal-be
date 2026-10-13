@@ -1,0 +1,8 @@
+{% extends "email/base.txt" %}{% block content %}
+You are in, {{ nickname }}.
+
+Your recruiter account is approved and live. Sign in to browse the jobs marketplace:
+{{ jobs_url }}
+
+Sign in with {{ email }}.
+{% endblock %}

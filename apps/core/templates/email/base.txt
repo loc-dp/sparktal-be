@@ -1,0 +1,7 @@
+{% autoescape off %}SPARKTAL
+{% block content %}{% endblock %}
+
+--
+Sparktal
+{{ app_url }}
+{% endautoescape %}

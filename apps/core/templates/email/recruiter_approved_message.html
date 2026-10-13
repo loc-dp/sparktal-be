@@ -1,0 +1,13 @@
+{% extends "email/base.html" %}
+{% block title %}Your Sparktal recruiter account is approved{% endblock %}
+{% block preheader %}Your recruiter account is live. Browse the jobs marketplace now.{% endblock %}
+{% block eyebrow %}Recruiter review{% endblock %}
+{% block headline %}You are in, {{ nickname }}.{% endblock %}
+{% block lead %}Your recruiter account is approved and live. Sign in to browse the jobs marketplace.{% endblock %}
+{% block action %}{% include "email/_button.html" with url=jobs_url label="Open the jobs marketplace" %}{% endblock %}
+{% block details %}
+<p style="margin:0;color:#52525B;">Sign in with <strong style="color:#0B0B0F;font-weight:600;">{{ email }}</strong>.</p>
+{% endblock %}
+{% block footnote %}
+<p style="margin:24px 0 0 0;padding-top:20px;border-top:1px solid #E4E4E7;font-size:12px;line-height:1.6;color:#6B6B76;">The button not working? Paste this address into your browser:<br><a href="{{ jobs_url }}" style="color:#52525B;word-break:break-all;">{{ jobs_url }}</a></p>
+{% endblock %}

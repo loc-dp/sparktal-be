@@ -27,7 +27,7 @@ def test_unknown_email_gets_allauths_unknown_account_notice_without_a_reset_link
     send_password_invite("nobody@example.com")
 
     assert len(mail.outbox) == 1
-    assert mail.outbox[0].subject.endswith("Unknown Account")
+    assert mail.outbox[0].subject == "No Sparktal account for this email"
     assert "reset-password" not in mail.outbox[0].body
 
 

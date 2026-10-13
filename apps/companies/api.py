@@ -175,6 +175,15 @@ class CompanyHomeView(APIView):
         return Response(home_payload(request.user))  # type: ignore[arg-type]
 
 
+def invite_details(membership: CompanyMembership, request: Request) -> dict[str, str | None]:
+    """What the invite email says about the company, the role and who sent it."""
+    return {
+        "company_name": membership.company.name,
+        "role_label": membership.get_role_display(),
+        "invited_by": getattr(request.user, "full_name", None) or None,
+    }
+
+
 class InviteEmailFailed(APIException):
     status_code = 502
     default_detail = "We couldn't send the invite email, so nothing was saved. Please try again."
@@ -215,7 +224,7 @@ class MemberListCreateView(ListCreateAPIView[CompanyMembership]):
         with transaction.atomic():
             membership = invite_member(company, **payload.validated_data)
             try:
-                send_password_invite(membership.user.email)
+                send_password_invite(membership.user.email, **invite_details(membership, request))
             except InviteError as exc:
                 raise InviteEmailFailed() from exc
         data = MemberSerializer(membership, context=self.get_serializer_context()).data
@@ -276,7 +285,7 @@ class MemberResendInviteView(APIView):
         if membership.user.has_usable_password():
             raise MemberRuleError("This person has already set a password.")
         try:
-            send_password_invite(membership.user.email)
+            send_password_invite(membership.user.email, **invite_details(membership, request))
         except InviteError as exc:
             raise InviteEmailFailed() from exc
         return Response(status=204)

@@ -197,7 +197,7 @@ def test_inactive_user_who_still_has_a_membership_is_rejected(
 
 @pytest.fixture
 def smtp_down(monkeypatch: pytest.MonkeyPatch) -> None:
-    def boom(email: str) -> None:
+    def boom(email: str, **details: str | None) -> None:
         raise InviteError("smtp down")
 
     monkeypatch.setattr("apps.companies.api.send_password_invite", boom)
@@ -416,7 +416,7 @@ def test_a_failed_resend_reports_502(
     invite(client_for(company_admin), email="p@velapay.vn", full_name="P")
     pending = User.objects.get(email="p@velapay.vn")
 
-    def boom(email: str) -> None:
+    def boom(email: str, **details: str | None) -> None:
         raise InviteError("smtp down")
 
     monkeypatch.setattr("apps.companies.api.send_password_invite", boom)

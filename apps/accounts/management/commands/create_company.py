@@ -41,7 +41,12 @@ class Command(BaseCommand):
 
         if not options["no_email"]:
             try:
-                send_password_invite(email)
+                send_password_invite(
+                    email,
+                    company_name=company.name,
+                    role_label=CompanyRole.ADMIN.label,
+                    invited_by="The Sparktal team",
+                )
             except InviteError as exc:
                 raise CommandError(f"Could not send the invite: {exc}") from exc
             self.stdout.write(self.style.SUCCESS(f"Invite sent to {email}."))

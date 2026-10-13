@@ -1,0 +1,15 @@
+{% extends "email/base.html" %}
+{% block title %}You're invited to Sparktal{% endblock %}
+{% block preheader %}{% if invited_by %}{{ invited_by }} invited you{% else %}You have been invited{% endif %}{% if company_name %} to {{ company_name }}{% endif %}. Set your password to get started.{% endblock %}
+{% block eyebrow %}Team invite{% endblock %}
+{% block headline %}{% if user.full_name %}Welcome, {{ user.full_name }}.{% else %}Welcome to Sparktal.{% endif %}{% endblock %}
+{% block lead %}{% if invited_by %}{{ invited_by }} has invited you{% else %}You have been invited{% endif %}{% if company_name %} to join <strong style="font-weight:600;color:#FFFFFF;">{{ company_name }}</strong>{% endif %} on Sparktal. Set a password to open your account.{% endblock %}
+{% block action %}{% include "email/_button.html" with url=password_reset_url label="Set your password" %}{% endblock %}
+{% block details %}
+{% if facts %}{% include "email/_facts.html" %}{% endif %}
+<p style="margin:{% if facts %}24px{% else %}0{% endif %} 0 0 0;color:#52525B;">This link works for {{ expiry_days }} days and can be used once. After you set a password, sign in with <strong style="color:#0B0B0F;font-weight:600;">{{ email }}</strong>.</p>
+{% endblock %}
+{% block footnote %}
+<p style="margin:24px 0 0 0;padding-top:20px;border-top:1px solid #E4E4E7;font-size:12px;line-height:1.6;color:#6B6B76;">The button not working? Paste this address into your browser:<br><a href="{{ password_reset_url }}" style="color:#52525B;word-break:break-all;">{{ password_reset_url }}</a></p>
+<p style="margin:12px 0 0 0;font-size:12px;line-height:1.6;color:#6B6B76;">Did not expect this invite? You can ignore this email and no account will be activated.</p>
+{% endblock %}

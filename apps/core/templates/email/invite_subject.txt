@@ -1,0 +1,1 @@
+{% if company_name %}Join {{ company_name }} on Sparktal{% else %}Set up your Sparktal account{% endif %}

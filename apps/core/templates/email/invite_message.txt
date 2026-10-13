@@ -1,0 +1,14 @@
+{% extends "email/base.txt" %}{% block content %}
+{% if user.full_name %}Welcome, {{ user.full_name }}.{% else %}Welcome to Sparktal.{% endif %}
+
+{% if invited_by %}{{ invited_by }} has invited you{% else %}You have been invited{% endif %}{% if company_name %} to join {{ company_name }}{% endif %} on Sparktal.
+{% for label, value in facts %}
+{{ label }}: {{ value }}{% endfor %}
+
+Set your password to open your account:
+{{ password_reset_url }}
+
+This link works for {{ expiry_days }} days and can be used once. After you set a password, sign in with {{ email }}.
+
+Did not expect this invite? You can ignore this email and no account will be activated.
+{% endblock %}

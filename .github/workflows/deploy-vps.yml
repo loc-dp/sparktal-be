@@ -1,0 +1,35 @@
+name: Deploy to VPS
+
+# Ships main to api.sparktal.com once CI passes. The job runs on a self-hosted runner on the
+# Mac, which builds the image and loads it on the VPS over SSH (scripts/deploy.sh): the 4GB
+# VPS has no room to build. While the Mac is asleep the job waits in the queue.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+# One deploy at a time. A newer one waits rather than cutting off the one that is shipping.
+concurrency:
+  group: deploy-vps
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: [self-hosted, macOS, sparktal-deploy]
+    timeout-minutes: 30
+    env:
+      SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+    steps:
+      # Full history: the script checks the commit is on origin/main.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SHA }}
+          fetch-depth: 0
+
+      - run: scripts/deploy.sh "$SHA"

@@ -1,6 +1,7 @@
 import uuid
 
 from django.db import models
+from django.db.models import Q
 from django.utils import timezone
 from simple_history.models import HistoricalRecords
 
@@ -36,7 +37,8 @@ class SizeRange(models.TextChoices):
 
 
 class Location(models.TextChoices):
-    """The hiring hubs, as provinces after the merger of 1 July 2025 (see MERGED_PROVINCES)."""
+    """The hiring hubs, as provinces after the merger of 1 July 2025 (see MERGED_PROVINCES),
+    plus one code for anywhere outside Vietnam."""
 
     HCM = "hcm", "Ho Chi Minh City"
     HANOI = "hn", "Ha Noi"
@@ -46,6 +48,7 @@ class Location(models.TextChoices):
     DONG_NAI = "dnai", "Dong Nai"
     BAC_NINH = "bn", "Bac Ninh"
     OTHER = "other", "Other province"
+    ABROAD = "abroad", "Outside Vietnam"
 
 
 # Old provinces merged into a hub on 1 July 2025, as CVs and job descriptions still name them.
@@ -119,10 +122,19 @@ class Office(models.Model):
     company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name="offices")
     address = models.CharField(max_length=255)
     city = models.CharField(max_length=8, choices=Location.choices, default=Location.HCM)
+    # Abroad there is no code to name the city, so the office names it: "Tokyo, Japan".
+    place = models.CharField(max_length=120, blank=True)
     position = models.PositiveSmallIntegerField(default=0)
 
     class Meta:
         ordering = ("position",)
+        constraints = (
+            models.CheckConstraint(
+                condition=Q(city=Location.ABROAD, place__gt="")
+                | (~Q(city=Location.ABROAD) & Q(place="")),
+                name="office_place_only_abroad",
+            ),
+        )
 
     def __str__(self) -> str:
         return f"{self.company.name} — {self.address}"
@@ -130,6 +142,10 @@ class Office(models.Model):
     @property
     def is_head_office(self) -> bool:
         return self.position == 0
+
+    @property
+    def label(self) -> str:
+        return self.place if self.city == Location.ABROAD else self.get_city_display()
 
 
 class CompanyMembership(models.Model):

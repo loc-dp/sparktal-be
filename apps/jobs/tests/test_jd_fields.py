@@ -9,6 +9,8 @@ HCM_HQ = OfficeRef(id=str(uuid.uuid4()), city="hcm")
 HANOI = OfficeRef(id=str(uuid.uuid4()), city="hn")
 HANOI_2 = OfficeRef(id=str(uuid.uuid4()), city="hn")
 OFFICES = [HCM_HQ, HANOI, HANOI_2]
+SINGAPORE = OfficeRef(id=str(uuid.uuid4()), city="abroad", place="Singapore")
+TOKYO = OfficeRef(id=str(uuid.uuid4()), city="abroad", place="Tokyo, Japan")
 
 
 def raw(**overrides: Any) -> dict[str, Any]:
@@ -271,3 +273,26 @@ def test_a_place_without_a_city_code_is_named_as_written() -> None:
     remote = raw(location="Cần Giờ", work_model="remote")
     assert normalize_jd(remote, OFFICES)["unmatched_city"] == ""
     assert len(normalize_jd(raw(location="Khu " * 40), OFFICES)["unmatched_city"]) <= 80
+
+
+@pytest.mark.parametrize(
+    ("place", "office"),
+    [
+        ("Singapore", SINGAPORE),
+        ("Shibuya, Tokyo", TOKYO),
+        ("Japan", TOKYO),
+        ("SINGAPORE", SINGAPORE),
+    ],
+)
+def test_a_job_abroad_picks_the_office_in_that_place(place: str, office: OfficeRef) -> None:
+    fields = normalize_jd(raw(city="abroad", location=place), [*OFFICES, SINGAPORE, TOKYO])
+
+    assert (fields["office"], fields["unmatched_city"]) == (office.id, "")
+
+
+def test_a_job_abroad_without_an_office_there_is_named_as_written() -> None:
+    # Every office abroad shares one code, so the code alone never picks one.
+    fields = normalize_jd(raw(city="abroad", location="Seoul, Korea"), [*OFFICES, SINGAPORE])
+
+    assert (fields["office"], fields["unmatched_city"]) == ("", "Seoul, Korea")
+    assert normalize_jd(raw(city="abroad"), [SINGAPORE])["office"] == ""

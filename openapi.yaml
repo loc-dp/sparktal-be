@@ -1717,6 +1717,7 @@ paths:
         schema:
           type: string
           enum:
+          - abroad
           - bn
           - ct
           - dn
@@ -1734,6 +1735,7 @@ paths:
           * `dnai` - Dong Nai
           * `bn` - Bac Ninh
           * `other` - Other province
+          * `abroad` - Outside Vietnam
       - name: page
         required: false
         in: query
@@ -3659,6 +3661,7 @@ components:
       - dnai
       - bn
       - other
+      - abroad
       type: string
       description: |-
         * `hcm` - Ho Chi Minh City
@@ -3669,6 +3672,7 @@ components:
         * `dnai` - Dong Nai
         * `bn` - Bac Ninh
         * `other` - Other province
+        * `abroad` - Outside Vietnam
     MarketplaceJob:
       type: object
       properties:
@@ -4140,12 +4144,15 @@ components:
         id:
           type: string
           format: uuid
-          readOnly: true
         address:
           type: string
           maxLength: 255
         city:
           $ref: '#/components/schemas/LocationEnum'
+        place:
+          type: string
+          default: ''
+          maxLength: 120
         position:
           type: integer
           readOnly: true
@@ -4156,11 +4163,18 @@ components:
     OfficeRequest:
       type: object
       properties:
+        id:
+          type: string
+          format: uuid
         address:
           type: string
           maxLength: 255
         city:
           $ref: '#/components/schemas/LocationEnum'
+        place:
+          type: string
+          default: ''
+          maxLength: 120
       required:
       - address
     PaginatedApplicationListList:

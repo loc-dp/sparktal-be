@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 from django.apps import apps as django_apps
-from django.db import IntegrityError, connection
+from django.db import IntegrityError, connection, transaction
 
 from apps.candidates.tests.factories import CandidateFactory
 from apps.companies.models import (
@@ -56,6 +56,7 @@ def test_choice_sets_match_the_spec() -> None:
     assert Industry.FINTECH in Industry.values
     assert next(choice[1] for choice in SizeRange.choices) == "Under 50 employees"
     assert Location.HCM.label == "Ho Chi Minh City"
+    assert Location.ABROAD.label == "Outside Vietnam"
     assert [role[0] for role in CompanyRole.choices] == [
         "admin",
         "hiring_manager",
@@ -76,7 +77,7 @@ def test_binh_duong_is_part_of_ho_chi_minh_city_since_the_2025_merger() -> None:
     codes = location_codes(with_other=False)
     assert "hcm = Ho Chi Minh City (incl. Bình Dương, Bà Rịa - Vũng Tàu)" in codes
     assert "other = " not in codes
-    assert location_codes(with_other=True).endswith("other = Other province")
+    assert "other = Other province" in location_codes(with_other=True)
 
 
 def test_rows_in_binh_duong_move_to_ho_chi_minh_city() -> None:
@@ -95,3 +96,19 @@ def test_rows_in_binh_duong_move_to_ho_chi_minh_city() -> None:
     candidate.refresh_from_db()
     assert (office.city, candidate.location) == ("hcm", "hcm")
     assert Company.objects.get(pk=office.company_id).located == "hcm"
+
+
+def test_an_office_abroad_is_labelled_by_its_place() -> None:
+    assert OfficeFactory(city=Location.HANOI).label == "Ha Noi"
+    assert OfficeFactory(city=Location.ABROAD, place="Tokyo, Japan").label == "Tokyo, Japan"
+
+
+@pytest.mark.parametrize(("city", "place"), [(Location.ABROAD, ""), (Location.HCM, "Singapore")])
+def test_only_an_office_abroad_has_a_place(city: str, place: str) -> None:
+    # A province code says where a Vietnamese office is; abroad, the place is all there is.
+    with pytest.raises(IntegrityError), transaction.atomic():
+        OfficeFactory(city=city, place=place)
+
+
+def test_the_codes_for_claude_include_abroad() -> None:
+    assert "abroad = Outside Vietnam" in location_codes(with_other=False)

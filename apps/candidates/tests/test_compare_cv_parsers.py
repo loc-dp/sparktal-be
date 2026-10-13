@@ -20,6 +20,7 @@ def test_it_writes_one_row_per_file_and_field(
     settings.ANTHROPIC_API_KEY = "test-key"
     settings.CV_PARSE_MODEL = "claude-sonnet-5-5"
     output = ParsedCv(
+        is_cv=True,
         full_name="Trương Mỹ Hạnh",
         current_title=None,
         email=None,

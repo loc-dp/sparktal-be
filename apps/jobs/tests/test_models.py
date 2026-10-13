@@ -1,6 +1,7 @@
 import pytest
 
-from apps.companies.models import Company
+from apps.companies.models import Company, Location
+from apps.companies.tests.factories import OfficeFactory
 from apps.jobs.models import BountyType, Job, JobStatus, PayBasis, WorkModel
 from apps.jobs.tests.factories import JobFactory
 
@@ -59,3 +60,10 @@ def test_location_label(company: Company) -> None:
 
     assert remote.location_label == "Remote (Vietnam)"
     assert onsite.location_label == "Ho Chi Minh City"
+
+
+def test_a_job_abroad_is_labelled_by_its_office_place(company: Company) -> None:
+    office = OfficeFactory(company=company, city=Location.ABROAD, place="Singapore", position=1)
+    job = JobFactory(company=company, work_model=WorkModel.HYBRID, office=office)
+
+    assert job.location_label == "Singapore"

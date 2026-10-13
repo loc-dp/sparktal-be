@@ -29,6 +29,7 @@ class FakeMessages:
 
 def reply(stop_reason: str = "end_turn", **overrides: Any) -> SimpleNamespace:
     fields: dict[str, Any] = {
+        "is_cv": True,
         "full_name": "Trương Mỹ Hạnh",
         "current_title": "Payments Backend Lead",
         "email": "myhanh.truong@gmail.com",
@@ -99,7 +100,7 @@ def test_a_pdf_is_sent_as_a_document_block(monkeypatch: pytest.MonkeyPatch, with
     call = messages.calls[0]
     assert call["model"] == "claude-sonnet-5-5"
     assert call["output_format"] is ParsedCv
-    assert call["output_config"] == {"effort": "low"}
+    assert call["output_config"] == {"effort": "medium"}
     document = call["messages"][0]["content"][0]
     assert document["type"] == "document"
     assert base64.standard_b64decode(document["source"]["data"]) == PDF
@@ -236,3 +237,134 @@ def test_claude_copies_job_dates_instead_of_adding_up_years() -> None:
     assert "jobs" in ParsedCv.model_fields
     assert "'present'" in prompt
     assert "counting overlapping" not in prompt
+
+
+def test_claude_can_say_a_file_is_not_a_cv() -> None:
+    # A child's speech-therapy report was read as a candidate born in 2021.
+    assert "is_cv" in ParsedCv.model_fields
+    assert "is_cv" in llm_parsing.instructions()
+
+
+def test_the_title_comes_from_the_work_history_not_the_headline() -> None:
+    # Sonnet 5.5 took "Head of Merchandise" from a TopCV banner (the role applied for)
+    # over the latest job, "Merchandise", and gave an intern's thesis as the title.
+    prompt = llm_parsing.instructions()
+
+    assert "headline" in prompt
+    assert "internship" in prompt.split("current_title")[1].split("- email")[0]
+
+
+def test_the_prompt_never_adds_diacritics_the_cv_does_not_show() -> None:
+    # "Hung, Vu Tien" became "Vũ Tiến Hùng": Hùng or Hưng is a guess.
+    assert "never add diacritics" in llm_parsing.instructions()
+
+
+def test_a_non_latin_name_without_a_printed_spelling_is_transliterated() -> None:
+    # "never an English alias" plus "never guess" left 顏敏慎 (Jordan Yen) with no name at all.
+    assert "pinyin" in llm_parsing.instructions()
+
+
+def test_a_foreign_phone_gets_its_country_code() -> None:
+    # The gate reads a bare "0922 550 993" as Vietnamese; for a Taichung address it is +886.
+    assert "+886" in llm_parsing.instructions()
+
+
+def test_location_is_not_guessed_from_a_school_or_employer() -> None:
+    assert "school" in llm_parsing.instructions().split("- location")[1].split("- is_expat")[0]
+
+
+def test_jobs_sharing_one_date_range_each_get_it() -> None:
+    # "EARLIER CAREER, 2016-2019" listed four jobs; all four were dropped.
+    assert "shared" in llm_parsing.instructions()
+
+
+def test_the_real_name_beats_an_english_name_printed_beside_it() -> None:
+    # "SALLY NGUYEN (NGUYEN THI XANH)": the bracket is the legal name, not a nickname.
+    assert "NGUYEN THI XANH" in llm_parsing.instructions()
+
+
+def test_a_comma_ordered_name_is_put_back_in_order() -> None:
+    # A LinkedIn export prints "Hung, Vu Tien".
+    assert "'Hung, Vu Tien'" in llm_parsing.instructions()
+
+
+def test_a_title_in_capitals_comes_back_in_normal_case() -> None:
+    # Copying "as written" brought back "SENIOR MERCHANDISER" and "QA FABRIC & TRIMS".
+    rule = llm_parsing.instructions().split("- current_title")[1].split("- email")[0]
+
+    assert "capitals" in rule
+    assert "part-time" in rule
+
+
+def test_an_internship_title_is_used_when_it_is_the_only_work() -> None:
+    # jobs leaves internships out, so a graduate whose only work was one got a null title.
+    rule = llm_parsing.instructions().split("- current_title")[1].split("- email")[0]
+
+    assert "no paid job, give the latest internship's title" in rule
+
+
+def test_the_headline_never_stands_in_for_an_internship_title() -> None:
+    # A sales intern whose CV was headed "NHÂN VIÊN KHO" (the job applied for) got that
+    # headline once the title rule told Claude to skip internships.
+    assert "even when the only work is an internship" in title_rule()
+
+
+def test_a_language_certificate_names_its_language() -> None:
+    # "Do not add one the CV does not name" dropped English from "TOEIC 810".
+    assert "TOEIC" in llm_parsing.instructions()
+
+
+def test_a_candidate_living_abroad_gets_the_abroad_code() -> None:
+    # Before Sparktal took jobs abroad, a Taipei address gave null, as if never stated.
+    rule = llm_parsing.instructions().split("- location")[1].split("- is_expat")[0]
+
+    assert "'abroad'" in rule
+    assert "null if abroad" not in rule
+
+
+def test_a_foreigner_living_in_vietnam_gets_their_city_not_abroad() -> None:
+    # A Taiwanese CV whose address read 越南西貢 (Saigon) came back 'abroad'.
+    rule = llm_parsing.instructions().split("- location")[1].split("- is_expat")[0]
+
+    assert "whatever their nationality" in rule
+    assert "西貢" in rule
+
+
+def test_vietnam_alone_does_not_name_a_province() -> None:
+    # A CV whose contact block said only "Vietnam" came back 'other'.
+    rule = llm_parsing.instructions().split("- location")[1].split("- is_expat")[0]
+
+    assert "only 'Vietnam'" in rule
+
+
+def title_rule() -> str:
+    return llm_parsing.instructions().split("- current_title")[1].split("- email")[0]
+
+
+def test_a_paid_job_beats_a_newer_or_current_internship() -> None:
+    # A cashier until 02/2026 then a tour-operations intern from 03/2026 got the intern title,
+    # and a 2024 master's thesis beat the test engineer job before it.
+    rule = title_rule()
+
+    assert "newer or current" in rule
+    assert "thesis" in rule
+
+
+def test_the_latest_job_is_found_by_its_dates_not_its_place_on_the_page() -> None:
+    # A two-column CV listed "Customer Service Staff (August 2024)" above "Sales Associate
+    # (June 2025)", and the first one listed came back.
+    assert "not by the order on the page" in title_rule()
+
+
+def test_a_title_keeps_the_language_the_cv_writes_it_in() -> None:
+    # "NHÂN VIÊN BÁN HÀNG" came back "Sales Staff" in some runs and not in others; a title
+    # written in both languages flipped between them.
+    rule = title_rule()
+
+    assert "never translating it" in rule
+    assert "give the Vietnamese" in rule
+
+
+def test_a_vietnamese_title_comes_back_in_sentence_case() -> None:
+    # "Nhân Viên Pha Chế" and "Nhân viên pha chế" alternated between runs.
+    assert "sentence case" in title_rule()

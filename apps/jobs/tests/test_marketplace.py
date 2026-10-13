@@ -74,6 +74,9 @@ def test_filters_cover_search_function_location_work_model_and_joined(
     assert filtered({"work_model": "remote"}, recruiter_profile) == ["Remote SRE"]
     assert filtered({"joined": "true"}, recruiter_profile) == [backend.title]
     assert sorted(filtered({"joined": "false"}, recruiter_profile)) == ["Controller", "Remote SRE"]
+    abroad = OfficeFactory(company=hanoi, city=Location.ABROAD, place="Singapore", position=1)
+    JobFactory(title="Regional Sales Lead", company=hanoi, office=abroad)
+    assert filtered({"location": Location.ABROAD}, recruiter_profile) == ["Regional Sales Lead"]
 
 
 def test_other_recruiter_identity_is_not_exposed(

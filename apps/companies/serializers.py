@@ -1,5 +1,6 @@
 from typing import Any
 from urllib.parse import urlparse
+from uuid import UUID
 
 from django.db.models.fields.files import FieldFile
 from django.utils import timezone
@@ -24,17 +25,33 @@ def _is_http_url(url: str, suffixes: tuple[str, ...] | None = None) -> bool:
 
 
 class OfficeSerializer(serializers.ModelSerializer[Office]):
+    # Sent back for an office that stays, so the jobs posted at it keep their location.
+    id = serializers.UUIDField(required=False)
     address = serializers.CharField(max_length=255, allow_blank=True)
+    place = serializers.CharField(max_length=120, allow_blank=True, required=False, default="")
 
     class Meta:
         model = Office
-        fields = ("id", "address", "city", "position")
-        read_only_fields = ("id", "position")
+        fields = ("id", "address", "city", "place", "position")
+        read_only_fields = ("position",)
 
     def validate_address(self, value: str) -> str:
         if not value.strip():
             raise serializers.ValidationError("Enter this address or remove the row.")
         return value.strip()
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        # Only an office abroad has a place; the form keeps one typed before a province was
+        # picked, so it is dropped here rather than rejected.
+        if attrs.get("city", Location.HCM) != Location.ABROAD:
+            attrs["place"] = ""
+        elif not attrs.get("place", "").strip():
+            raise serializers.ValidationError(
+                {"place": "Enter the city and country of this office."}
+            )
+        else:
+            attrs["place"] = attrs["place"].strip()
+        return attrs
 
 
 class CompanySerializer(serializers.ModelSerializer[Company]):
@@ -124,6 +141,12 @@ class CompanySerializer(serializers.ModelSerializer[Company]):
             raise serializers.ValidationError(f"Keep this under {ABOUT_MAX} characters.")
         return value
 
+    def validate_located(self, value: str) -> str:
+        # The profile describes the company in Vietnam; offices abroad are listed as offices.
+        if value == Location.ABROAD:
+            raise serializers.ValidationError("Select where your company is located in Vietnam.")
+        return value
+
     def validate_offices(self, value: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if len(value) > MAX_OFFICES:
             raise serializers.ValidationError(f"Up to {MAX_OFFICES} offices.")
@@ -133,17 +156,25 @@ class CompanySerializer(serializers.ModelSerializer[Company]):
         offices = validated_data.pop("offices", None)
         company = super().update(instance, validated_data)
         if offices is not None:
-            company.offices.all().delete()
-            Office.objects.bulk_create(
-                Office(
-                    company=company,
-                    address=office["address"],
-                    city=office.get("city", Location.HCM),
-                    position=index,
-                )
-                for index, office in enumerate(offices)
-            )
+            self._save_offices(company, offices)
         return company
+
+    def _save_offices(self, company: Company, offices: list[dict[str, Any]]) -> None:
+        # Matched by id within this company, so a job keeps its office unless that row is
+        # removed; an unknown id is a new office.
+        existing: dict[UUID | None, Office] = {
+            office.pk: office for office in company.offices.all()
+        }
+        kept: list[UUID] = []
+        for index, data in enumerate(offices):
+            office = existing.pop(data.get("id"), None) or Office(company=company)
+            office.address = data["address"]
+            office.city = data.get("city", Location.HCM)
+            office.place = data.get("place", "")
+            office.position = index
+            office.save()
+            kept.append(office.pk)
+        company.offices.exclude(pk__in=kept).delete()
 
 
 class CompanyCompleteSerializer(serializers.Serializer[Company]):

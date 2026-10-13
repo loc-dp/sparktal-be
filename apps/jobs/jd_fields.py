@@ -37,6 +37,7 @@ SENTENCE_BREAK = re.compile(r"[.!?;:\n]+")
 class OfficeRef:
     id: str
     city: str
+    place: str = ""
 
 
 def _squeeze(value: Any) -> str:
@@ -142,11 +143,25 @@ def _choice(value: Any, choices: list[str]) -> str:
     return value if isinstance(value, str) and value in choices else ""
 
 
-def _office(city: Any, work_model: str, offices: list[OfficeRef]) -> str:
-    """The company's only office in that city; no guess when there are none or several."""
+def _same_place(office: str, place: Any) -> bool:
+    """Whether a JD's place is an office's: "Shibuya, Tokyo" is in "Tokyo, Japan", and so is
+    "Japan"."""
+    if not isinstance(place, str) or not place.strip():
+        return False
+    office_city, jd_city = office.casefold(), place.casefold()
+    return office_city.split(",")[0].strip() in jd_city or (
+        jd_city.split(",")[-1].strip() in office_city
+    )
+
+
+def _office(city: Any, place: Any, work_model: str, offices: list[OfficeRef]) -> str:
+    """The company's only office in that city; no guess when there are none or several.
+    Offices abroad share one code, so there the JD's place has to name the office's."""
     if work_model == WorkModel.REMOTE or city == Location.OTHER:
         return ""
     matches = [office for office in offices if office.city == city]
+    if city == Location.ABROAD:
+        matches = [office for office in matches if _same_place(office.place, place)]
     return matches[0].id if len(matches) == 1 else ""
 
 
@@ -155,7 +170,7 @@ def _city(city: Any, place: Any, work_model: str, office: str) -> str:
     to check: the city's label, or the place as written when it has no code."""
     if office or work_model == WorkModel.REMOTE:
         return ""
-    if city in Location.values and city != Location.OTHER:
+    if city in Location.values and city not in (Location.OTHER, Location.ABROAD):
         return Location(city).label
     return _capped(place, MAX_PLACE_LENGTH)
 
@@ -187,7 +202,7 @@ def normalize_jd(raw: dict[str, Any], offices: list[OfficeRef], source: str = ""
     drafted = _drafted(why, raw.get("why_we_need_you_drafted"), lists["roles"], source)
     work_model = _choice(raw.get("work_model"), WorkModel.values)
     salary_min, salary_max = _salary(raw.get("salary"))
-    office = _office(raw.get("city"), work_model, offices)
+    office = _office(raw.get("city"), raw.get("location"), work_model, offices)
     return {
         "title": _capped(raw.get("title"), MAX_TITLE_LENGTH),
         "why_we_need_you": why,

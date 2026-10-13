@@ -1,5 +1,6 @@
 import logging
 from datetime import timedelta
+from pathlib import Path
 from typing import Any
 
 from celery import shared_task
@@ -12,16 +13,19 @@ from apps.candidates.parsing import extract_text, guess_fields, is_scanned
 
 logger = logging.getLogger(__name__)
 UNREADABLE = "We couldn't read that CV. Fill the form in yourself."
+OLD_DOC = "We can't read old .doc files. Save the CV as PDF and upload it again."
+NOT_A_CV = "That file doesn't look like a CV. Fill the form in yourself."
 # A parse only prefills the form on screen; after a day its file and fields are just stored PII.
 CV_PARSE_TTL = timedelta(hours=24)
 
 
 class UnreadableCvError(Exception):
-    """Neither Claude nor a text layer could read the file."""
+    """Nothing usable came out of the file; `message` tells the recruiter why."""
 
-    def __init__(self, filename: str, claude: ClaudeRead | None) -> None:
+    def __init__(self, filename: str, claude: ClaudeRead | None, message: str = UNREADABLE) -> None:
         super().__init__(filename)
         self.claude = claude
+        self.message = message
 
 
 def read_fields(data: bytes, filename: str, text: str) -> tuple[dict[str, Any], ClaudeRead | None]:
@@ -31,10 +35,13 @@ def read_fields(data: bytes, filename: str, text: str) -> tuple[dict[str, Any], 
     source_text = "" if scanned else text
     claude = llm_extract(data, filename, text)
     llm = claude.fields if claude else None
+    if llm is not None and llm.get("is_cv") is False:
+        raise UnreadableCvError(filename, claude, NOT_A_CV)
     if llm is None and not source_text.strip():
-        raise UnreadableCvError(filename, claude)
+        old_doc = Path(filename).suffix.lower() == ".doc"
+        raise UnreadableCvError(filename, claude, OLD_DOC if old_doc else UNREADABLE)
     regex = normalize_fields(guess_fields(source_text), source_text)
-    fields = fill_contacts(normalize_fields(llm, source_text), regex) if llm else regex
+    fields = fill_contacts(normalize_fields(llm, source_text), regex, llm) if llm else regex
     fields["source"] = "scanned" if scanned else "text"
     return fields, claude
 
@@ -62,7 +69,7 @@ def parse_cv(parse_id: str) -> None:
     except UnreadableCvError as error:
         logger.info("CV parse %s found nothing to read", parse_id)
         record_usage(attempt, error.claude)
-        attempt.mark_failed(UNREADABLE)
+        attempt.mark_failed(error.message)
     except Exception:
         logger.exception("CV parse %s failed", parse_id)
         attempt.mark_failed(UNREADABLE)

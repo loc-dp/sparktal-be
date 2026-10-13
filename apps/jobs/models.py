@@ -109,7 +109,7 @@ class Job(models.Model):
     def location_label(self) -> str:
         if self.work_model == WorkModel.REMOTE:
             return "Remote (Vietnam)"
-        return self.office.get_city_display() if self.office else "—"
+        return self.office.label if self.office else "—"
 
     def publish(self) -> None:
         self.status = JobStatus.ACTIVE

@@ -157,17 +157,56 @@ def test_without_a_text_layer_contacts_are_only_format_checked() -> None:
     assert fields["phone"] == "+84909172846"
 
 
-def test_regex_only_fills_contacts_claude_left_empty() -> None:
-    claude = normalize_fields({"full_name": "Hạnh", "email": "hanh@gmail.com"})
+def test_regex_only_replaces_a_contact_the_gate_rejected() -> None:
+    raw = {"full_name": "Hạnh", "email": "hanh@gmail.com", "phone": "0909 172 846 ext"}
+    claude = normalize_fields({**raw, "phone": ""})
     regex = normalize_fields(
         {"full_name": "Truong", "email": "other@gmail.com", "phone": "0909 172 846"}
     )
 
-    merged = fill_contacts(claude, regex)
+    merged = fill_contacts(claude, regex, raw)
 
     assert merged["full_name"] == "Hạnh"
     assert merged["email"] == "hanh@gmail.com"
     assert merged["phone"] == "+84909172846"
+
+
+def test_regex_never_fills_a_contact_claude_left_empty() -> None:
+    # A CV without the candidate's own email still lists a referee's; Claude rightly says null.
+    claude = normalize_fields({"full_name": "Vũ Văn Nam"})
+    regex = normalize_fields({"email": "referee@company.com", "phone": "0904 658 169"})
+
+    merged = fill_contacts(claude, regex, {"full_name": "Vũ Văn Nam", "email": None})
+
+    assert merged["email"] == ""
+    assert merged["phone"] == ""
+
+
+def test_a_control_character_in_the_text_layer_does_not_hide_an_email() -> None:
+    # pypdf turns an unmapped ligature into NUL: "tyffany" can come out as "ty\x00any".
+    source = "Nhà Bè, Hồ Chí Minh\nty\x00any.nguyen888@gmail.com\n0937610063"
+
+    assert normalize_fields({"email": "tyany.nguyen888@gmail.com"}, source)["email"] == (
+        "tyany.nguyen888@gmail.com"
+    )
+
+
+def test_a_long_skill_is_cut_at_a_word_boundary() -> None:
+    fields = normalize_fields(
+        {
+            "skills": [
+                "Environmental and social impact assessment",
+                "Client Communication & Relationship Management",
+                "s" * 80,
+            ]
+        }
+    )
+
+    assert fields["skills"] == [
+        "Environmental and social impact",
+        "Client Communication & Relationship",
+        "s" * 40,
+    ]
 
 
 def test_an_email_broken_across_lines_in_the_text_layer_is_still_found() -> None:

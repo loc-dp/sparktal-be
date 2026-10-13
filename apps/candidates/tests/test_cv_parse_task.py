@@ -66,16 +66,14 @@ def test_a_readable_pdf_fills_the_full_contract(recruiter_profile: RecruiterProf
     assert parse.fields["source"] == "text"
 
 
-@pytest.mark.parametrize(
-    ("name", "content"),
-    [("cv.pdf", b"%PDF-1.4 truncated"), ("cv.doc", b"\xd0\xcf\x11\xe0 word 97")],
-)
 def test_a_file_nothing_can_read_fails_with_the_unreadable_message(
-    recruiter_profile: RecruiterProfile, name: str, content: bytes
+    recruiter_profile: RecruiterProfile,
 ) -> None:
     # No text layer and no Claude: an empty "done" would read as "nothing to fill".
     parse = CvParseFactory(
-        owner=recruiter_profile, filename=name, file=ContentFile(content, name=name)
+        owner=recruiter_profile,
+        filename="cv.pdf",
+        file=ContentFile(b"%PDF-1.4 truncated", name="cv.pdf"),
     )
 
     parse_cv(str(parse.pk))
@@ -83,6 +81,22 @@ def test_a_file_nothing_can_read_fails_with_the_unreadable_message(
     parse.refresh_from_db()
     assert parse.status == CvParseStatus.FAILED
     assert parse.error == "We couldn't read that CV. Fill the form in yourself."
+
+
+def test_an_old_doc_file_asks_for_a_pdf(recruiter_profile: RecruiterProfile) -> None:
+    # Neither the text reader nor Claude reads Word 97; "re-save it" is something the
+    # recruiter can act on, unlike "couldn't read".
+    parse = CvParseFactory(
+        owner=recruiter_profile,
+        filename="cv.doc",
+        file=ContentFile(b"\xd0\xcf\x11\xe0 word 97", name="cv.doc"),
+    )
+
+    parse_cv(str(parse.pk))
+
+    parse.refresh_from_db()
+    assert parse.status == CvParseStatus.FAILED
+    assert parse.error == "We can't read old .doc files. Save the CV as PDF and upload it again."
 
 
 def test_a_missing_blob_fails_with_a_readable_message(
@@ -117,6 +131,7 @@ def claude_returns(
     settings.ANTHROPIC_API_KEY = "test-key"
     settings.CV_PARSE_MODEL = "claude-sonnet-5-5"
     base: dict[str, Any] = {
+        "is_cv": True,
         "full_name": None,
         "current_title": None,
         "email": None,
@@ -268,16 +283,35 @@ def test_claudes_foreign_phone_is_not_replaced_by_regex_noise(
     assert fields["phone"] == "+886917962702"
 
 
-def test_regex_fills_a_contact_claude_missed(
+def test_a_referees_contacts_never_fill_the_candidates(
     monkeypatch: pytest.MonkeyPatch, settings: Any
 ) -> None:
-    claude_returns(monkeypatch, settings, full_name="Trương Mỹ Hạnh")
+    # The CV gives no email or phone of the candidate's own, only the referee's.
+    claude_returns(monkeypatch, settings, full_name="Vũ Văn Nam")
+    text = "Vu Van Nam\nProduction Manager\n\nReferences\nDr. Hisato Takeda\n"
+    text += "takeda.vn@goshukohsan.com\n0904 658 169\n"
 
-    fields, _ = read_fields(b"%PDF-1.4", "cv.pdf", CV)
+    fields, _ = read_fields(b"%PDF-1.4", "cv.pdf", text)
 
-    assert fields["full_name"] == "Trương Mỹ Hạnh"
-    assert fields["email"] == "myhanh.truong@gmail.com"
-    assert fields["phone"] == "+84909172846"
+    assert fields["full_name"] == "Vũ Văn Nam"
+    assert fields["email"] == ""
+    assert fields["phone"] == ""
+
+
+def test_a_file_that_is_not_a_cv_fails_and_keeps_its_cost(
+    recruiter_profile: RecruiterProfile, monkeypatch: pytest.MonkeyPatch, settings: Any
+) -> None:
+    # A therapy report for a child still has a name, a date and an address to extract.
+    claude_returns(monkeypatch, settings, is_cv=False, full_name="Mai Thế An")
+    parse = CvParseFactory(owner=recruiter_profile, file=ContentFile(make_pdf(CV), name="cv.pdf"))
+
+    parse_cv(str(parse.pk))
+
+    parse.refresh_from_db()
+    assert parse.status == CvParseStatus.FAILED
+    assert parse.error == "That file doesn't look like a CV. Fill the form in yourself."
+    assert parse.fields == {}
+    assert (parse.input_tokens, parse.output_tokens) == (1200, 300)
 
 
 def test_a_claude_read_records_the_reader_model_and_tokens(

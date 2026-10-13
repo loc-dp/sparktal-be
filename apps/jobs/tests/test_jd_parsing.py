@@ -200,3 +200,10 @@ def test_the_prompt_files_the_working_arrangement_under_benefits() -> None:
 def test_the_prompt_keeps_one_language_of_a_bilingual_jd() -> None:
     # A bilingual form came back with every duty twice, once per language.
     assert "Never output an item and its translation as two items" in instructions()
+
+
+def test_a_job_outside_vietnam_gets_the_abroad_code_and_keeps_its_country() -> None:
+    prompt = instructions()
+
+    assert "abroad = Outside Vietnam" in prompt
+    assert "outside Vietnam" in prompt.split("- location")[1].split("- city")[0]

@@ -25,7 +25,8 @@ def record_usage(attempt: JdParse, claude: ClaudeRead | None) -> None:
 
 def offices_of(attempt: JdParse) -> list[OfficeRef]:
     return [
-        OfficeRef(id=str(office.pk), city=office.city) for office in attempt.company.offices.all()
+        OfficeRef(id=str(office.pk), city=office.city, place=office.place)
+        for office in attempt.company.offices.all()
     ]
 
 

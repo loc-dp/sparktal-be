@@ -44,8 +44,9 @@ def _name(value: Any) -> str:
 
 
 def _email(value: Any, source_text: str) -> str:
-    # PDF text layers break lines inside an address ("gmail.co⏎m"), so ground without whitespace.
-    source = re.sub(r"\s+", "", source_text).lower()
+    # PDF text layers break lines inside an address ("gmail.co⏎m") and turn unmapped
+    # ligatures into NUL ("ty\x00any"), so ground without whitespace or control characters.
+    source = re.sub(r"[\s\x00-\x1f]+", "", source_text).lower()
     for email in CONTACT_SEPARATOR.split(_text(value, 512).lower()):
         email = email.strip()
         try:
@@ -91,13 +92,21 @@ def _location(value: Any) -> str:
     return value if isinstance(value, str) and value in Location.values else ""
 
 
+def _clip(value: str, length: int) -> str:
+    """Cut at the last whole word that fits, so a long skill never ends mid-word."""
+    if len(value) <= length:
+        return value
+    head = value[: length + 1].rsplit(" ", 1)[0]
+    return head if head != value[: length + 1] else value[:length]
+
+
 def _tags(value: Any, length: int, limit: int) -> list[str]:
     if not isinstance(value, list):
         return []
     tags: list[str] = []
     seen: set[str] = set()
     for item in value:
-        tag = _text(item, length).strip(" .-")
+        tag = _clip(_text(item, 512), length).strip(" .-&,/(")
         if tag and tag.lower() not in seen:
             tags.append(tag)
             seen.add(tag.lower())
@@ -192,13 +201,17 @@ def normalize_fields(raw: dict[str, Any], source_text: str = "") -> dict[str, An
     }
 
 
-def fill_contacts(primary: dict[str, Any], backup: dict[str, Any]) -> dict[str, Any]:
-    """Fill an email or phone the primary reader left empty from the backup reader.
+def fill_contacts(
+    primary: dict[str, Any], backup: dict[str, Any], raw: dict[str, Any]
+) -> dict[str, Any]:
+    """Replace an email or phone the gate rejected with the backup reader's find.
 
     Both sides must already be normalized: a primary value that failed the gate is empty here.
+    `raw` is the primary reader's output before the gate. Where it gave no value at all, the
+    CV has none of the candidate's own: the backup's find there is a referee's or a company's.
     """
     merged = dict(primary)
     for key in CONTACT_KEYS:
-        if not merged.get(key) and backup.get(key):
+        if raw.get(key) and not merged.get(key) and backup.get(key):
             merged[key] = backup[key]
     return merged

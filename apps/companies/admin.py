@@ -24,7 +24,7 @@ class CompanyAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
 
 @admin.register(Office)
 class OfficeAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
-    list_display = ("address", "company", "city", "position")
+    list_display = ("address", "company", "city", "place", "position")
     list_filter = ("city",)
     search_fields = ("address", "company__name")
     autocomplete_fields = ("company",)

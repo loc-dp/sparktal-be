@@ -20,7 +20,14 @@ permissions:
 
 jobs:
   deploy:
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    # Only CI runs started by a push to main in this repository: `branches: [main]` above
+    # matches the branch name alone, which a pull request from a fork could also carry.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'main' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: [self-hosted, macOS, sparktal-deploy]
     timeout-minutes: 30
     env:

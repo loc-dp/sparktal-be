@@ -409,7 +409,10 @@ def test_years_come_from_claudes_job_dates_not_its_arithmetic(
     claude_returns(
         monkeypatch,
         settings,
-        jobs=[{"start": "2015-01", "end": "2020-01"}, {"start": "2018-01", "end": "2020-01"}],
+        jobs=[
+            {"title": "Backend Engineer", "start": "2015-01", "end": "2020-01"},
+            {"title": "Mentor", "start": "2018-01", "end": "2020-01"},
+        ],
         years_experience=7,
     )
 

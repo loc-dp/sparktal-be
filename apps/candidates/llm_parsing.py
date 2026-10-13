@@ -18,6 +18,7 @@ OUTPUT_CONFIG: OutputConfigParam = {"effort": "medium"}
 
 
 class JobPeriod(BaseModel):
+    title: str | None
     start: str | None
     end: str | None
 
@@ -25,6 +26,9 @@ class JobPeriod(BaseModel):
 class ParsedCv(BaseModel):
     is_cv: bool
     full_name: str | None
+    # Before current_title: Claude, which does not think here, picks the current job better
+    # once it has written every job out with its dates.
+    jobs: list[JobPeriod]
     current_title: str | None
     email: str | None
     phone: str | None
@@ -33,7 +37,6 @@ class ParsedCv(BaseModel):
     is_expat: bool | None
     languages: list[str]
     skills: list[str]
-    jobs: list[JobPeriod]
     years_experience: int | None
     current_salary: int | None
     expected_salary: int | None
@@ -58,10 +61,10 @@ def instructions() -> str:
         "stands beside the full Vietnamese name ('SALLY NGUYEN (NGUYEN THI XANH)'), give the "
         "Vietnamese name. Write the name in its usual order without a comma ('Hung, Vu Tien' "
         "is 'Vu Tien Hung').\n"
-        "- current_title: the title of the latest paid job, by its dates and not by the order "
-        "on the page: the current one, else the one that ended last. Paid jobs are the ones "
-        "jobs below counts, so an internship, a thesis or other student research never beats "
-        "one, even when it is newer or current: 'Sales Staff' 2023-2025 beats 'Marketing "
+        "- current_title: the title of the latest entry in jobs, by its dates and not by the "
+        "order on the page: the current one, else the one that ended last. jobs holds paid "
+        "work only, so an internship, a thesis or other student research never beats it, even "
+        "when it is newer or current: 'Sales Staff' 2023-2025 beats 'Marketing "
         "Intern' 2025-present. Only if the CV has no paid job, give the latest internship's "
         "title; null if it lists no work at all. Never take the title from the headline under "
         "the name, an objective or the position applied for, even when the only work is an "
@@ -93,7 +96,8 @@ def instructions() -> str:
         "JLPT Japanese, HSK Chinese); 'Chinese' for Mandarin. Do not add any other.\n"
         "- skills: up to 20 professional skills, most important first, each a short name of at "
         "most 40 characters.\n"
-        "- jobs: every paid job in the work history. Leave out education, internships, student "
+        "- jobs: every paid job in the work history, each with its title (written as for "
+        "current_title) and dates. Leave out education, internships, student "
         "research and compulsory military or police service; a paid trainee programme after "
         "graduating and Japan's technical intern programme (thực tập sinh kỹ năng) are jobs. "
         "start and end as written: 'YYYY-MM' when the month is given, 'YYYY' when only the "

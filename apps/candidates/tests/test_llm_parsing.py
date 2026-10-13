@@ -368,3 +368,13 @@ def test_a_title_keeps_the_language_the_cv_writes_it_in() -> None:
 def test_a_vietnamese_title_comes_back_in_sentence_case() -> None:
     # "Nhân Viên Pha Chế" and "Nhân viên pha chế" alternated between runs.
     assert "sentence case" in title_rule()
+
+
+def test_claude_lists_each_job_with_its_title_before_picking_the_current_one() -> None:
+    # Without thinking, Claude picks in the order it writes: with the title first it took
+    # "Customer Service Staff (August 2024)" over "Sales Associate (June 2025)".
+    fields = list(ParsedCv.model_fields)
+
+    assert "title" in llm_parsing.JobPeriod.model_fields
+    assert fields.index("jobs") < fields.index("current_title")
+    assert "the latest entry in jobs" in title_rule()

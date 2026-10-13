@@ -3337,9 +3337,7 @@ components:
           type: string
           maxLength: 120
         function:
-          allOf:
-          - $ref: '#/components/schemas/FunctionEnum'
-          readOnly: true
+          $ref: '#/components/schemas/FunctionEnum'
         why_we_need_you:
           type: string
         roles:
@@ -3388,6 +3386,49 @@ components:
           items:
             type: string
             maxLength: 40
+        working_hours:
+          oneOf:
+          - $ref: '#/components/schemas/WorkingHoursEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+        reporting_line:
+          type: string
+        role_type:
+          oneOf:
+          - $ref: '#/components/schemas/RoleTypeEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+        has_internal_candidate:
+          type: boolean
+          nullable: true
+        search_duration:
+          oneOf:
+          - $ref: '#/components/schemas/SearchDurationEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+        target_start_date:
+          type: string
+          format: date
+          nullable: true
+        interview_rounds_count:
+          type: integer
+          maximum: 10
+          minimum: 1
+          nullable: true
+        interview_process_details:
+          type: string
+        languages:
+          type: array
+          items:
+            $ref: '#/components/schemas/LanguagesEnum'
+        core_competencies:
+          type: string
+          description: One per line.
+        probation_expectations:
+          type: string
+        salary_negotiable:
+          type: boolean
+          nullable: true
+        allowances:
+          type: string
+          description: One allowance or reward per line.
         status:
           allOf:
           - $ref: '#/components/schemas/JobStatusEnum'
@@ -3418,7 +3459,6 @@ components:
       - can_edit
       - closed_at
       - created_at
-      - function
       - id
       - location_label
       - published_at
@@ -3555,6 +3595,8 @@ components:
           type: string
           minLength: 1
           maxLength: 120
+        function:
+          $ref: '#/components/schemas/FunctionEnum'
         why_we_need_you:
           type: string
           minLength: 1
@@ -3604,6 +3646,49 @@ components:
             type: string
             minLength: 1
             maxLength: 40
+        working_hours:
+          oneOf:
+          - $ref: '#/components/schemas/WorkingHoursEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+        reporting_line:
+          type: string
+        role_type:
+          oneOf:
+          - $ref: '#/components/schemas/RoleTypeEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+        has_internal_candidate:
+          type: boolean
+          nullable: true
+        search_duration:
+          oneOf:
+          - $ref: '#/components/schemas/SearchDurationEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+        target_start_date:
+          type: string
+          format: date
+          nullable: true
+        interview_rounds_count:
+          type: integer
+          maximum: 10
+          minimum: 1
+          nullable: true
+        interview_process_details:
+          type: string
+        languages:
+          type: array
+          items:
+            $ref: '#/components/schemas/LanguagesEnum'
+        core_competencies:
+          type: string
+          description: One per line.
+        probation_expectations:
+          type: string
+        salary_negotiable:
+          type: boolean
+          nullable: true
+        allowances:
+          type: string
+          description: One allowance or reward per line.
         note_for_recruiters:
           type: string
       required:
@@ -3636,6 +3721,20 @@ components:
       - assignment_id
       - channel_id
       - joined
+    LanguagesEnum:
+      enum:
+      - vi
+      - en
+      - zh
+      - ja
+      - other
+      type: string
+      description: |-
+        * `vi` - Vietnamese
+        * `en` - English
+        * `zh` - Mandarin
+        * `ja` - Japanese
+        * `other` - Other
     LeaveResult:
       type: object
       properties:
@@ -3753,6 +3852,49 @@ components:
           type: string
         benefits:
           type: string
+        working_hours:
+          oneOf:
+          - $ref: '#/components/schemas/WorkingHoursEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+        reporting_line:
+          type: string
+        role_type:
+          oneOf:
+          - $ref: '#/components/schemas/RoleTypeEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+        has_internal_candidate:
+          type: boolean
+          nullable: true
+        search_duration:
+          oneOf:
+          - $ref: '#/components/schemas/SearchDurationEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+        target_start_date:
+          type: string
+          format: date
+          nullable: true
+        interview_rounds_count:
+          type: integer
+          maximum: 10
+          minimum: 1
+          nullable: true
+        interview_process_details:
+          type: string
+        languages:
+          type: array
+          items:
+            $ref: '#/components/schemas/LanguagesEnum'
+        core_competencies:
+          type: string
+          description: One per line.
+        probation_expectations:
+          type: string
+        salary_negotiable:
+          type: boolean
+          nullable: true
+        allowances:
+          type: string
+          description: One allowance or reward per line.
         note_for_recruiters:
           type: string
         channel_id:
@@ -4452,6 +4594,8 @@ components:
           type: string
           minLength: 1
           maxLength: 120
+        function:
+          $ref: '#/components/schemas/FunctionEnum'
         why_we_need_you:
           type: string
           minLength: 1
@@ -4501,6 +4645,49 @@ components:
             type: string
             minLength: 1
             maxLength: 40
+        working_hours:
+          oneOf:
+          - $ref: '#/components/schemas/WorkingHoursEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+        reporting_line:
+          type: string
+        role_type:
+          oneOf:
+          - $ref: '#/components/schemas/RoleTypeEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+        has_internal_candidate:
+          type: boolean
+          nullable: true
+        search_duration:
+          oneOf:
+          - $ref: '#/components/schemas/SearchDurationEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+        target_start_date:
+          type: string
+          format: date
+          nullable: true
+        interview_rounds_count:
+          type: integer
+          maximum: 10
+          minimum: 1
+          nullable: true
+        interview_process_details:
+          type: string
+        languages:
+          type: array
+          items:
+            $ref: '#/components/schemas/LanguagesEnum'
+        core_competencies:
+          type: string
+          description: One per line.
+        probation_expectations:
+          type: string
+        salary_negotiable:
+          type: boolean
+          nullable: true
+        allowances:
+          type: string
+          description: One allowance or reward per line.
         note_for_recruiters:
           type: string
     PatchedMemberRoleRequest:
@@ -4656,6 +4843,30 @@ components:
           items:
             type: string
             maxLength: 40
+        working_hours:
+          oneOf:
+          - $ref: '#/components/schemas/WorkingHoursEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+        languages:
+          type: array
+          items:
+            $ref: '#/components/schemas/LanguagesEnum'
+        core_competencies:
+          type: string
+          description: One per line.
+        interview_rounds_count:
+          type: integer
+          maximum: 10
+          minimum: 1
+          nullable: true
+        interview_process_details:
+          type: string
+        salary_negotiable:
+          type: boolean
+          nullable: true
+        allowances:
+          type: string
+          description: One allowance or reward per line.
         published_at:
           type: string
           format: date-time
@@ -4953,6 +5164,28 @@ components:
         * `admin` - Company Admin
         * `hiring_manager` - Hiring Manager
         * `talent_acquisition` - Talent Acquisition
+    RoleTypeEnum:
+      enum:
+      - new_position
+      - replacement
+      type: string
+      description: |-
+        * `new_position` - New position
+        * `replacement` - Replacement
+    SearchDurationEnum:
+      enum:
+      - just_created
+      - under_2_weeks
+      - 2_weeks_to_1_month
+      - over_1_month
+      - over_3_months
+      type: string
+      description: |-
+        * `just_created` - Just created
+        * `under_2_weeks` - Less than two weeks
+        * `2_weeks_to_1_month` - Two weeks to a month
+        * `over_1_month` - More than a month
+        * `over_3_months` - More than three months
     SignupRequest:
       type: object
       properties:
@@ -5406,6 +5639,16 @@ components:
         * `onsite` - On-site
         * `hybrid` - Hybrid
         * `remote` - Remote
+    WorkingHoursEnum:
+      enum:
+      - 40h_mon_fri
+      - 44h_mon_sat_half
+      - 48h_mon_sat
+      type: string
+      description: |-
+        * `40h_mon_fri` - 40h (Mon - Fri)
+        * `44h_mon_sat_half` - 44h (Mon - Fri + half Sat)
+        * `48h_mon_sat` - 48h (Mon - Sat)
   securitySchemes:
     cookieAuth:
       type: apiKey

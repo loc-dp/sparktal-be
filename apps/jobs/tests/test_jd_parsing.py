@@ -29,6 +29,18 @@ def parsed(**overrides: Any) -> ParsedJd:
             "location": None,
             "city": None,
             "skills": [],
+            "function": None,
+            "reporting_line": [],
+            "role_type": None,
+            "core_competencies": [],
+            "languages": [],
+            "probation_expectations": [],
+            "interview_rounds_count": None,
+            "interview_process_details": [],
+            "target_start_date": None,
+            "allowances": [],
+            "salary_negotiable": None,
+            "working_hours": None,
             **overrides,
         }
     )
@@ -127,12 +139,36 @@ def test_the_prompt_keeps_the_jds_own_words() -> None:
     assert "Never translate" in prompt
 
 
-def test_the_prompt_never_asks_for_bounty_or_function() -> None:
+def test_the_prompt_never_asks_for_what_no_jd_says() -> None:
+    # The bounty and the company's own search are its call, not the JD's.
     prompt = instructions().lower()
 
     assert "bounty" not in prompt
-    assert "function" not in ParsedJd.model_fields
-    assert not any(name.startswith("bounty") for name in ParsedJd.model_fields)
+    for field in ("bounty_pct", "has_internal_candidate", "search_duration", "note_for_recruiters"):
+        assert field not in ParsedJd.model_fields
+
+
+def test_the_prompt_files_the_reporting_line_apart_from_the_duties() -> None:
+    # Reporting lines used to be appended to roles; a duty about reporting must stay there.
+    prompt = instructions()
+
+    assert "go in reporting_line, not here" in prompt
+    assert "never a duty" in prompt
+
+
+def test_a_stated_weekly_total_decides_the_working_hours() -> None:
+    # "48 giờ / tuần" and "Monday–Saturday, 44 hours per week" came back null.
+    prompt = instructions()
+
+    assert "A stated weekly total decides" in prompt
+    assert "'48 giờ/tuần' is 48h_mon_sat" in prompt
+
+
+def test_allowances_are_never_also_benefits() -> None:
+    prompt = instructions()
+
+    assert "Never also in benefits" in prompt
+    assert "besides the salary figure and allowances" in prompt
 
 
 def test_the_prompt_lists_city_codes_but_not_other() -> None:

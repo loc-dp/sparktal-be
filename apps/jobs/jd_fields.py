@@ -5,10 +5,23 @@ from __future__ import annotations
 import re
 import unicodedata
 from dataclasses import dataclass
+from datetime import date
 from typing import Any
 
+from django.utils import timezone
+
 from apps.companies.models import Location
-from apps.jobs.models import PayBasis, WorkModel
+from apps.jobs.functions import guess_function
+from apps.jobs.models import (
+    INTERVIEW_ROUNDS_MAX,
+    INTERVIEW_ROUNDS_MIN,
+    JobFunction,
+    Language,
+    PayBasis,
+    RoleType,
+    WorkingHours,
+    WorkModel,
+)
 
 MAX_TITLE_LENGTH = 120
 MAX_WHY_LENGTH = 1500
@@ -24,7 +37,17 @@ MAX_MONTHLY_VND = 10_000_000_000
 VND_SPELLINGS = {"vnd", "vnđ", "₫", "đ", "dong", "đồng"}
 # A yearly figure becomes a monthly one rounded to 100,000 VND, the way people quote it.
 MONTHLY_ROUNDING = 100_000
-LIST_FIELDS = ("roles", "qualifications", "nice_to_have", "benefits")
+LIST_FIELDS = (
+    "roles",
+    "qualifications",
+    "nice_to_have",
+    "core_competencies",
+    "benefits",
+    "allowances",
+    "reporting_line",
+    "probation_expectations",
+    "interview_process_details",
+)
 # Bullets, check marks and numbering ("1.", "2)", "a.") that a JD puts before an item.
 BULLET = re.compile(r"^(?:[•●○◦▪▫■□►▸✓✔➢➤\-–—*+·]|(?:\d{1,2}|[a-zA-Z])[.)](?=\s))\s*")
 # Layout leftovers at the end of an item: a list separator ("Lập kế hoạch;"), dots after
@@ -77,12 +100,18 @@ def _items(value: Any) -> list[str]:
     return items[:MAX_ITEMS]
 
 
+def _without(items: list[str], *others: list[str]) -> list[str]:
+    taken = {item.lower() for other in others for item in other}
+    return [item for item in items if item.lower() not in taken]
+
+
 def _lists(raw: dict[str, Any]) -> dict[str, list[str]]:
+    """Each item in one field only: the narrower field keeps it."""
     lists = {field: _items(raw.get(field)) for field in LIST_FIELDS}
-    optional = {item.lower() for item in lists["nice_to_have"]}
-    lists["qualifications"] = [
-        item for item in lists["qualifications"] if item.lower() not in optional
-    ]
+    lists["qualifications"] = _without(
+        lists["qualifications"], lists["nice_to_have"], lists["core_competencies"]
+    )
+    lists["benefits"] = _without(lists["benefits"], lists["allowances"])
     return lists
 
 
@@ -175,6 +204,31 @@ def _city(city: Any, place: Any, work_model: str, office: str) -> str:
     return _capped(place, MAX_PLACE_LENGTH)
 
 
+def _languages(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return list(dict.fromkeys(code for code in value if code in Language.values))
+
+
+def _flag(value: Any) -> bool | None:
+    return value if isinstance(value, bool) else None
+
+
+def _rounds(value: Any) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value if INTERVIEW_ROUNDS_MIN <= value <= INTERVIEW_ROUNDS_MAX else None
+
+
+def _start_date(value: Any) -> str:
+    """A start date still ahead; an old JD's date has passed and would only mislead."""
+    try:
+        start = date.fromisoformat(value) if isinstance(value, str) else None
+    except ValueError:
+        return ""
+    return start.isoformat() if start and start >= timezone.localdate() else ""
+
+
 def _skills(value: Any) -> list[str]:
     if not isinstance(value, list):
         return []
@@ -191,9 +245,9 @@ def _skills(value: Any) -> list[str]:
 def normalize_jd(raw: dict[str, Any], offices: list[OfficeRef], source: str = "") -> dict[str, Any]:
     """Return the full JD field contract, dropping any value that would not fit.
 
-    `source` is the JD's text, used to check what Claude says it copied. Bounty and function
-    are never part of it: the bounty is the company's call and the server derives the
-    function from title and skills.
+    `source` is the JD's text, used to check what Claude says it copied. Bounty, the note for
+    recruiters and the company's own search (internal candidate, how long it has looked) are
+    never part of it: no JD says them. Function falls back to the server's guess.
     """
     if raw.get("is_job_description") is False:
         raw = {}
@@ -203,8 +257,12 @@ def normalize_jd(raw: dict[str, Any], offices: list[OfficeRef], source: str = ""
     work_model = _choice(raw.get("work_model"), WorkModel.values)
     salary_min, salary_max = _salary(raw.get("salary"))
     office = _office(raw.get("city"), raw.get("location"), work_model, offices)
+    title = _capped(raw.get("title"), MAX_TITLE_LENGTH)
+    skills = _skills(raw.get("skills"))
     return {
-        "title": _capped(raw.get("title"), MAX_TITLE_LENGTH),
+        "title": title,
+        "function": _choice(raw.get("function"), JobFunction.values)
+        or (guess_function(title, skills) if title else ""),
         "why_we_need_you": why,
         "why_we_need_you_drafted": drafted,
         **{field: "\n".join(items) for field, items in lists.items()},
@@ -214,7 +272,13 @@ def normalize_jd(raw: dict[str, Any], offices: list[OfficeRef], source: str = ""
         "work_model": work_model,
         "office": office,
         "unmatched_city": _city(raw.get("city"), raw.get("location"), work_model, office),
-        "skills": _skills(raw.get("skills")),
+        "skills": skills,
+        "working_hours": _choice(raw.get("working_hours"), WorkingHours.values),
+        "role_type": _choice(raw.get("role_type"), RoleType.values),
+        "languages": _languages(raw.get("languages")),
+        "salary_negotiable": _flag(raw.get("salary_negotiable")),
+        "interview_rounds_count": _rounds(raw.get("interview_rounds_count")),
+        "target_start_date": _start_date(raw.get("target_start_date")),
     }
 
 

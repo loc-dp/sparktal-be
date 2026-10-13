@@ -44,6 +44,37 @@ class WorkModel(models.TextChoices):
     REMOTE = "remote", "Remote"
 
 
+class WorkingHours(models.TextChoices):
+    MON_FRI = "40h_mon_fri", "40h (Mon - Fri)"
+    MON_SAT_HALF = "44h_mon_sat_half", "44h (Mon - Fri + half Sat)"
+    MON_SAT = "48h_mon_sat", "48h (Mon - Sat)"
+
+
+class RoleType(models.TextChoices):
+    NEW_POSITION = "new_position", "New position"
+    REPLACEMENT = "replacement", "Replacement"
+
+
+class SearchDuration(models.TextChoices):
+    JUST_CREATED = "just_created", "Just created"
+    UNDER_2_WEEKS = "under_2_weeks", "Less than two weeks"
+    UNDER_1_MONTH = "2_weeks_to_1_month", "Two weeks to a month"
+    OVER_1_MONTH = "over_1_month", "More than a month"
+    OVER_3_MONTHS = "over_3_months", "More than three months"
+
+
+class Language(models.TextChoices):
+    VIETNAMESE = "vi", "Vietnamese"
+    ENGLISH = "en", "English"
+    MANDARIN = "zh", "Mandarin"
+    JAPANESE = "ja", "Japanese"
+    OTHER = "other", "Other"
+
+
+INTERVIEW_ROUNDS_MIN = 1
+INTERVIEW_ROUNDS_MAX = 10
+
+
 class BountyType(models.TextChoices):
     PCT = "pct", "% of annual salary"
     FIXED = "fixed", "Fixed amount"
@@ -68,13 +99,37 @@ class Job(models.Model):
     nice_to_have = models.TextField(blank=True)
     benefits = models.TextField(blank=True)
 
+    # The rest of the SPARKTAL JOB BRIEF. Jobs posted before it leave these blank.
+    languages = ArrayField(
+        models.CharField(max_length=8, choices=Language.choices), default=list, blank=True
+    )
+    core_competencies = models.TextField(blank=True, help_text="One per line.")
+    probation_expectations = models.TextField(blank=True)
+    reporting_line = models.TextField(blank=True)
+    role_type = models.CharField(max_length=16, choices=RoleType.choices, blank=True)
+    has_internal_candidate = models.BooleanField(null=True, blank=True)
+    search_duration = models.CharField(max_length=24, choices=SearchDuration.choices, blank=True)
+    target_start_date = models.DateField(null=True, blank=True)
+    interview_rounds_count = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        validators=[
+            MinValueValidator(INTERVIEW_ROUNDS_MIN),
+            MaxValueValidator(INTERVIEW_ROUNDS_MAX),
+        ],
+    )
+    interview_process_details = models.TextField(blank=True)
+
     salary_min = models.DecimalField(max_digits=15, decimal_places=0, null=True, blank=True)
     salary_max = models.DecimalField(max_digits=15, decimal_places=0, null=True, blank=True)
     pay_basis = models.CharField(max_length=8, choices=PayBasis.choices, default=PayBasis.GROSS)
+    salary_negotiable = models.BooleanField(null=True, blank=True)
+    allowances = models.TextField(blank=True, help_text="One allowance or reward per line.")
     work_model = models.CharField(max_length=8, choices=WorkModel.choices, default=WorkModel.ONSITE)
     office = models.ForeignKey(
         Office, on_delete=models.SET_NULL, null=True, blank=True, related_name="jobs"
     )
+    working_hours = models.CharField(max_length=24, choices=WorkingHours.choices, blank=True)
 
     bounty_type = models.CharField(max_length=8, choices=BountyType.choices, default=BountyType.PCT)
     bounty_pct = models.PositiveSmallIntegerField(

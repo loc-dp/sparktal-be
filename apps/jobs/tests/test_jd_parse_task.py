@@ -50,6 +50,18 @@ def claude_returns(
         "location": None,
         "city": "hcm",
         "skills": ["IFRS"],
+        "function": None,
+        "reporting_line": [],
+        "role_type": None,
+        "core_competencies": [],
+        "languages": [],
+        "probation_expectations": [],
+        "interview_rounds_count": None,
+        "interview_process_details": [],
+        "target_start_date": None,
+        "allowances": [],
+        "salary_negotiable": None,
+        "working_hours": None,
     }
 
     def parse(**kwargs: Any) -> SimpleNamespace:

@@ -11,7 +11,15 @@ from apps.companies.access import company_of
 from apps.companies.models import Office
 from apps.core.documents import validate_document
 from apps.jobs.functions import guess_function
-from apps.jobs.models import BOUNTY_PCT_MAX, BOUNTY_PCT_MIN, BountyType, JdParse, Job, WorkModel
+from apps.jobs.models import (
+    BOUNTY_PCT_MAX,
+    BOUNTY_PCT_MIN,
+    BountyType,
+    JdParse,
+    Job,
+    JobFunction,
+    WorkModel,
+)
 
 MAX_SKILLS = 20
 
@@ -21,6 +29,46 @@ REQUIRED_MESSAGES = {
     "roles": "List the main responsibilities",
     "qualifications": "Add the must-have qualifications",
 }
+# Brief answers a new job must give; jobs posted before the brief may still lack them.
+BRIEF_REQUIRED_MESSAGES = {
+    "role_type": "Say whether this is a new position or a replacement",
+    "working_hours": "Select the working hours",
+    "languages": "Select at least one language",
+}
+LINE_FIELDS = (
+    "roles",
+    "qualifications",
+    "nice_to_have",
+    "benefits",
+    "allowances",
+    "core_competencies",
+)
+# The SPARKTAL JOB BRIEF answers beyond the posting itself, in the brief's order.
+BRIEF_FIELDS = (
+    "working_hours",
+    "reporting_line",
+    "role_type",
+    "has_internal_candidate",
+    "search_duration",
+    "target_start_date",
+    "interview_rounds_count",
+    "interview_process_details",
+    "languages",
+    "core_competencies",
+    "probation_expectations",
+    "salary_negotiable",
+    "allowances",
+)
+# What candidates may see of the brief: nothing about the company's search or rivals.
+PUBLIC_BRIEF_FIELDS = (
+    "working_hours",
+    "languages",
+    "core_competencies",
+    "interview_rounds_count",
+    "interview_process_details",
+    "salary_negotiable",
+    "allowances",
+)
 
 
 def clean_lines(value: str) -> str:
@@ -37,6 +85,8 @@ def _blank_message(field: str) -> dict[str, str]:
 class JobSerializer(serializers.ModelSerializer[Job]):
     location_label = serializers.CharField(read_only=True)
     bounty_pct = serializers.IntegerField(required=False, allow_null=True)
+    # Left out, the server picks it from the title and skills.
+    function = serializers.ChoiceField(choices=JobFunction.choices, required=False)
     can_edit = serializers.SerializerMethodField()
 
     class Meta:
@@ -60,6 +110,7 @@ class JobSerializer(serializers.ModelSerializer[Job]):
             "bounty_pct",
             "bounty_amount",
             "skills",
+            *BRIEF_FIELDS,
             "status",
             "note_for_recruiters",
             "share_token",
@@ -70,7 +121,6 @@ class JobSerializer(serializers.ModelSerializer[Job]):
         )
         read_only_fields = (
             "id",
-            "function",
             "status",
             "share_token",
             "created_at",
@@ -82,6 +132,9 @@ class JobSerializer(serializers.ModelSerializer[Job]):
         extra_kwargs = {  # noqa: RUF012
             field: {"error_messages": _blank_message(field)} for field in REQUIRED_MESSAGES
         }
+
+    def validate_languages(self, languages: list[str]) -> list[str]:
+        return list(dict.fromkeys(languages))
 
     def get_can_edit(self, job: Job) -> bool:
         from apps.jobs.access import can_change_job
@@ -117,11 +170,15 @@ class JobSerializer(serializers.ModelSerializer[Job]):
         def current(field: str, default: Any = None) -> Any:
             return attrs.get(field, getattr(instance, field, default))
 
-        for field in ("roles", "qualifications", "nice_to_have", "benefits"):
+        for field in LINE_FIELDS:
             if field in attrs:
                 attrs[field] = clean_lines(attrs[field])
         for field, message in REQUIRED_MESSAGES.items():
             if field in attrs and not str(attrs[field]).strip():
+                raise serializers.ValidationError({field: [message]})
+        for field, message in BRIEF_REQUIRED_MESSAGES.items():
+            given = field in attrs
+            if (given or instance is None) and not attrs.get(field):
                 raise serializers.ValidationError({field: [message]})
 
         salary_min: Decimal | None = current("salary_min")
@@ -164,18 +221,19 @@ class JobSerializer(serializers.ModelSerializer[Job]):
         request = self.context["request"]
         company = company_of(request.user)
         assert company is not None, "CanAddJob already rejected non-members"
-        job = Job.objects.create(
-            company=company,
-            created_by=request.user,
-            function=guess_function(validated_data["title"], validated_data.get("skills", [])),
-            **validated_data,
+        validated_data.setdefault(
+            "function", guess_function(validated_data["title"], validated_data.get("skills", []))
         )
+        job = Job.objects.create(company=company, created_by=request.user, **validated_data)
         grant_creator_perms(job, request.user)
         return job
 
     def update(self, instance: Job, validated_data: dict[str, Any]) -> Job:
+        # A function the company picked stays when the title changes; a guessed one follows it.
+        guessed = instance.function == guess_function(instance.title, instance.skills)
         job = super().update(instance, validated_data)
-        if "title" in validated_data or "skills" in validated_data:
+        retitled = "title" in validated_data or "skills" in validated_data
+        if "function" not in validated_data and retitled and guessed:
             job.function = guess_function(job.title, job.skills)
             job.save(update_fields=["function", "updated_at"])
         return job
@@ -204,6 +262,7 @@ class PublicJobSerializer(serializers.ModelSerializer[Job]):
             "work_model",
             "location_label",
             "skills",
+            *PUBLIC_BRIEF_FIELDS,
             "published_at",
             "company",
         )
@@ -360,6 +419,7 @@ class MarketplaceJobSerializer(MarketplaceJobListItemSerializer):
             "qualifications",
             "nice_to_have",
             "benefits",
+            *BRIEF_FIELDS,
             "note_for_recruiters",
             "channel_id",
         )

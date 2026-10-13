@@ -35,6 +35,9 @@ def payload(company: Company, **overrides: Any) -> dict[str, Any]:
         "bounty_type": "pct",
         "bounty_pct": 20,
         "skills": ["FP&A", "IFRS", "Treasury"],
+        "role_type": "new_position",
+        "working_hours": "40h_mon_fri",
+        "languages": ["vi", "en"],
     }
     data.update(overrides)
     return data
@@ -53,6 +56,96 @@ def test_ta_can_create_a_pending_job_with_inferred_function(
     job = Job.objects.get(id=body["id"])
     assert job.created_by == company_ta
     assert job.published_at is None
+
+
+@pytest.mark.parametrize("field", ["role_type", "working_hours", "languages"])
+def test_a_new_job_must_answer_the_required_brief_questions(
+    client_for: ClientFor, company_ta: User, company: Company, field: str
+) -> None:
+    data = payload(company)
+    del data[field]
+
+    response = client_for(company_ta).post(URL, data, format="json")
+
+    assert response.status_code == 400
+    assert field in response.json()
+
+
+def test_the_whole_brief_is_stored_and_returned(
+    client_for: ClientFor, company_ta: User, company: Company
+) -> None:
+    brief = {
+        "reporting_line": "Reports to the CEO\nManages 4 accountants",
+        "has_internal_candidate": True,
+        "search_duration": "over_1_month",
+        "target_start_date": "2026-12-01",
+        "interview_rounds_count": 3,
+        "interview_process_details": "HR screen\nCase study\nCEO",
+        "core_competencies": "• Integrity\n• Ownership",
+        "probation_expectations": "Close the Q4 books on time",
+        "salary_negotiable": False,
+        "allowances": "- Lunch 1.000.000 ₫\n- 13th-month salary",
+        "languages": ["en", "vi", "en"],
+    }
+
+    response = client_for(company_ta).post(URL, payload(company, **brief), format="json")
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["core_competencies"] == "Integrity\nOwnership"
+    assert body["allowances"] == "Lunch 1.000.000 ₫\n13th-month salary"
+    assert body["languages"] == ["en", "vi"]
+    for field in (
+        "reporting_line",
+        "has_internal_candidate",
+        "search_duration",
+        "target_start_date",
+        "interview_rounds_count",
+        "salary_negotiable",
+    ):
+        assert body[field] == brief[field]
+
+
+def test_a_picked_function_beats_the_guess_and_survives_a_new_title(
+    client_for: ClientFor, company_ta: User, company: Company
+) -> None:
+    client = client_for(company_ta)
+    created = client.post(URL, payload(company, function="operations"), format="json").json()
+
+    assert created["function"] == "operations"
+    patched = client.patch(
+        f"{URL}/{created['id']}",
+        {"title": "Senior Backend Engineer", "skills": ["Go"]},
+        format="json",
+    ).json()
+    assert patched["function"] == "operations"
+
+
+def test_a_guessed_function_follows_a_new_title(
+    client_for: ClientFor, company_ta: User, company: Company
+) -> None:
+    client = client_for(company_ta)
+    created = client.post(URL, payload(company), format="json").json()
+
+    patched = client.patch(
+        f"{URL}/{created['id']}",
+        {"title": "Senior Backend Engineer", "skills": ["Go"]},
+        format="json",
+    ).json()
+
+    assert patched["function"] == "engineering"
+
+
+def test_jobs_posted_before_the_brief_still_take_a_partial_edit(
+    client_for: ClientFor, company_ta: User, company: Company
+) -> None:
+    job = JobFactory(company=company)  # No brief answers, like every job before it.
+
+    response = client_for(company_ta).patch(
+        f"{URL}/{job.id}", {"note_for_recruiters": "Prefer fintech"}, format="json"
+    )
+
+    assert response.status_code == 200
 
 
 def test_creating_grants_the_creator_object_permissions(
@@ -90,6 +183,11 @@ def test_recruiter_cannot_create(
         ),
         ({"bounty_type": "pct", "bounty_pct": 40}, "bounty_pct", "between 5 and 30"),
         ({"work_model": "onsite", "office": None}, "office", "Select an office for this job"),
+        ({"role_type": ""}, "role_type", "new position or a replacement"),
+        ({"working_hours": ""}, "working_hours", "Select the working hours"),
+        ({"languages": []}, "languages", "Select at least one language"),
+        ({"languages": ["ko"]}, "languages", "is not a valid choice"),
+        ({"interview_rounds_count": 11}, "interview_rounds_count", "less than or equal to 10"),
     ],
 )
 def test_validation_messages(
@@ -218,6 +316,33 @@ def test_public_share_endpoint_shows_active_jobs_without_bounty(
     assert body["company"]["name"] == company.name
     assert "bounty_pct" not in body
     assert "note_for_recruiters" not in body
+
+
+def test_public_share_endpoint_keeps_the_companys_search_private(
+    api_client: APIClient, company: Company
+) -> None:
+    job = JobFactory(
+        company=company,
+        status=JobStatus.ACTIVE,
+        working_hours="40h_mon_fri",
+        languages=["vi"],
+        has_internal_candidate=True,
+        role_type="replacement",
+    )
+
+    body = api_client.get(f"/api/v1/public/jobs/{job.share_token}").json()
+
+    assert body["working_hours"] == "40h_mon_fri"
+    assert body["languages"] == ["vi"]
+    for private in (
+        "has_internal_candidate",
+        "role_type",
+        "search_duration",
+        "reporting_line",
+        "target_start_date",
+        "probation_expectations",
+    ):
+        assert private not in body
 
 
 def test_public_share_endpoint_hides_pending_and_closed_jobs(

@@ -1,7 +1,9 @@
 import uuid
+from datetime import timedelta
 from typing import Any
 
 import pytest
+from django.utils import timezone
 
 from apps.jobs.jd_fields import OfficeRef, normalize_jd
 
@@ -29,6 +31,18 @@ def raw(**overrides: Any) -> dict[str, Any]:
         "location": None,
         "city": None,
         "skills": [],
+        "function": None,
+        "reporting_line": [],
+        "role_type": None,
+        "core_competencies": [],
+        "languages": [],
+        "probation_expectations": [],
+        "interview_rounds_count": None,
+        "interview_process_details": [],
+        "target_start_date": None,
+        "allowances": [],
+        "salary_negotiable": None,
+        "working_hours": None,
         **overrides,
     }
 
@@ -42,12 +56,18 @@ def salary(
 def test_the_full_contract_comes_back_even_from_nothing() -> None:
     assert normalize_jd({}, []) == {
         "title": "",
+        "function": "",
         "why_we_need_you": "",
         "why_we_need_you_drafted": False,
         "roles": "",
         "qualifications": "",
         "nice_to_have": "",
+        "core_competencies": "",
         "benefits": "",
+        "allowances": "",
+        "reporting_line": "",
+        "probation_expectations": "",
+        "interview_process_details": "",
         "salary_min": None,
         "salary_max": None,
         "pay_basis": "",
@@ -55,15 +75,103 @@ def test_the_full_contract_comes_back_even_from_nothing() -> None:
         "office": "",
         "unmatched_city": "",
         "skills": [],
+        "working_hours": "",
+        "role_type": "",
+        "languages": [],
+        "salary_negotiable": None,
+        "interview_rounds_count": None,
+        "target_start_date": "",
     }
 
 
-def test_bounty_and_function_are_never_filled() -> None:
+def test_what_no_jd_says_is_never_filled() -> None:
     fields = normalize_jd(
-        raw(bounty_pct=20, bounty_amount=5_000_000, function="engineering"), OFFICES
+        raw(
+            bounty_pct=20,
+            bounty_amount=5_000_000,
+            has_internal_candidate=True,
+            search_duration="over_3_months",
+            note_for_recruiters="secret",
+        ),
+        OFFICES,
     )
 
-    assert not {"bounty_type", "bounty_pct", "bounty_amount", "function"} & fields.keys()
+    assert (
+        not {
+            "bounty_type",
+            "bounty_pct",
+            "bounty_amount",
+            "has_internal_candidate",
+            "search_duration",
+            "note_for_recruiters",
+        }
+        & fields.keys()
+    )
+
+
+def test_claudes_function_wins_and_the_title_guess_backs_it_up() -> None:
+    assert normalize_jd(raw(function="operations"), [])["function"] == "operations"
+    assert normalize_jd(raw(function="hr"), [])["function"] == "engineering"
+    assert normalize_jd(raw(title=None, roles=[]), [])["function"] == ""
+
+
+def test_an_allowance_is_dropped_from_benefits_and_a_trait_from_qualifications() -> None:
+    fields = normalize_jd(
+        raw(
+            benefits=["Bảo hiểm sức khỏe", "Thưởng tháng 13"],
+            allowances=["Thưởng tháng 13", "Phụ cấp ăn trưa"],
+            qualifications=["5+ years with Go", "Trung thực"],
+            core_competencies=["• Trung thực"],
+        ),
+        [],
+    )
+
+    assert fields["benefits"] == "Bảo hiểm sức khỏe"
+    assert fields["allowances"] == "Thưởng tháng 13\nPhụ cấp ăn trưa"
+    assert fields["qualifications"] == "5+ years with Go"
+    assert fields["core_competencies"] == "Trung thực"
+
+
+def test_a_duty_about_reporting_stays_a_duty() -> None:
+    # Claude once copied a duty into reporting_line too; losing it from roles costs a hire.
+    duty = "Report issues to the Store Design Manager"
+    fields = normalize_jd(raw(roles=[duty], reporting_line=[duty]), [])
+
+    assert fields["roles"] == duty
+
+
+def test_brief_choices_keep_only_known_codes() -> None:
+    fields = normalize_jd(
+        raw(
+            working_hours="45h",
+            role_type="replacement",
+            languages=["vi", "ko", "en", "vi", 3],
+            salary_negotiable="yes",
+            interview_rounds_count=True,
+        ),
+        [],
+    )
+
+    assert fields["working_hours"] == ""
+    assert fields["role_type"] == "replacement"
+    assert fields["languages"] == ["vi", "en"]
+    assert fields["salary_negotiable"] is None
+    assert fields["interview_rounds_count"] is None
+
+
+@pytest.mark.parametrize(("rounds", "kept"), [(0, None), (1, 1), (4, 4), (10, 10), (11, None)])
+def test_interview_rounds_stay_in_range(rounds: int, kept: int | None) -> None:
+    assert normalize_jd(raw(interview_rounds_count=rounds), [])["interview_rounds_count"] == kept
+
+
+def test_only_a_start_date_still_ahead_is_kept() -> None:
+    today = timezone.localdate()
+    ahead = (today + timedelta(days=30)).isoformat()
+    passed = (today - timedelta(days=1)).isoformat()
+
+    assert normalize_jd(raw(target_start_date=ahead), [])["target_start_date"] == ahead
+    assert normalize_jd(raw(target_start_date=passed), [])["target_start_date"] == ""
+    assert normalize_jd(raw(target_start_date="ASAP"), [])["target_start_date"] == ""
 
 
 def test_the_title_is_squeezed_and_capped_at_a_word_boundary() -> None:

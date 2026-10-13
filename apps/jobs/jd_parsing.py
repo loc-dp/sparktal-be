@@ -27,13 +27,38 @@ class Salary(BaseModel):
 class ParsedJd(BaseModel):
     is_job_description: bool
     title: str | None
+    function: (
+        Literal[
+            "finance",
+            "engineering",
+            "data",
+            "design",
+            "legal",
+            "marketing",
+            "sales",
+            "operations",
+            "other",
+        ]
+        | None
+    )
+    reporting_line: list[str]
+    role_type: Literal["new_position", "replacement"] | None
     roles: list[str]
     qualifications: list[str]
     nice_to_have: list[str]
+    core_competencies: list[str]
+    languages: list[Literal["vi", "en", "zh", "ja", "other"]]
+    probation_expectations: list[str]
+    interview_rounds_count: int | None
+    interview_process_details: list[str]
+    target_start_date: str | None
     benefits: list[str]
+    allowances: list[str]
     salary: Salary | None
+    salary_negotiable: bool | None
     pay_basis: Literal["gross", "net"] | None
     work_model: Literal["onsite", "hybrid", "remote"] | None
+    working_hours: Literal["40h_mon_fri", "44h_mon_sat_half", "48h_mon_sat"] | None
     # The place as written, so a city outside the codes can still be named to the company.
     location: str | None
     city: str | None
@@ -96,36 +121,74 @@ def instructions() -> str:
         "'Quality Control Manager'). Write an ALL-CAPS title in normal case with acronyms (QA, "
         "HR, IT, R&D) kept, and fix obvious spelling mistakes in it ('SUSTAINABILTY "
         "DIRECTOR' is 'Sustainability Director', 'Assuarance' is 'Assurance').\n"
+        "- function: the area of work the job is in: 'finance' (accounting, audit, tax, "
+        "treasury), 'engineering' (software, hardware, mechanical, electrical, R&D), 'data' "
+        "(analytics, data science), 'design' (product, UX, graphic), 'legal' (legal, "
+        "compliance), 'marketing', 'sales' (sales, business development, account "
+        "management), 'operations' (production, manufacturing, quality, supply chain, "
+        "logistics, purchasing, merchandising), 'other' (HR, admin and anything else). Null "
+        "only when the JD gives no clue.\n"
+        "- reporting_line: where the job sits in the organisation, verbatim, one item per "
+        "line: whom it reports to (directly or dotted line), who reports to it or the team it "
+        "manages, and the peers it works with ('Báo cáo cho: Giám đốc nhà máy', 'Reports to: "
+        "Country HR Head', 'Quản lý: 5 kỹ thuật viên'). Only lines that state that "
+        "relationship; never a duty ('Report issues to the Store Manager' is a duty). Empty "
+        "if the JD does not say.\n"
+        "- role_type: 'replacement' only when the JD says the hire replaces someone ('tuyển "
+        "thay thế', 'replacement'); 'new_position' only when it says the job is new ('vị trí "
+        "mới', 'newly created role', 'new headcount'); else null.\n"
         "- roles: every responsibility or duty, one item per bullet or sentence as written, "
         "in the JD's order. Look beyond the responsibilities heading: duties also sit in "
         "daily, weekly or monthly task lists, deliverables, accountabilities and the goals of "
         "a KPI table (leave out KPI measures, targets, weights and percentages, and goals "
-        "that repeat a duty already listed). If the JD says whom the job reports to or which "
-        "team it manages and no item says so, add that as the last item, as written "
-        "('Báo cáo cho: Giám đốc nhà máy', 'Reports to: Country HR Head').\n"
+        "that repeat a duty already listed). Lines that only say whom the job reports to or "
+        "manages go in reporting_line, not here; a duty that involves reporting ('Báo cáo "
+        "tiến độ hằng tuần cho Giám đốc') stays a duty.\n"
         "- qualifications: every must-have requirement wherever it appears in the JD "
         "(experience, education, skills, languages, certifications, nationality, travel, "
-        "health, traits such as 'We value people who...'), one item per bullet, verbatim.\n"
+        "health), one item per bullet, verbatim. Personal traits, attitudes and values go in "
+        "core_competencies instead; skills, soft skills included, stay here.\n"
         "- nice_to_have: only requirements the JD marks as optional or preferred in words or "
         "by a heading ('a plus', 'preferred', 'nice to have', 'bonus', 'ưu tiên', 'là lợi "
         "thế', 'là một điểm cộng'), never from the layout alone. Everything under a heading "
         "such as 'Preferred qualifications', 'Nice to have' or 'Ưu tiên' belongs here, "
         "including its sub-headings ('Tools requirements:'), until the next main heading. "
         "Move them out of qualifications; never list an item twice.\n"
-        "- Every requirement bullet in the JD ends up in exactly one of qualifications or "
-        "nice_to_have; never drop one. A preference that only narrows a must-have ('5 years "
-        "in B2B sales, preferably in payments') stays whole in qualifications. A preference "
-        "that reads as a full requirement of its own ('Tốt nghiệp Đại học trở lên; ưu tiên "
-        "ứng viên am hiểu thị trường TMĐT Châu Âu') is split off into nice_to_have, and the "
-        "must-have part stays in qualifications.\n"
-        "- benefits: everything the job offers besides the salary figure, one item per "
-        "bullet, verbatim: perks, allowances, bonuses, 13th-month pay, insurance, leave, "
-        "training, career growth, equipment, the working environment and 'why join us' "
-        "points. Also the working arrangement wherever the JD states it: working hours and "
+        "- Every requirement bullet in the JD ends up in exactly one of qualifications, "
+        "nice_to_have or core_competencies; never drop one. A preference that only narrows a "
+        "must-have ('5 years in B2B sales, preferably in payments') stays whole in "
+        "qualifications. A preference that reads as a full requirement of its own ('Tốt "
+        "nghiệp Đại học trở lên; ưu tiên ứng viên am hiểu thị trường TMĐT Châu Âu') is split "
+        "off into nice_to_have, and the must-have part stays in qualifications.\n"
+        "- core_competencies: the personal traits, attitudes and values the JD asks for, "
+        "verbatim, one item per bullet ('Thái độ: Trung thực, Hợp tác, Học hỏi', 'Proactive "
+        "and eager to learn', 'We value people who take ownership'). Not skills, knowledge or "
+        "experience.\n"
+        "- languages: the languages the job is done in or the JD requires, as codes: 'vi' "
+        "Vietnamese (also when the JD itself is written in Vietnamese), 'en' English, 'zh' "
+        "Chinese or Mandarin, 'ja' Japanese, 'other' for any other language. A required "
+        "language also stays in qualifications as written.\n"
+        "- probation_expectations: what the JD says the hire must achieve during probation, "
+        "verbatim, one item per line. Not the probation's length.\n"
+        "- interview_rounds_count: the number of interview or assessment rounds the JD "
+        "describes; null if it does not say.\n"
+        "- interview_process_details: the JD's description of those rounds (format, length, "
+        "interviewers), verbatim, one round per line. Not how to apply or whom to send a CV to.\n"
+        "- target_start_date: the date the hire should start, as YYYY-MM-DD, only when the JD "
+        "gives a calendar date or month (a month alone is its first day). Null for 'ASAP', "
+        "'immediately' or no date.\n"
+        "- benefits: everything the job offers besides the salary figure and allowances, one "
+        "item per bullet, verbatim: perks, insurance, leave, training, career growth, shares "
+        "and ESOP, equipment, the working environment and 'why join us' points. Also the "
+        "working arrangement wherever the JD states it: working hours and "
         "days, shifts, overtime, contract type and length, probation, start date ('Thời gian "
         "làm việc: 08:00 - 17:00, Thứ 2 - Thứ 7', 'Start date: ASAP'). Leave out the line that "
         "gives the salary used below and lines that only say pay is competitive or "
-        "negotiable; keep a line about bonus, commission or total income on top of it.\n"
+        "negotiable.\n"
+        "- allowances: money paid on top of the base salary, one item per bullet, verbatim: "
+        "allowances (phone, meal, lunch, housing, transport, petrol, travel, 'phụ cấp') and "
+        "financial rewards (bonus, 13th-month pay, commission, KPI or sales incentives, profit "
+        "sharing, a stated total income). Never also in benefits.\n"
         "- salary: the base pay as written, with amounts as whole numbers in full units "
         "('15 - 20 triệu' = 15000000 and 20000000; '$1,500' = 1500; '25M' = 25000000; "
         "'22.000.000' = 22000000). 'Up to X' or 'tối đa X' fills only maximum; 'from X' or "
@@ -136,12 +199,21 @@ def instructions() -> str:
         "...). period is the unit the amount is paid per; null if the JD does not say. "
         "salary is null when pay is only 'negotiable', 'competitive', 'thỏa thuận' or not "
         "given.\n"
+        "- salary_negotiable: true when the JD says the pay is negotiable ('thỏa thuận', "
+        "'negotiable', 'deal'), with or without a figure; false only when it says the pay is "
+        "fixed or not negotiable; else null.\n"
         "- pay_basis: 'gross' ('Gross', 'trước thuế') or 'net' ('Net', 'sau thuế', 'thực "
         "nhận', or the company pays the personal income tax), only when the JD says so; else "
         "null.\n"
         "- work_model: only when the JD states it: 'remote' (fully remote / làm việc từ xa), "
         "'hybrid' (part office, part home), 'onsite' (explicitly full-time at the office). "
         "An office address alone is not a work model: null.\n"
+        "- working_hours: the weekly schedule, only when the JD states it: '40h_mon_fri' "
+        "(40 hours, Monday to Friday), '44h_mon_sat_half' (44 hours, Monday to Friday plus "
+        "half a Saturday), '48h_mon_sat' (48 hours, Monday to Saturday). A stated weekly "
+        "total decides ('48 giờ/tuần' is 48h_mon_sat; 'Monday–Saturday, 44 hours per week' is "
+        "44h_mon_sat_half); otherwise the days and daily hours do ('08:00 - 17:00, Thứ 2 - 7' "
+        "is 48h_mon_sat). Null for shifts, alternate Saturdays or any other schedule.\n"
         "- location: the city or province where the job is done, as the JD names it ('Thủ Đức, "
         "TP.HCM', 'Vũng Tàu', 'Hải Dương'): place names only, no street address or notes, and "
         "no country unless the job is outside Vietnam ('Tokyo, Japan', 'Singapore'). "

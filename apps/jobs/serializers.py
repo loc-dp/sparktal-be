@@ -1,40 +1,45 @@
+from dataclasses import asdict
 from decimal import Decimal
 from typing import Any
 
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.files.uploadedfile import UploadedFile
+from django.db import models, transaction
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
+from rest_framework.exceptions import PermissionDenied
+from rest_framework.relations import PKOnlyObject
 
 from apps.candidates.stages import STAGE_ORDER
-from apps.companies.access import company_of
-from apps.companies.models import Office
+from apps.companies.access import company_of, membership_of
+from apps.companies.models import CompanyRole, Office, Team
 from apps.core.documents import validate_document
+from apps.jobs.access import NOT_YOURS, JobPermissions, job_permissions
 from apps.jobs.functions import guess_function
+from apps.jobs.lifecycle import (
+    BRIEF_REQUIRED_MESSAGES,
+    REQUIRED_MESSAGES,
+    missing_fields,
+    post_job,
+    submit_job,
+)
 from apps.jobs.models import (
     BOUNTY_PCT_MAX,
     BOUNTY_PCT_MIN,
+    PRIVATE_STATUSES,
     BountyType,
+    ChangeKind,
+    ChangeStatus,
     JdParse,
     Job,
+    JobChangeRequest,
     JobFunction,
+    JobStatus,
     WorkModel,
 )
 
 MAX_SKILLS = 20
 
-REQUIRED_MESSAGES = {
-    "title": "Enter a job title",
-    "why_we_need_you": "Tell recruiters why this role exists",
-    "roles": "List the main responsibilities",
-    "qualifications": "Add the must-have qualifications",
-}
-# Brief answers a new job must give; jobs posted before the brief may still lack them.
-BRIEF_REQUIRED_MESSAGES = {
-    "role_type": "Say whether this is a new position or a replacement",
-    "working_hours": "Select the working hours",
-    "languages": "Select at least one language",
-}
 LINE_FIELDS = (
     "roles",
     "qualifications",
@@ -77,9 +82,57 @@ def clean_lines(value: str) -> str:
     return "\n".join(line for line in lines if line)
 
 
+PICK_TEAM_MESSAGE = "Pick the team this job belongs to."
+PRIVATE_JOB_TEAM_MESSAGE = "A draft stays with its author's team until it is posted."
+
+
+def _team_pick_missing(team: Team | None, company_id: Any) -> bool:
+    """An admin may leave a job team-less only in a company that has no teams (R11)."""
+    return team is None and Team.objects.filter(company_id=company_id).exists()
+
+
+def _private_to_a_member(job: Job) -> bool:
+    """A draft or sent job whose author is not an admin: it lives in the author's team."""
+    if job.status not in PRIVATE_STATUSES:
+        return False
+    author = membership_of(job.created_by)
+    return author is None or author.role != CompanyRole.ADMIN
+
+
+def _set_changed(job: Job, values: dict[str, Any]) -> list[str]:
+    """Set `values` on `job`; the names of the fields whose value actually changes."""
+    changed: list[str] = []
+    for name, value in values.items():
+        new = value.pk if isinstance(value, models.Model) else value
+        if job.serializable_value(name) != new:
+            setattr(job, name, value)
+            changed.append(name)
+    return changed
+
+
 def _blank_message(field: str) -> dict[str, str]:
     message = REQUIRED_MESSAGES[field]
     return {"blank": message, "required": message, "null": message}
+
+
+class JobPermissionsSerializer(serializers.Serializer[Any]):
+    """What the signed-in member may do to this job (spec §4)."""
+
+    edit = serializers.BooleanField()
+    submit = serializers.BooleanField()
+    withdraw = serializers.BooleanField()
+    post = serializers.BooleanField()
+    close = serializers.BooleanField()
+    reopen = serializers.BooleanField()
+    delete = serializers.BooleanField()
+    propose = serializers.BooleanField()
+    review_proposals = serializers.BooleanField()
+
+
+class JobIntent(models.TextChoices):
+    SAVE = "save", "Save"
+    SUBMIT = "submit", "Submit"
+    POST = "post", "Post"
 
 
 class JobSerializer(serializers.ModelSerializer[Job]):
@@ -88,11 +141,21 @@ class JobSerializer(serializers.ModelSerializer[Job]):
     # Left out, the server picks it from the title and skills.
     function = serializers.ChoiceField(choices=JobFunction.choices, required=False)
     can_edit = serializers.SerializerMethodField()
+    permissions = serializers.SerializerMethodField()
+    # Only `create` / `update` act on it, so validating a payload has no side effects.
+    intent = serializers.ChoiceField(
+        choices=JobIntent.choices, default=JobIntent.SAVE, write_only=True
+    )
+    team = serializers.PrimaryKeyRelatedField(
+        queryset=Team.objects.all(), required=False, allow_null=True
+    )
 
     class Meta:
         model = Job
         fields = (
             "id",
+            "team",
+            "intent",
             "title",
             "function",
             "why_we_need_you",
@@ -118,6 +181,7 @@ class JobSerializer(serializers.ModelSerializer[Job]):
             "published_at",
             "closed_at",
             "can_edit",
+            "permissions",
         )
         read_only_fields = (
             "id",
@@ -128,6 +192,7 @@ class JobSerializer(serializers.ModelSerializer[Job]):
             "closed_at",
             "location_label",
             "can_edit",
+            "permissions",
         )
         extra_kwargs = {  # noqa: RUF012
             field: {"error_messages": _blank_message(field)} for field in REQUIRED_MESSAGES
@@ -136,11 +201,39 @@ class JobSerializer(serializers.ModelSerializer[Job]):
     def validate_languages(self, languages: list[str]) -> list[str]:
         return list(dict.fromkeys(languages))
 
-    def get_can_edit(self, job: Job) -> bool:
-        from apps.jobs.access import can_change_job
-
+    def _permissions(self, job: Job) -> JobPermissions:
         request = self.context.get("request")
-        return bool(request and can_change_job(request.user, job))
+        if request is None:
+            return JobPermissions.NONE
+        cache: dict[tuple[Any, str], JobPermissions] = self.__dict__.setdefault("_cache", {})
+        key = (job.pk, job.status)
+        if key not in cache:
+            cache[key] = job_permissions(request.user, job)
+        return cache[key]
+
+    def get_can_edit(self, job: Job) -> bool:
+        return self._permissions(job).edit
+
+    @extend_schema_field(JobPermissionsSerializer)
+    def get_permissions(self, job: Job) -> dict[str, bool]:
+        return asdict(self._permissions(job))
+
+    def validate_team(self, team: Team | None) -> Team | None:
+        membership = membership_of(self.context["request"].user)
+        if membership is None or membership.role != CompanyRole.ADMIN:
+            return team  # Ignored for everyone else, so it cannot be an error for them.
+        if _team_pick_missing(team, membership.company_id):
+            raise serializers.ValidationError(PICK_TEAM_MESSAGE)
+        if team is None:
+            return team
+        company = company_of(self.context["request"].user)
+        if company is None or team.company_id != company.pk:
+            raise serializers.ValidationError("Select a team that belongs to your company.")
+        job = self.instance
+        if job is not None and team.pk != job.team_id and _private_to_a_member(job):
+            # R22: moved away, the author could no longer see their own draft.
+            raise serializers.ValidationError(PRIVATE_JOB_TEAM_MESSAGE)
+        return team
 
     def validate_office(self, office: Office | None) -> Office | None:
         if office is None:
@@ -173,13 +266,32 @@ class JobSerializer(serializers.ModelSerializer[Job]):
         for field in LINE_FIELDS:
             if field in attrs:
                 attrs[field] = clean_lines(attrs[field])
-        for field, message in REQUIRED_MESSAGES.items():
-            if field in attrs and not str(attrs[field]).strip():
-                raise serializers.ValidationError({field: [message]})
-        for field, message in BRIEF_REQUIRED_MESSAGES.items():
-            given = field in attrs
-            if (given or instance is None) and not attrs.get(field):
-                raise serializers.ValidationError({field: [message]})
+        # A draft only needs a title; sending, posting and any job already past that need it all.
+        full = attrs.get("intent", JobIntent.SAVE) != JobIntent.SAVE or (
+            instance is not None and instance.status not in PRIVATE_STATUSES
+        )
+        if "title" in attrs and not str(attrs["title"]).strip():
+            raise serializers.ValidationError({"title": [REQUIRED_MESSAGES["title"]]})
+        if full:
+            every_answer = instance is None or instance.status in PRIVATE_STATUSES
+            values = {
+                field: current(field) for field in (*REQUIRED_MESSAGES, *BRIEF_REQUIRED_MESSAGES)
+            }
+            errors = missing_fields(
+                {
+                    **values,
+                    "work_model": current("work_model", WorkModel.ONSITE),
+                    "office": current("office"),
+                },
+                brief=every_answer,
+            )
+            if not every_answer:
+                # A job posted before the brief may lack its answers until they are edited.
+                for field, message in BRIEF_REQUIRED_MESSAGES.items():
+                    if field in attrs and not attrs[field]:
+                        errors[field] = [message]
+            if errors:
+                raise serializers.ValidationError(errors)
 
         salary_min: Decimal | None = current("salary_min")
         salary_max: Decimal | None = current("salary_max")
@@ -207,35 +319,73 @@ class JobSerializer(serializers.ModelSerializer[Job]):
                 )
             attrs["bounty_amount"] = None
 
-        work_model = current("work_model", WorkModel.ONSITE)
-        if work_model != WorkModel.REMOTE and current("office") is None:
-            raise serializers.ValidationError({"office": ["Select an office for this job"]})
-        if work_model == WorkModel.REMOTE:
+        if current("work_model", WorkModel.ONSITE) == WorkModel.REMOTE:
             attrs["office"] = None
 
         return attrs
 
     def create(self, validated_data: dict[str, Any]) -> Job:
-        from apps.jobs.access import grant_creator_perms
-
         request = self.context["request"]
-        company = company_of(request.user)
-        assert company is not None, "CanAddJob already rejected non-members"
+        membership = membership_of(request.user)
+        assert membership is not None, "CanAddJob already rejected non-members"
+        intent = validated_data.pop("intent", JobIntent.SAVE)
+        team = validated_data.pop("team", None)
+        if membership.role == CompanyRole.ADMIN:
+            if _team_pick_missing(team, membership.company_id):
+                raise serializers.ValidationError({"team": [PICK_TEAM_MESSAGE]})
+        else:
+            team = membership.team
         validated_data.setdefault(
             "function", guess_function(validated_data["title"], validated_data.get("skills", []))
         )
-        job = Job.objects.create(company=company, created_by=request.user, **validated_data)
-        grant_creator_perms(job, request.user)
-        return job
+        with transaction.atomic():
+            job = Job.objects.create(
+                company_id=membership.company_id,
+                team=team,
+                created_by=request.user,
+                status=JobStatus.DRAFT,
+                **validated_data,
+            )
+            return self._apply_intent(job, intent)
 
     def update(self, instance: Job, validated_data: dict[str, Any]) -> Job:
-        # A function the company picked stays when the title changes; a guessed one follows it.
-        guessed = instance.function == guess_function(instance.title, instance.skills)
-        job = super().update(instance, validated_data)
-        retitled = "title" in validated_data or "skills" in validated_data
-        if "function" not in validated_data and retitled and guessed:
-            job.function = guess_function(job.title, job.skills)
-            job.save(update_fields=["function", "updated_at"])
+        actor = self.context["request"].user
+        with transaction.atomic():
+            # `instance` was read without a lock: a delete, close or post may have landed since.
+            job = Job.objects.select_for_update().filter(pk=instance.pk).first()
+            if job is None or not job_permissions(actor, job).edit:
+                raise PermissionDenied(NOT_YOURS)
+            if job.updated_at != instance.updated_at:
+                # The payload was checked against the job as it was; check it as it is now.
+                fresh = type(self)(
+                    job, data=self.initial_data, partial=self.partial, context=self.context
+                )
+                fresh.is_valid(raise_exception=True)
+                validated_data = dict(fresh.validated_data)
+            intent = validated_data.pop("intent", JobIntent.SAVE)
+            membership = membership_of(actor)
+            if membership is None or membership.role != CompanyRole.ADMIN:
+                validated_data.pop("team", None)
+            # A function the company picked stays when the title changes; a guessed one follows.
+            guessed = job.function == guess_function(job.title, job.skills)
+            changed = _set_changed(job, validated_data)
+            retitled = "title" in validated_data or "skills" in validated_data
+            if "function" not in validated_data and retitled and guessed:
+                changed += _set_changed(job, {"function": guess_function(job.title, job.skills)})
+            job.save(update_fields=[*changed, "updated_at"])
+            if "team" in changed:
+                # R22: the requesters stay in the old team and can no longer see the job.
+                job.change_requests.filter(status=ChangeStatus.PENDING).update(
+                    status=ChangeStatus.WITHDRAWN
+                )
+            return self._apply_intent(job, intent)
+
+    def _apply_intent(self, job: Job, intent: str) -> Job:
+        actor = self.context["request"].user
+        if intent == JobIntent.SUBMIT:
+            return submit_job(job, actor=actor)
+        if intent == JobIntent.POST:
+            return post_job(job, actor=actor)
         return job
 
 
@@ -287,6 +437,9 @@ class JobListItemSerializer(serializers.ModelSerializer[Job]):
     current_stage = serializers.SerializerMethodField()
     location_label = serializers.CharField(read_only=True)
     bounty_label = serializers.SerializerMethodField()
+    team_name = serializers.CharField(source="team.name", read_only=True, allow_null=True)
+    # Proposals the viewer may see on this job: an admin all, a requester their own, others 0.
+    pending_changes = serializers.IntegerField(read_only=True)
 
     class Meta:
         model = Job
@@ -295,6 +448,7 @@ class JobListItemSerializer(serializers.ModelSerializer[Job]):
             "title",
             "function",
             "status",
+            "team_name",
             "work_model",
             "location_label",
             "created_at",
@@ -306,6 +460,7 @@ class JobListItemSerializer(serializers.ModelSerializer[Job]):
             "days_open",
             "days_to_onboard",
             "bounty_label",
+            "pending_changes",
         )
 
     @extend_schema_field(serializers.CharField(allow_null=True))
@@ -325,6 +480,8 @@ class JobListItemSerializer(serializers.ModelSerializer[Job]):
 
 
 class JobCountsSerializer(serializers.Serializer[dict[str, int]]):
+    draft = serializers.IntegerField()
+    submitted = serializers.IntegerField()
     pending = serializers.IntegerField()
     active = serializers.IntegerField()
     closed = serializers.IntegerField()
@@ -480,3 +637,68 @@ class JdParseCreateSerializer(serializers.Serializer[JdParse]):
 
 class JdParseAvailabilitySerializer(serializers.Serializer[dict[str, bool]]):
     enabled = serializers.BooleanField()
+
+
+class ChangeRequestPersonSerializer(serializers.Serializer[Any]):
+    id = serializers.UUIDField()
+    full_name = serializers.CharField()
+
+
+class ChangeRequestJobSerializer(serializers.Serializer[Any]):
+    id = serializers.UUIDField()
+    title = serializers.CharField()
+
+
+class ChangeRequestSerializer(serializers.ModelSerializer[JobChangeRequest]):
+    """A proposal, with the job's current values beside the proposed ones."""
+
+    job = ChangeRequestJobSerializer(read_only=True)
+    changes = serializers.DictField(read_only=True)
+    current = serializers.SerializerMethodField()
+    requested_by = ChangeRequestPersonSerializer(read_only=True)
+    reviewed_by = ChangeRequestPersonSerializer(read_only=True, allow_null=True)
+
+    class Meta:
+        model = JobChangeRequest
+        fields = (
+            "id",
+            "job",
+            "kind",
+            "changes",
+            "current",
+            "status",
+            "review_note",
+            "requested_by",
+            "reviewed_by",
+            "created_at",
+            "reviewed_at",
+        )
+        read_only_fields = fields
+
+    @extend_schema_field(serializers.DictField())
+    def get_current(self, change: JobChangeRequest) -> dict[str, Any]:
+        # `many=True` reuses one child for every row, so this is built once per list.
+        if "_job_fields" not in self.__dict__:
+            self.__dict__["_job_fields"] = JobSerializer().fields
+        fields = self.__dict__["_job_fields"]
+        current: dict[str, Any] = {}
+        for key in change.changes:
+            if key not in fields:
+                continue
+            attribute = fields[key].get_attribute(change.job)
+            # DRF's own rule: a missing value is null, not whatever `to_representation` makes.
+            empty = attribute is None or (
+                isinstance(attribute, PKOnlyObject) and attribute.pk is None
+            )
+            current[key] = None if empty else fields[key].to_representation(attribute)
+        return current
+
+
+class ChangeRequestCreateSerializer(serializers.Serializer[Any]):
+    kind = serializers.ChoiceField(choices=ChangeKind.choices)
+    changes = serializers.DictField(required=False)
+
+
+class ChangeRequestDecisionSerializer(serializers.Serializer[Any]):
+    # Required by `reject_change`, which answers with the sentence the form shows.
+    note = serializers.CharField(required=False, allow_blank=True, default="")

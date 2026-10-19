@@ -28,6 +28,7 @@ from apps.hiring.models import (
     Verdict,
 )
 from apps.hiring.workflow import Action, available_actions, last_decline, pending_approval
+from apps.jobs.access import can_view_job
 
 
 def requester_name(approval: ApprovalRequest) -> str:
@@ -122,9 +123,7 @@ class ApplicationDetailSerializer(serializers.ModelSerializer[Application]):
     job = DetailJobSerializer(read_only=True)
     candidate = CandidateFactsSerializer(read_only=True)
     recruiter = ApplicationRecruiterSerializer(read_only=True)
-    first_submitted_at = serializers.DateTimeField(
-        source="duplicate_of.submitted_at", read_only=True, allow_null=True
-    )
+    first_submitted_at = serializers.SerializerMethodField()
     cv_kind = serializers.SerializerMethodField()
     interviews = InterviewSerializer(many=True, read_only=True)
     pending_approval = serializers.SerializerMethodField()
@@ -158,6 +157,17 @@ class ApplicationDetailSerializer(serializers.ModelSerializer[Application]):
             "actions",
         )
         read_only_fields = fields
+
+    @extend_schema_field(serializers.DateTimeField(allow_null=True))
+    def get_first_submitted_at(self, application: Application) -> str | None:
+        """Spec decision 17: when the first submission sits on a job the viewer can't see,
+        they get the "duplicate" flag and nothing else about it."""
+        first = application.duplicate_of
+        viewer = self.context["request"].user
+        if first is None or not can_view_job(viewer, first.job):
+            return None
+        stamp: str = serializers.DateTimeField().to_representation(first.submitted_at)
+        return stamp
 
     @extend_schema_field(serializers.ChoiceField(choices=CvKind.choices))
     def get_cv_kind(self, application: Application) -> str:

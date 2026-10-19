@@ -10,6 +10,7 @@ from apps.accounts.models import User
 from apps.candidates.models import Application, Stage
 from apps.candidates.tests.factories import ApplicationFactory
 from apps.companies.models import Company
+from apps.jobs.access import NOT_YOURS
 from apps.jobs.models import JobStatus
 from apps.jobs.tests.factories import JobFactory
 
@@ -19,9 +20,10 @@ ClientFor = Callable[[User], APIClient]
 
 
 @pytest.fixture
-def job_with_pipeline(company: Company) -> Any:
+def job_with_pipeline(company: Company, company_ta: User) -> Any:
     job = JobFactory(
         company=company,
+        created_by=company_ta,
         title="Senior Backend Engineer",
         status=JobStatus.ACTIVE,
         published_at=timezone.now() - timedelta(days=10),
@@ -80,8 +82,10 @@ def test_overview_is_404_for_another_company(
     assert response.status_code == 404
 
 
-def test_close_and_reopen(client_for: ClientFor, company_ta: User, job_with_pipeline: Any) -> None:
-    client = client_for(company_ta)
+def test_close_and_reopen(
+    client_for: ClientFor, company_admin: User, job_with_pipeline: Any
+) -> None:
+    client = client_for(company_admin)
     url = f"/api/v1/jobs/{job_with_pipeline.id}"
 
     closed = client.post(f"{url}/close")
@@ -99,14 +103,16 @@ def test_close_and_reopen(client_for: ClientFor, company_ta: User, job_with_pipe
 
 
 def test_a_pending_job_cannot_be_closed(
-    client_for: ClientFor, company_ta: User, company: Company
+    client_for: ClientFor, company_admin: User, company: Company
 ) -> None:
     job = JobFactory(company=company, status=JobStatus.PENDING, published_at=None)
 
-    response = client_for(company_ta).post(f"/api/v1/jobs/{job.id}/close")
+    response = client_for(company_admin).post(f"/api/v1/jobs/{job.id}/close")
 
-    assert response.status_code == 400
-    assert "Only an active job can be closed" in str(response.json())
+    assert response.status_code == 403
+    assert response.json()["detail"] == NOT_YOURS
+    job.refresh_from_db()
+    assert job.status == JobStatus.PENDING
 
 
 def test_hiring_manager_without_access_cannot_close(
@@ -118,9 +124,9 @@ def test_hiring_manager_without_access_cannot_close(
 
 
 def test_note_for_recruiters_is_saved_through_patch(
-    client_for: ClientFor, company_ta: User, job_with_pipeline: Any
+    client_for: ClientFor, company_admin: User, job_with_pipeline: Any
 ) -> None:
-    response = client_for(company_ta).patch(
+    response = client_for(company_admin).patch(
         f"/api/v1/jobs/{job_with_pipeline.id}",
         {"note_for_recruiters": "Send Go engineers with payments experience only."},
         format="json",

@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from apps.companies.models import Company, CompanyMembership, Office
+from apps.companies.models import Company, CompanyMembership, Office, Team
 
 
 class OfficeInline(admin.TabularInline):  # type: ignore[type-arg]
@@ -11,7 +11,7 @@ class OfficeInline(admin.TabularInline):  # type: ignore[type-arg]
 class MembershipInline(admin.TabularInline):  # type: ignore[type-arg]
     model = CompanyMembership
     extra = 0
-    autocomplete_fields = ("user",)
+    autocomplete_fields = ("user", "team")
 
 
 @admin.register(Company)
@@ -32,7 +32,14 @@ class OfficeAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
 
 @admin.register(CompanyMembership)
 class CompanyMembershipAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
-    list_display = ("user", "company", "role", "created_at")
-    list_filter = ("role",)
+    list_display = ("user", "company", "role", "team", "can_publish", "created_at")
+    list_filter = ("role", "can_publish")
     search_fields = ("user__email", "user__full_name", "company__name")
-    autocomplete_fields = ("user", "company")
+    autocomplete_fields = ("user", "company", "team")
+
+
+@admin.register(Team)
+class TeamAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
+    list_display = ("name", "company")
+    search_fields = ("name",)
+    autocomplete_fields = ("company",)

@@ -7,7 +7,14 @@ from django.utils import timezone
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
-from apps.companies.models import Company, CompanyMembership, CompanyRole, Location, Office
+from apps.companies.models import (
+    Company,
+    CompanyMembership,
+    CompanyRole,
+    Location,
+    Office,
+    Team,
+)
 
 ABOUT_MIN = 100
 ABOUT_MAX = 2000
@@ -233,6 +240,8 @@ class HomeActionSerializer(serializers.Serializer[dict[str, Any]]):
 
 
 class HomeJobCountsSerializer(serializers.Serializer[dict[str, int]]):
+    draft = serializers.IntegerField()
+    submitted = serializers.IntegerField()
     pending = serializers.IntegerField()
     active = serializers.IntegerField()
     closed = serializers.IntegerField()
@@ -255,15 +264,47 @@ class CompanyHomeSerializer(serializers.Serializer[dict[str, Any]]):
     actions = HomeActionSerializer(many=True)
 
 
+class TeamRefSerializer(serializers.ModelSerializer[Team]):
+    class Meta:
+        model = Team
+        fields = ("id", "name")
+        read_only_fields = fields
+
+
+class TeamSerializer(serializers.ModelSerializer[Team]):
+    member_count = serializers.IntegerField(read_only=True)
+    job_count = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model = Team
+        fields = ("id", "name", "member_count", "job_count")
+        read_only_fields = fields
+
+
+class TeamWriteSerializer(serializers.Serializer[dict[str, str]]):
+    name = serializers.CharField(max_length=200)
+
+
 class MemberSerializer(serializers.ModelSerializer[CompanyMembership]):
     full_name = serializers.CharField(source="user.full_name", read_only=True)
     email = serializers.EmailField(source="user.email", read_only=True)
     status = serializers.SerializerMethodField()
     is_me = serializers.SerializerMethodField()
+    team = TeamRefSerializer(read_only=True, allow_null=True)
 
     class Meta:
         model = CompanyMembership
-        fields = ("id", "full_name", "email", "role", "status", "is_me", "created_at")
+        fields = (
+            "id",
+            "full_name",
+            "email",
+            "role",
+            "team",
+            "can_publish",
+            "status",
+            "is_me",
+            "created_at",
+        )
         read_only_fields = fields
 
     @extend_schema_field(serializers.ChoiceField(choices=["active", "invited"]))
@@ -275,11 +316,17 @@ class MemberSerializer(serializers.ModelSerializer[CompanyMembership]):
         return bool(request and obj.user_id == request.user.pk)
 
 
-class MemberInviteSerializer(serializers.Serializer[dict[str, str]]):
+class MemberInviteSerializer(serializers.Serializer[dict[str, Any]]):
     email = serializers.EmailField(max_length=254)
     full_name = serializers.CharField(max_length=120)
     role = serializers.ChoiceField(choices=CompanyRole.choices)
+    team = serializers.UUIDField(required=False, allow_null=True)
+    new_team_name = serializers.CharField(required=False, max_length=200)
+    can_publish = serializers.BooleanField(required=False, default=False)
 
 
-class MemberRoleSerializer(serializers.Serializer[dict[str, str]]):
-    role = serializers.ChoiceField(choices=CompanyRole.choices)
+class MemberUpdateSerializer(serializers.Serializer[dict[str, Any]]):
+    role = serializers.ChoiceField(choices=CompanyRole.choices, required=False)
+    team = serializers.UUIDField(required=False, allow_null=True)
+    new_team_name = serializers.CharField(required=False, max_length=200)
+    can_publish = serializers.BooleanField(required=False)

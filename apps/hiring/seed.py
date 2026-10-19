@@ -5,7 +5,6 @@ Most of it sits on Senior Backend Engineer; the other jobs get enough to show ac
 from datetime import timedelta
 
 from django.utils import timezone
-from guardian.shortcuts import assign_perm
 
 from apps.accounts.models import User
 from apps.candidates.models import Application, Stage
@@ -24,8 +23,7 @@ from apps.hiring.models import (
 JOB = "Senior Backend Engineer"
 TA = "maianh.tran@velapay.vn"
 ADMIN = "nhung.le@velapay.vn"
-APPROVER = "huy.phan@velapay.vn"
-MANAGER = "khoa.nguyen@velapay.vn"
+APPROVER = "khoa.nguyen@velapay.vn"  # Payments HM: sees the Payments job
 MEET = "https://meet.google.com/vel-apay-int"
 OFFICE = "Vela Pay · 12 Tôn Đản, District 4, Ho Chi Minh City"
 
@@ -147,13 +145,6 @@ def seed(ctx: SeedContext) -> None:
         "candidate"
     )
     by_name = {app.candidate.full_name: app for app in every_application if not app.is_duplicate}
-
-    # Hiring Managers who can see these jobs: Huy so the approval has someone to wait on, Khoa
-    # because the chat quotes his round-1 note and the Data Analyst brief names him.
-    assign_perm("jobs.view_job", users[APPROVER], job)
-    manager = User.objects.get(email=MANAGER)
-    for title in (JOB, "Data Analyst"):
-        assign_perm("jobs.view_job", manager, ctx.refs["jobs"][title])
 
     today = timezone.localtime().replace(minute=0, second=0, microsecond=0)
     for name, number, days, hour, meeting in ROUNDS:

@@ -4,6 +4,7 @@ from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from apps.accounts.models import User
+from apps.companies.serializers import TeamRefSerializer
 
 
 class MeCompanySerializer(serializers.Serializer[dict[str, Any]]):
@@ -11,6 +12,8 @@ class MeCompanySerializer(serializers.Serializer[dict[str, Any]]):
     name = serializers.CharField()
     role = serializers.CharField()
     profile_completed = serializers.BooleanField()
+    team = TeamRefSerializer(allow_null=True)
+    can_publish = serializers.BooleanField()
 
 
 class MeRecruiterSerializer(serializers.Serializer[dict[str, Any]]):
@@ -42,6 +45,8 @@ class MeSerializer(serializers.ModelSerializer[User]):
                     "name": company.name,
                     "role": membership.role,
                     "profile_completed": company.profile_completed,
+                    "team": membership.team,
+                    "can_publish": membership.can_publish,
                 }
             ).data
         )

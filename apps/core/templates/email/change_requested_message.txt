@@ -1,0 +1,6 @@
+{% extends "email/base.txt" %}{% block content %}
+{{ requester_name }} proposed this change to "{{ job_title }}": {{ kind_label }}.
+
+Review the proposal and approve or reject it:
+{{ job_url }}
+{% endblock %}

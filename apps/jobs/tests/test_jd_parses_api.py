@@ -70,14 +70,14 @@ def test_a_company_admin_may_upload_too(
     assert response.status_code == 202
 
 
-def test_a_hiring_manager_may_upload_because_they_may_post_jobs(
+def test_a_hiring_manager_may_not_upload_because_they_may_not_post_jobs(
     client_for: ClientFor, company_hm: User, jd_on: Any
 ) -> None:
-    # jobs.add_job is granted to every company member (apps/companies/rules.py).
-    assert company_hm.has_perm("jobs.add_job")
+    # jobs.add_job is admin and talent acquisition only (apps/companies/rules.py).
+    assert not company_hm.has_perm("jobs.add_job")
     response = client_for(company_hm).post(PARSES, {"file": jd_upload()}, format="multipart")
 
-    assert response.status_code == 202
+    assert response.status_code == 403
 
 
 def test_with_the_feature_off_an_upload_is_refused_and_nothing_stored(

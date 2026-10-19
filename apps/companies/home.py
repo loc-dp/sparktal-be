@@ -5,13 +5,21 @@ from django.db.models import Count, F, Q
 from apps.accounts.models import User
 from apps.candidates.models import Application, Stage
 from apps.candidates.stages import STAGE_ORDER
-from apps.jobs.access import jobs_visible_to
-from apps.jobs.models import Job, JobStatus
+from apps.jobs.access import job_permissions, jobs_visible_to
+from apps.jobs.models import ChangeKind, ChangeStatus, Job, JobChangeRequest, JobStatus
+from apps.jobs.proposals import change_requests_visible_to, is_admin
 from apps.jobs.queries import annotate_job_metrics
 
 MAX_ACTIONS = 5
 PIPELINE_STAGES = [*STAGE_ORDER, Stage.REJECTED]
-JOB_STATUSES = [JobStatus.PENDING, JobStatus.ACTIVE, JobStatus.CLOSED]
+JOB_STATUSES = list(JobStatus)
+# The row's second line names the job, so the first says what was proposed for it.
+PROPOSAL_TITLES = {
+    ChangeKind.EDIT: "{name} proposed changes to this job",
+    ChangeKind.CLOSE: "{name} proposed closing this job",
+    ChangeKind.REOPEN: "{name} proposed reopening this job",
+    ChangeKind.DELETE: "{name} proposed deleting this job",
+}
 
 
 def job_counts(user: User) -> dict[str, int]:
@@ -64,11 +72,43 @@ def _review_detail(count: int) -> str:
 
 def actions(user: User) -> list[dict[str, Any]]:
     visible = jobs_visible_to(user)
+    # Whoever may post it is asked to; the creator who may not is told who is holding it.
+    submitted = [
+        {
+            "kind": "job_submitted",
+            "title": job.title,
+            "detail": "Waiting for you to post" if can_post else "Waiting for your company admin",
+            "href": f"/jobs/{job.pk}/edit" if can_post else f"/jobs/{job.pk}",
+        }
+        for job in visible.filter(status=JobStatus.SUBMITTED).order_by("-created_at")
+        for can_post in [job_permissions(user, job).post]
+    ]
+    proposals: list[JobChangeRequest] = (
+        list(
+            change_requests_visible_to(user)
+            .filter(status=ChangeStatus.PENDING)
+            .select_related("requested_by", "job")
+            .order_by("created_at")
+        )
+        if is_admin(user)
+        else []
+    )
+    changes = [
+        {
+            "kind": "change_request",
+            "title": PROPOSAL_TITLES[ChangeKind(proposal.kind)].format(
+                name=proposal.requested_by.full_name or proposal.requested_by.email
+            ),
+            "detail": proposal.job.title,
+            "href": f"/jobs/{proposal.job_id}",
+        }
+        for proposal in proposals
+    ]
     waiting = [
         {
             "kind": "job_pending",
             "title": job.title,
-            "detail": "Waiting for Sparktal to approve",
+            "detail": "Waiting for Sparktal",
             "href": f"/jobs/{job.pk}",
         }
         for job in visible.filter(status=JobStatus.PENDING).order_by("-created_at")
@@ -88,7 +128,7 @@ def actions(user: User) -> list[dict[str, Any]]:
         }
         for job in busy
     ]
-    return [*waiting, *reviews][:MAX_ACTIONS]
+    return [*submitted, *changes, *waiting, *reviews][:MAX_ACTIONS]
 
 
 def home_payload(user: User) -> dict[str, Any]:

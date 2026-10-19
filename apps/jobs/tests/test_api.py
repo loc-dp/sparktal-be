@@ -6,7 +6,7 @@ from rest_framework.test import APIClient
 
 from apps.accounts.models import User
 from apps.companies.models import Company
-from apps.jobs.access import grant_creator_perms
+from apps.jobs.access import can_view_job
 from apps.jobs.models import Job, JobStatus
 from apps.jobs.tests.factories import JobFactory
 
@@ -15,6 +15,15 @@ pytestmark = pytest.mark.django_db
 URL = "/api/v1/jobs"
 
 ClientFor = Callable[[User], APIClient]
+
+
+@pytest.fixture
+def publishing_ta(company_ta: User) -> User:
+    """A Talent Acquisition member allowed to post, so they may edit the jobs they open."""
+    membership = company_ta.membership
+    membership.can_publish = True
+    membership.save(update_fields=["can_publish"])
+    return company_ta
 
 
 def payload(company: Company, **overrides: Any) -> dict[str, Any]:
@@ -38,15 +47,17 @@ def payload(company: Company, **overrides: Any) -> dict[str, Any]:
         "role_type": "new_position",
         "working_hours": "40h_mon_fri",
         "languages": ["vi", "en"],
+        # The full body is only checked when the job is sent or posted.
+        "intent": "submit",
     }
     data.update(overrides)
     return data
 
 
-def test_ta_can_create_a_pending_job_with_inferred_function(
-    client_for: ClientFor, company_ta: User, company: Company
+def test_publishing_ta_can_post_a_job_with_inferred_function(
+    client_for: ClientFor, publishing_ta: User, company: Company
 ) -> None:
-    response = client_for(company_ta).post(URL, payload(company), format="json")
+    response = client_for(publishing_ta).post(URL, payload(company, intent="post"), format="json")
 
     assert response.status_code == 201
     body = response.json()
@@ -54,7 +65,7 @@ def test_ta_can_create_a_pending_job_with_inferred_function(
     assert body["function"] == "finance"
     assert body["share_token"]
     job = Job.objects.get(id=body["id"])
-    assert job.created_by == company_ta
+    assert job.created_by == publishing_ta
     assert job.published_at is None
 
 
@@ -107,10 +118,12 @@ def test_the_whole_brief_is_stored_and_returned(
 
 
 def test_a_picked_function_beats_the_guess_and_survives_a_new_title(
-    client_for: ClientFor, company_ta: User, company: Company
+    client_for: ClientFor, publishing_ta: User, company: Company
 ) -> None:
-    client = client_for(company_ta)
-    created = client.post(URL, payload(company, function="operations"), format="json").json()
+    client = client_for(publishing_ta)
+    created = client.post(
+        URL, payload(company, function="operations", intent="post"), format="json"
+    ).json()
 
     assert created["function"] == "operations"
     patched = client.patch(
@@ -122,10 +135,10 @@ def test_a_picked_function_beats_the_guess_and_survives_a_new_title(
 
 
 def test_a_guessed_function_follows_a_new_title(
-    client_for: ClientFor, company_ta: User, company: Company
+    client_for: ClientFor, publishing_ta: User, company: Company
 ) -> None:
-    client = client_for(company_ta)
-    created = client.post(URL, payload(company), format="json").json()
+    client = client_for(publishing_ta)
+    created = client.post(URL, payload(company, intent="post"), format="json").json()
 
     patched = client.patch(
         f"{URL}/{created['id']}",
@@ -137,25 +150,38 @@ def test_a_guessed_function_follows_a_new_title(
 
 
 def test_jobs_posted_before_the_brief_still_take_a_partial_edit(
-    client_for: ClientFor, company_ta: User, company: Company
+    client_for: ClientFor, company_admin: User, company: Company
 ) -> None:
     job = JobFactory(company=company)  # No brief answers, like every job before it.
 
-    response = client_for(company_ta).patch(
+    response = client_for(company_admin).patch(
         f"{URL}/{job.id}", {"note_for_recruiters": "Prefer fintech"}, format="json"
     )
 
     assert response.status_code == 200
 
 
-def test_creating_grants_the_creator_object_permissions(
-    client_for: ClientFor, company_hm: User, company: Company
+def test_a_new_job_belongs_to_its_creators_team(
+    client_for: ClientFor, company_ta: User, company_admin: User, company: Company
 ) -> None:
-    response = client_for(company_hm).post(URL, payload(company), format="json")
+    response = client_for(company_ta).post(URL, payload(company), format="json")
 
     job = Job.objects.get(id=response.json()["id"])
-    assert company_hm.has_perm("jobs.view_job", job)
-    assert company_hm.has_perm("jobs.change_job", job)
+    assert job.team == company_ta.membership.team
+    assert can_view_job(company_ta, job)
+
+    team = company_ta.membership.team
+    assert team is not None
+    by_admin = client_for(company_admin).post(
+        URL, payload(company, team=str(team.pk), intent="save"), format="json"
+    )
+    assert Job.objects.get(id=by_admin.json()["id"]).team == team
+
+
+def test_hiring_manager_cannot_create(
+    client_for: ClientFor, company_hm: User, company: Company
+) -> None:
+    assert client_for(company_hm).post(URL, payload(company), format="json").status_code == 403
 
 
 def test_recruiter_cannot_create(
@@ -260,11 +286,11 @@ def test_bullets_are_stripped_from_multiline_fields(
 
 
 def test_patch_updates_a_job_and_keeps_its_status(
-    client_for: ClientFor, company_ta: User, company: Company
+    client_for: ClientFor, company_admin: User, company: Company
 ) -> None:
     job = JobFactory(company=company, status=JobStatus.ACTIVE)
 
-    response = client_for(company_ta).patch(
+    response = client_for(company_admin).patch(
         f"{URL}/{job.id}", {"title": "Staff Backend Engineer"}, format="json"
     )
 
@@ -274,25 +300,29 @@ def test_patch_updates_a_job_and_keeps_its_status(
     assert job.status == JobStatus.ACTIVE
 
 
-def test_hiring_manager_cannot_touch_someone_elses_job(
-    client_for: ClientFor, company_hm: User, company: Company
+def test_hiring_manager_cannot_touch_another_teams_job(
+    client_for: ClientFor, company_hm: User, company_ta: User, company: Company
 ) -> None:
-    job = JobFactory(company=company)
+    job = JobFactory(company=company, created_by=company_ta)
 
     client = client_for(company_hm)
     assert client.get(f"{URL}/{job.id}").status_code == 404
     assert client.patch(f"{URL}/{job.id}", {"title": "x"}, format="json").status_code == 404
 
 
-def test_hiring_manager_can_edit_a_granted_job(
+def test_hiring_manager_sees_their_teams_job_but_cannot_edit_it(
     client_for: ClientFor, company_hm: User, company: Company
 ) -> None:
-    job = JobFactory(company=company, created_by=company_hm)
-    grant_creator_perms(job, company_hm)
+    job = JobFactory(company=company, team=company_hm.membership.team, title="Data Analyst")
+    client = client_for(company_hm)
 
-    response = client_for(company_hm).patch(f"{URL}/{job.id}", {"title": "x"}, format="json")
+    assert client.get(f"{URL}/{job.id}").json()["can_edit"] is False
+    response = client.patch(f"{URL}/{job.id}", {"title": "x"}, format="json")
 
-    assert response.status_code == 200
+    assert response.status_code == 403
+    assert response.json() == {"detail": "You can't do that on this job."}
+    job.refresh_from_db()
+    assert job.title == "Data Analyst"
 
 
 def test_job_of_another_company_is_404(

@@ -23,7 +23,7 @@ def build_world(nickname: str = "NorthStar Talent") -> dict[str, object]:
     ta = UserFactory(kind="company", full_name="Trần Mai Anh")
     CompanyMembershipFactory(user=ta, company=company, role="talent_acquisition")
     recruiter = RecruiterProfileFactory(nickname=nickname)
-    channel = ChannelFactory(job=JobFactory(company=company), recruiter=recruiter)
+    channel = ChannelFactory(job=JobFactory(company=company, created_by=ta), recruiter=recruiter)
     return {"ta": ta, "recruiter": recruiter, "channel": channel}
 
 

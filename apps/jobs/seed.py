@@ -4,13 +4,17 @@ from typing import Any
 from django.utils import timezone
 
 from apps.accounts.models import User
-from apps.companies.models import Company
+from apps.companies.models import Company, Team
+from apps.companies.seed import TEAMS
 from apps.core.seed import DEMO_EMAILS, SeedContext, register_resetter, register_seeder
 from apps.jobs.functions import guess_function
 from apps.jobs.models import (
     BountyType,
+    ChangeKind,
+    ChangeStatus,
     Job,
     JobAssignment,
+    JobChangeRequest,
     JobStatus,
     Language,
     PayBasis,
@@ -192,6 +196,56 @@ JOBS: list[dict[str, Any]] = [
     },
 ]
 
+# Growth jobs, all by thu.vo (TA Growth, no posting rights).
+GROWTH_JOBS: list[dict[str, Any]] = [
+    {
+        "title": "Growth Marketing Manager",
+        "days_ago": 6,
+        "status": JobStatus.ACTIVE,
+        "salary": (35_000_000, 50_000_000),
+        "bounty_pct": 15,
+        "work_model": WorkModel.HYBRID,
+        "skills": ["Performance marketing", "SEO", "CRM", "Analytics", "A/B testing"],
+        "why": "Merchant sign-ups plateaued after the QR checkout launch. We need an owner for paid, organic and lifecycle channels to double qualified merchant leads this year.",
+        "roles": "Own the acquisition funnel from first click to activated merchant\nRun weekly paid and organic experiments and report the results\nWork with Product on onboarding conversion\nManage two growth marketers",
+        "quals": "5+ years in growth or performance marketing, ideally B2B fintech\nStrong command of GA4, attribution and funnel analytics\nProven record of scaling paid channels profitably",
+        "nice": "Experience marketing to small merchants in Vietnam\nSQL for self-serve analysis",
+        "benefits": "13th-month salary\nPremium health insurance\nLearning budget 20.000.000 ₫",
+        "note_for_recruiters": "",
+    },
+    {
+        "title": "Merchant Acquisition Lead",
+        "days_ago": 3,
+        "status": JobStatus.DRAFT,
+        "salary": (30_000_000, 45_000_000),
+        "bounty_pct": 12,
+        "work_model": WorkModel.ONSITE,
+        "skills": ["B2B sales", "Merchant onboarding", "Negotiation"],
+        "why": "We are opening a field team to sign offline merchants in Ho Chi Minh City.",
+        "roles": "Build and lead a team of four field acquisition executives\nSet territory plans and weekly sign-up targets",
+        "quals": "4+ years in B2B or merchant sales\nTeam leadership experience",
+        "nice": "",
+        "benefits": "",
+        "note_for_recruiters": "",
+    },
+    {
+        "title": "Lifecycle Marketing Specialist",
+        "days_ago": 1,
+        "status": JobStatus.SUBMITTED,
+        "salary": (22_000_000, 32_000_000),
+        "bounty_pct": 12,
+        "work_model": WorkModel.REMOTE,
+        "skills": ["Email marketing", "CRM", "Segmentation", "Copywriting"],
+        "why": "Activation emails and in-app messages are run by hand. We need a specialist to automate merchant lifecycle journeys.",
+        "roles": "Design and ship onboarding, activation and win-back journeys\nOwn segmentation and email deliverability\nReport journey performance monthly",
+        "quals": "3+ years in lifecycle or CRM marketing\nHands-on with a marketing automation platform\nClear writer in Vietnamese and English",
+        "nice": "Experience in fintech or SaaS",
+        "benefits": "13th-month salary\nPremium health insurance",
+        "note_for_recruiters": "",
+    },
+]
+GROWTH_PROPOSAL = {"title": "Senior Growth Marketing Manager", "salary_max": 55_000_000}
+
 BENEFITS = "13th-month salary\nPremium health insurance\nLearning budget 20.000.000 ₫"
 BRIEF_TEXT_FIELDS = (
     "reporting_line",
@@ -228,15 +282,25 @@ def seed(ctx: SeedContext) -> None:
     offices = list(company.offices.all())
     now = timezone.now()
 
+    teams = {team.name: team for team in company.teams.all()}
+    thu = users.get("thu.vo@velapay.vn") or User.objects.get(email="thu.vo@velapay.vn")
+
     jobs: dict[str, Job] = {}
-    for spec in JOBS:
+    specs = [(spec, creator, teams["Payments"]) for spec in JOBS] + [
+        (spec, thu, teams["Growth"]) for spec in GROWTH_JOBS
+    ]
+    for spec, author, team in specs:
         created = now - timedelta(days=spec["days_ago"])
         office = None if spec["work_model"] == WorkModel.REMOTE else offices[spec.get("office", 0)]
+        # Seeds are fixtures: status is set directly, so no lifecycle email goes out.
+        unposted = spec["status"] in (JobStatus.PENDING, JobStatus.DRAFT, JobStatus.SUBMITTED)
         job, _ = Job.objects.update_or_create(
             company=company,
             title=spec["title"],
             defaults={
-                "created_by": creator,
+                "created_by": author,
+                "team": team,
+                "deleted_at": None,
                 "function": guess_function(spec["title"], spec["skills"]),
                 "why_we_need_you": spec["why"],
                 "roles": spec["roles"],
@@ -255,7 +319,7 @@ def seed(ctx: SeedContext) -> None:
                 "status": spec["status"],
                 "note_for_recruiters": spec.get("note_for_recruiters", ""),
                 **brief_defaults(spec, created),
-                "published_at": None if spec["status"] == JobStatus.PENDING else created,
+                "published_at": None if unposted else created,
                 "closed_at": now - timedelta(days=60)
                 if spec["status"] == JobStatus.CLOSED
                 else None,
@@ -264,14 +328,30 @@ def seed(ctx: SeedContext) -> None:
         Job.objects.filter(pk=job.pk).update(created_at=created)
         jobs[job.title] = job
 
+    # Proposals are rebuilt from scratch so a second run (or a UI session) leaves one.
+    JobChangeRequest.objects.filter(job__company=company).delete()
+    JobChangeRequest.objects.create(
+        job=jobs["Growth Marketing Manager"],
+        requested_by=thu,
+        kind=ChangeKind.EDIT,
+        changes=GROWTH_PROPOSAL,
+        status=ChangeStatus.PENDING,
+    )
+
+    # Teams an earlier seed run left behind (the old catch-all team): hand over their jobs, then drop them.
+    stale = Team.objects.filter(company=company).exclude(name__in=TEAMS)
+    Job.objects.filter(team__in=stale).update(team=teams["Payments"])
+    stale.filter(memberships__isnull=True).delete()
+
     ctx.refs["jobs"] = jobs
 
 
 @register_resetter(order=40)
 def reset() -> None:
     """Drop jobs the demo company did not come with (E2E creates and renames some)."""
+    JobChangeRequest.objects.filter(job__company__name="Vela Pay").delete()
     Job.objects.filter(company__name="Vela Pay").exclude(
-        title__in=[spec["title"] for spec in JOBS]
+        title__in=[spec["title"] for spec in JOBS + GROWTH_JOBS]
     ).delete()
 
 

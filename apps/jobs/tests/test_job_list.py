@@ -10,8 +10,7 @@ from apps.accounts.models import User
 from apps.candidates.models import Stage
 from apps.candidates.tests.factories import ApplicationFactory
 from apps.companies.models import Company
-from apps.jobs.access import grant_creator_perms
-from apps.jobs.models import JobStatus
+from apps.jobs.models import Job, JobStatus
 from apps.jobs.tests.factories import JobFactory
 
 pytestmark = pytest.mark.django_db
@@ -22,10 +21,12 @@ ClientFor = Callable[[User], APIClient]
 
 
 @pytest.fixture
-def jobs(company: Company) -> dict[str, Any]:
+def jobs(company: Company, company_ta: User) -> dict[str, Any]:
+    """Four jobs the Talent Acquisition member opened, so they sit in that member's team."""
     now = timezone.now()
     backend = JobFactory(
         company=company,
+        created_by=company_ta,
         title="Senior Backend Engineer",
         function="engineering",
         status=JobStatus.ACTIVE,
@@ -33,6 +34,7 @@ def jobs(company: Company) -> dict[str, Any]:
     )
     analyst = JobFactory(
         company=company,
+        created_by=company_ta,
         title="Data Analyst",
         function="data",
         status=JobStatus.ACTIVE,
@@ -40,12 +42,19 @@ def jobs(company: Company) -> dict[str, Any]:
     )
     JobFactory(
         company=company,
+        created_by=company_ta,
         title="Head of Finance",
         function="finance",
         status=JobStatus.PENDING,
         published_at=None,
     )
-    JobFactory(company=company, title="QA Engineer", function="other", status=JobStatus.CLOSED)
+    JobFactory(
+        company=company,
+        created_by=company_ta,
+        title="QA Engineer",
+        function="other",
+        status=JobStatus.CLOSED,
+    )
 
     ApplicationFactory(job=backend, stage=Stage.NEW)
     ApplicationFactory(job=backend, stage=Stage.NEW)
@@ -83,7 +92,12 @@ def test_days_to_onboard_counts_to_the_first_onboarded_application(
     client_for: ClientFor, company_ta: User, company: Company
 ) -> None:
     now = timezone.now()
-    job = JobFactory(company=company, title="Ops Lead", published_at=now - timedelta(days=50))
+    job = JobFactory(
+        company=company,
+        created_by=company_ta,
+        title="Ops Lead",
+        published_at=now - timedelta(days=50),
+    )
     ApplicationFactory(job=job, stage=Stage.ONBOARDED, stage_changed_at=now - timedelta(days=20))
 
     row = client_for(company_ta).get(URL, {"search": "Ops Lead"}).json()["results"][0]
@@ -121,18 +135,30 @@ def test_ordering(
 def test_counts_endpoint(client_for: ClientFor, company_ta: User, jobs: dict[str, Any]) -> None:
     response = client_for(company_ta).get(f"{URL}/counts")
 
-    assert response.json() == {"pending": 1, "active": 2, "closed": 1}
+    assert response.json() == {
+        "draft": 0,
+        "submitted": 0,
+        "pending": 1,
+        "active": 2,
+        "closed": 1,
+    }
 
 
-def test_hiring_manager_sees_only_granted_jobs(
+def test_hiring_manager_sees_only_their_teams_jobs(
     client_for: ClientFor, company_hm: User, jobs: dict[str, Any]
 ) -> None:
-    grant_creator_perms(jobs["analyst"], company_hm)
+    Job.objects.filter(pk=jobs["analyst"].pk).update(team=company_hm.membership.team)
 
     client = client_for(company_hm)
 
     assert [row["title"] for row in client.get(URL).json()["results"]] == ["Data Analyst"]
-    assert client.get(f"{URL}/counts").json() == {"pending": 0, "active": 1, "closed": 0}
+    assert client.get(f"{URL}/counts").json() == {
+        "draft": 0,
+        "submitted": 0,
+        "pending": 0,
+        "active": 1,
+        "closed": 0,
+    }
 
 
 def test_list_query_count_is_flat(

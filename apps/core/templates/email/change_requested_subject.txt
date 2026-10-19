@@ -1,0 +1,1 @@
+{{ requester_name }} proposed a change to {{ job_title }}

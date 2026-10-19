@@ -707,6 +707,86 @@ paths:
                 items:
                   $ref: '#/components/schemas/Candidate'
           description: ''
+  /api/v1/change-requests/{id}/approve:
+    post:
+      operationId: change_requests_approve_create
+      description: 404 unless the viewer may see the request; the decision functions
+        check the rest.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - jobs
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChangeRequest'
+          description: ''
+  /api/v1/change-requests/{id}/reject:
+    post:
+      operationId: change_requests_reject_create
+      description: 404 unless the viewer may see the request; the decision functions
+        check the rest.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - jobs
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangeRequestDecisionRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ChangeRequestDecisionRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ChangeRequestDecisionRequest'
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChangeRequest'
+          description: ''
+  /api/v1/change-requests/{id}/withdraw:
+    post:
+      operationId: change_requests_withdraw_create
+      description: 404 unless the viewer may see the request; the decision functions
+        check the rest.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - jobs
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChangeRequest'
+          description: ''
   /api/v1/chat/channels:
     get:
       operationId: chat_channels_list
@@ -906,6 +986,34 @@ paths:
       responses:
         '204':
           description: No response body
+  /api/v1/company/change-requests:
+    get:
+      operationId: company_change_requests_list
+      description: 'Every pending proposal in the company: the admin''s inbox.'
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      tags:
+      - jobs
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedChangeRequestList'
+          description: ''
   /api/v1/company/complete:
     post:
       operationId: company_complete_create
@@ -1025,13 +1133,13 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PatchedMemberRoleRequest'
+              $ref: '#/components/schemas/PatchedMemberUpdateRequest'
           application/x-www-form-urlencoded:
             schema:
-              $ref: '#/components/schemas/PatchedMemberRoleRequest'
+              $ref: '#/components/schemas/PatchedMemberUpdateRequest'
           multipart/form-data:
             schema:
-              $ref: '#/components/schemas/PatchedMemberRoleRequest'
+              $ref: '#/components/schemas/PatchedMemberUpdateRequest'
       security:
       - cookieAuth: []
       responses:
@@ -1123,6 +1231,95 @@ paths:
               schema:
                 $ref: '#/components/schemas/PaginatedCompanyPoolEntryList'
           description: ''
+  /api/v1/company/teams:
+    get:
+      operationId: company_teams_list
+      tags:
+      - companies
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Team'
+          description: ''
+    post:
+      operationId: company_teams_create
+      tags:
+      - companies
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TeamWriteRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TeamWriteRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TeamWriteRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Team'
+          description: ''
+  /api/v1/company/teams/{id}:
+    patch:
+      operationId: company_team_partial_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - companies
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedTeamWriteRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedTeamWriteRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedTeamWriteRequest'
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Team'
+          description: ''
+    delete:
+      operationId: company_team_destroy
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - companies
+      security:
+      - cookieAuth: []
+      responses:
+        '204':
+          description: No response body
   /api/v1/csrf:
     get:
       operationId: csrf_retrieve
@@ -1358,15 +1555,25 @@ paths:
       - in: query
         name: status
         schema:
-          type: string
-          enum:
-          - active
-          - closed
-          - pending
+          type: array
+          items:
+            type: string
+            enum:
+            - active
+            - closed
+            - draft
+            - pending
+            - submitted
         description: |-
-          * `pending` - Pending
+          Multiple values may be separated by commas.
+
+          * `draft` - Draft
+          * `submitted` - Waiting for company admin
+          * `pending` - Waiting for Sparktal
           * `active` - Active
           * `closed` - Closed
+        explode: false
+        style: form
       tags:
       - jobs
       security:
@@ -1597,11 +1804,109 @@ paths:
               schema:
                 $ref: '#/components/schemas/Job'
           description: ''
+    delete:
+      operationId: jobs_destroy
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - jobs
+      security:
+      - cookieAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/jobs/{id}/change-requests:
+    get:
+      operationId: jobs_change_requests_list
+      description: |-
+        Proposals on one job that the viewer may see (admins all, a requester their own).
+
+        Pending by default; ``?status=`` picks another state or ``all``.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - in: query
+        name: status
+        schema:
+          type: string
+          enum:
+          - all
+          - approved
+          - pending
+          - rejected
+          - withdrawn
+        description: Which proposals to list. Defaults to pending.
+      tags:
+      - jobs
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedChangeRequestList'
+          description: ''
+    post:
+      operationId: jobs_change_requests_create
+      description: Propose an edit, close, reopen or delete of the job to the company
+        admins.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - jobs
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangeRequestCreateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ChangeRequestCreateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ChangeRequestCreateRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChangeRequest'
+          description: ''
   /api/v1/jobs/{id}/close:
     post:
       operationId: jobs_close_create
-      description: 'Shared lookup: 404 (never 403) when the user may not touch this
-        job.'
+      description: One lifecycle function, which checks the matching permission itself
+        (403 if not).
       parameters:
       - in: path
         name: id
@@ -1623,8 +1928,7 @@ paths:
   /api/v1/jobs/{id}/overview:
     get:
       operationId: jobs_overview_retrieve
-      description: 'Shared lookup: 404 (never 403) when the user may not touch this
-        job.'
+      description: 'Shared lookup: 404 when the user may not see this job.'
       parameters:
       - in: path
         name: id
@@ -1643,11 +1947,80 @@ paths:
               schema:
                 $ref: '#/components/schemas/JobOverview'
           description: ''
+  /api/v1/jobs/{id}/post:
+    post:
+      operationId: jobs_post_create
+      description: One lifecycle function, which checks the matching permission itself
+        (403 if not).
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - jobs
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+          description: ''
   /api/v1/jobs/{id}/reopen:
     post:
       operationId: jobs_reopen_create
-      description: 'Shared lookup: 404 (never 403) when the user may not touch this
-        job.'
+      description: One lifecycle function, which checks the matching permission itself
+        (403 if not).
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - jobs
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+          description: ''
+  /api/v1/jobs/{id}/submit:
+    post:
+      operationId: jobs_submit_create
+      description: One lifecycle function, which checks the matching permission itself
+        (403 if not).
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - jobs
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+          description: ''
+  /api/v1/jobs/{id}/withdraw:
+    post:
+      operationId: jobs_withdraw_create
+      description: One lifecycle function, which checks the matching permission itself
+        (403 if not).
       parameters:
       - in: path
         name: id
@@ -2176,8 +2549,8 @@ components:
         first_submitted_at:
           type: string
           format: date-time
-          readOnly: true
           nullable: true
+          readOnly: true
         cv_filename:
           type: string
           readOnly: true
@@ -2611,6 +2984,130 @@ components:
           type: string
       required:
       - full_name
+    ChangeKindEnum:
+      enum:
+      - edit
+      - close
+      - reopen
+      - delete
+      type: string
+      description: |-
+        * `edit` - Edit
+        * `close` - Close
+        * `reopen` - Reopen
+        * `delete` - Delete
+    ChangeRequest:
+      type: object
+      description: A proposal, with the job's current values beside the proposed ones.
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        job:
+          allOf:
+          - $ref: '#/components/schemas/ChangeRequestJob'
+          readOnly: true
+        kind:
+          allOf:
+          - $ref: '#/components/schemas/ChangeKindEnum'
+          readOnly: true
+        changes:
+          type: object
+          additionalProperties: {}
+          readOnly: true
+        current:
+          type: object
+          additionalProperties: {}
+          readOnly: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/ChangeStatusEnum'
+          readOnly: true
+          default: pending
+        review_note:
+          type: string
+          readOnly: true
+        requested_by:
+          allOf:
+          - $ref: '#/components/schemas/ChangeRequestPerson'
+          readOnly: true
+        reviewed_by:
+          allOf:
+          - $ref: '#/components/schemas/ChangeRequestPerson'
+          readOnly: true
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        reviewed_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+      required:
+      - changes
+      - created_at
+      - current
+      - id
+      - job
+      - kind
+      - requested_by
+      - review_note
+      - reviewed_at
+      - reviewed_by
+      - status
+    ChangeRequestCreateRequest:
+      type: object
+      properties:
+        kind:
+          $ref: '#/components/schemas/ChangeKindEnum'
+        changes:
+          type: object
+          additionalProperties: {}
+      required:
+      - kind
+    ChangeRequestDecisionRequest:
+      type: object
+      properties:
+        note:
+          type: string
+          default: ''
+    ChangeRequestJob:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+      required:
+      - id
+      - title
+    ChangeRequestPerson:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        full_name:
+          type: string
+      required:
+      - full_name
+      - id
+    ChangeStatusEnum:
+      enum:
+      - pending
+      - approved
+      - rejected
+      - withdrawn
+      type: string
+      description: |-
+        * `pending` - Pending
+        * `approved` - Approved
+        * `rejected` - Rejected
+        * `withdrawn` - Withdrawn
     Channel:
       type: object
       properties:
@@ -3132,6 +3629,10 @@ components:
     HomeJobCounts:
       type: object
       properties:
+        draft:
+          type: integer
+        submitted:
+          type: integer
         pending:
           type: integer
         active:
@@ -3141,7 +3642,9 @@ components:
       required:
       - active
       - closed
+      - draft
       - pending
+      - submitted
     HomeJobRow:
       type: object
       properties:
@@ -3215,6 +3718,16 @@ components:
         * `real_estate_construction` - Real Estate & Construction
         * `fmcg` - FMCG
         * `energy_utilities` - Energy & Utilities
+    IntentEnum:
+      enum:
+      - save
+      - submit
+      - post
+      type: string
+      description: |-
+        * `save` - Save
+        * `submit` - Submit
+        * `post` - Post
     Interview:
       type: object
       properties:
@@ -3333,6 +3846,10 @@ components:
           type: string
           format: uuid
           readOnly: true
+        team:
+          type: string
+          format: uuid
+          nullable: true
         title:
           type: string
           maxLength: 120
@@ -3455,22 +3972,28 @@ components:
         can_edit:
           type: boolean
           readOnly: true
+        permissions:
+          allOf:
+          - $ref: '#/components/schemas/JobPermissions'
+          readOnly: true
       required:
       - can_edit
       - closed_at
       - created_at
       - id
       - location_label
+      - permissions
       - published_at
-      - qualifications
-      - roles
       - share_token
       - status
       - title
-      - why_we_need_you
     JobCounts:
       type: object
       properties:
+        draft:
+          type: integer
+        submitted:
+          type: integer
         pending:
           type: integer
         active:
@@ -3480,7 +4003,9 @@ components:
       required:
       - active
       - closed
+      - draft
       - pending
+      - submitted
     JobKpis:
       type: object
       properties:
@@ -3515,6 +4040,10 @@ components:
           $ref: '#/components/schemas/FunctionEnum'
         status:
           $ref: '#/components/schemas/JobStatusEnum'
+        team_name:
+          type: string
+          readOnly: true
+          nullable: true
         work_model:
           $ref: '#/components/schemas/WorkModelEnum'
         location_label:
@@ -3551,6 +4080,9 @@ components:
         bounty_label:
           type: string
           readOnly: true
+        pending_changes:
+          type: integer
+          readOnly: true
       required:
       - bounty_label
       - created_at
@@ -3561,7 +4093,9 @@ components:
       - id
       - location_label
       - new_count
+      - pending_changes
       - share_token
+      - team_name
       - title
     JobOverview:
       type: object
@@ -3588,9 +4122,50 @@ components:
       - note_for_recruiters
       - recruiters
       - rejection_log
+    JobPermissions:
+      type: object
+      description: What the signed-in member may do to this job (spec §4).
+      properties:
+        edit:
+          type: boolean
+        submit:
+          type: boolean
+        withdraw:
+          type: boolean
+        post:
+          type: boolean
+        close:
+          type: boolean
+        reopen:
+          type: boolean
+        delete:
+          type: boolean
+        propose:
+          type: boolean
+        review_proposals:
+          type: boolean
+      required:
+      - close
+      - delete
+      - edit
+      - post
+      - propose
+      - reopen
+      - review_proposals
+      - submit
+      - withdraw
     JobRequest:
       type: object
       properties:
+        team:
+          type: string
+          format: uuid
+          nullable: true
+        intent:
+          allOf:
+          - $ref: '#/components/schemas/IntentEnum'
+          writeOnly: true
+          default: save
         title:
           type: string
           minLength: 1
@@ -3599,14 +4174,11 @@ components:
           $ref: '#/components/schemas/FunctionEnum'
         why_we_need_you:
           type: string
-          minLength: 1
         roles:
           type: string
-          minLength: 1
           description: One responsibility per line.
         qualifications:
           type: string
-          minLength: 1
           description: One must-have per line.
         nice_to_have:
           type: string
@@ -3692,18 +4264,19 @@ components:
         note_for_recruiters:
           type: string
       required:
-      - qualifications
-      - roles
       - title
-      - why_we_need_you
     JobStatusEnum:
       enum:
+      - draft
+      - submitted
       - pending
       - active
       - closed
       type: string
       description: |-
-        * `pending` - Pending
+        * `draft` - Draft
+        * `submitted` - Waiting for company admin
+        * `pending` - Waiting for Sparktal
         * `active` - Active
         * `closed` - Closed
     JoinResult:
@@ -3909,12 +4482,9 @@ components:
       - id
       - joined
       - location_label
-      - qualifications
       - recruiters_working
-      - roles
       - submitted_count
       - title
-      - why_we_need_you
     MarketplaceJobListItem:
       type: object
       properties:
@@ -3994,7 +4564,6 @@ components:
       - recruiters_working
       - submitted_count
       - title
-      - why_we_need_you
     Me:
       type: object
       properties:
@@ -4040,11 +4609,19 @@ components:
           type: string
         profile_completed:
           type: boolean
+        team:
+          allOf:
+          - $ref: '#/components/schemas/TeamRef'
+          nullable: true
+        can_publish:
+          type: boolean
       required:
+      - can_publish
       - id
       - name
       - profile_completed
       - role
+      - team
     MeKindEnum:
       enum:
       - company
@@ -4087,6 +4664,14 @@ components:
           allOf:
           - $ref: '#/components/schemas/RoleEnum'
           readOnly: true
+        team:
+          allOf:
+          - $ref: '#/components/schemas/TeamRef'
+          readOnly: true
+          nullable: true
+        can_publish:
+          type: boolean
+          readOnly: true
         status:
           allOf:
           - $ref: '#/components/schemas/MemberStatusEnum'
@@ -4099,6 +4684,7 @@ components:
           format: date-time
           readOnly: true
       required:
+      - can_publish
       - created_at
       - email
       - full_name
@@ -4106,6 +4692,7 @@ components:
       - is_me
       - role
       - status
+      - team
     MemberInviteRequest:
       type: object
       properties:
@@ -4120,6 +4707,17 @@ components:
           maxLength: 120
         role:
           $ref: '#/components/schemas/RoleEnum'
+        team:
+          type: string
+          format: uuid
+          nullable: true
+        new_team_name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        can_publish:
+          type: boolean
+          default: false
       required:
       - email
       - full_name
@@ -4365,6 +4963,29 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Candidate'
+    PaginatedChangeRequestList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChangeRequest'
     PaginatedCompanyPoolEntryList:
       type: object
       required:
@@ -4590,6 +5211,15 @@ components:
     PatchedJobRequest:
       type: object
       properties:
+        team:
+          type: string
+          format: uuid
+          nullable: true
+        intent:
+          allOf:
+          - $ref: '#/components/schemas/IntentEnum'
+          writeOnly: true
+          default: save
         title:
           type: string
           minLength: 1
@@ -4598,14 +5228,11 @@ components:
           $ref: '#/components/schemas/FunctionEnum'
         why_we_need_you:
           type: string
-          minLength: 1
         roles:
           type: string
-          minLength: 1
           description: One responsibility per line.
         qualifications:
           type: string
-          minLength: 1
           description: One must-have per line.
         nice_to_have:
           type: string
@@ -4690,11 +5317,21 @@ components:
           description: One allowance or reward per line.
         note_for_recruiters:
           type: string
-    PatchedMemberRoleRequest:
+    PatchedMemberUpdateRequest:
       type: object
       properties:
         role:
           $ref: '#/components/schemas/RoleEnum'
+        team:
+          type: string
+          format: uuid
+          nullable: true
+        new_team_name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        can_publish:
+          type: boolean
     PatchedRecruiterProfileRequest:
       type: object
       properties:
@@ -4725,6 +5362,13 @@ components:
             maxLength: 0
         bio:
           type: string
+    PatchedTeamWriteRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
     PayBasisEnum:
       enum:
       - gross
@@ -4879,10 +5523,7 @@ components:
       - company
       - id
       - location_label
-      - qualifications
-      - roles
       - title
-      - why_we_need_you
     ReadRequest:
       type: object
       properties:
@@ -5499,6 +6140,49 @@ components:
       required:
       - application_id
       - is_duplicate
+    Team:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        name:
+          type: string
+          readOnly: true
+        member_count:
+          type: integer
+          readOnly: true
+        job_count:
+          type: integer
+          readOnly: true
+      required:
+      - id
+      - job_count
+      - member_count
+      - name
+    TeamRef:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        name:
+          type: string
+          readOnly: true
+      required:
+      - id
+      - name
+    TeamWriteRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+      required:
+      - name
     Teammate:
       type: object
       properties:

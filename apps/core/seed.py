@@ -22,6 +22,7 @@ DEMO_EMAILS: list[str] = [
     "maianh.tran@velapay.vn",
     "khoa.nguyen@velapay.vn",
     "huy.phan@velapay.vn",
+    "thu.vo@velapay.vn",
     "northstar@example.com",
     "bluefin@example.com",
     "atlas@example.com",

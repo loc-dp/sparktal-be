@@ -1,20 +1,21 @@
+from collections.abc import Callable
 from typing import Any
 
 from django.db import transaction
-from django.db.models import Count, Q, QuerySet
-from django.http import Http404
+from django.db.models import Count, OuterRef, Q, QuerySet, Subquery
+from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django_filters.rest_framework import DjangoFilterBackend
-from drf_spectacular.utils import extend_schema, extend_schema_view
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from rest_framework import status
-from rest_framework.exceptions import APIException, ValidationError
+from rest_framework.exceptions import APIException, ParseError, PermissionDenied
 from rest_framework.filters import OrderingFilter
 from rest_framework.generics import (
     ListAPIView,
     ListCreateAPIView,
     RetrieveAPIView,
-    RetrieveUpdateAPIView,
+    RetrieveUpdateDestroyAPIView,
 )
 from rest_framework.parsers import MultiPartParser
 from rest_framework.permissions import AllowAny, BasePermission
@@ -26,13 +27,32 @@ from apps.accounts.models import User
 from apps.candidates.models import Stage
 from apps.chat.signals import ensure_channel
 from apps.companies.access import company_of
-from apps.jobs.access import can_change_job, jobs_visible_to
+from apps.jobs.access import NOT_YOURS, can_change_job, jobs_visible_to
 from apps.jobs.filters import JobFilterSet
 from apps.jobs.jd_parsing import is_enabled as jd_parsing_enabled
+from apps.jobs.lifecycle import (
+    close_job,
+    delete_job,
+    post_job,
+    reopen_job,
+    submit_job,
+    withdraw_job,
+)
 from apps.jobs.marketplace import MarketplaceFilterSet, annotate_marketplace, marketplace_queryset
-from apps.jobs.models import JdParse, Job, JobAssignment, JobStatus
+from apps.jobs.models import ChangeStatus, JdParse, Job, JobAssignment, JobChangeRequest, JobStatus
+from apps.jobs.proposals import (
+    approve_change,
+    change_requests_visible_to,
+    is_admin,
+    propose_change,
+    reject_change,
+    withdraw_change,
+)
 from apps.jobs.queries import annotate_job_metrics
 from apps.jobs.serializers import (
+    ChangeRequestCreateSerializer,
+    ChangeRequestDecisionSerializer,
+    ChangeRequestSerializer,
     JdParseAvailabilitySerializer,
     JdParseCreateSerializer,
     JdParseSerializer,
@@ -55,6 +75,12 @@ def _user(view: APIView) -> User | None:
     """`request.user` is `User | AnonymousUser`; the access helpers want `User | None`."""
     user = view.request.user
     return user if isinstance(user, User) else None
+
+
+def _actor(view: APIView) -> User:
+    user = _user(view)
+    assert user is not None, "authentication runs before the view"
+    return user
 
 
 class CanAddJob(BasePermission):
@@ -90,9 +116,14 @@ class JobListCreateView(ListCreateAPIView[Job]):
         return JobListItemSerializer if self.request.method == "GET" else JobSerializer
 
     def get_queryset(self) -> QuerySet[Job]:
+        user = _user(self)
+        pending = JobChangeRequest.objects.filter(job=OuterRef("pk"), status=ChangeStatus.PENDING)
+        if not is_admin(user):
+            pending = pending.filter(requested_by=user)
+        counted = pending.order_by().values("job").annotate(total=Count("pk")).values("total")
         return annotate_job_metrics(
-            jobs_visible_to(_user(self)).select_related("company", "office")
-        )
+            jobs_visible_to(user).select_related("company", "office", "team")
+        ).annotate(pending_changes=Coalesce(Subquery(counted), 0))
 
     def get_ordering(self) -> list[str]:
         """`current_stage` is exposed to the client but ranked in SQL."""
@@ -105,10 +136,11 @@ class JobListCreateView(ListCreateAPIView[Job]):
 @extend_schema_view(
     get=extend_schema(operation_id="jobs_retrieve", tags=["jobs"]),
     patch=extend_schema(operation_id="jobs_partial_update", tags=["jobs"]),
+    delete=extend_schema(operation_id="jobs_destroy", tags=["jobs"]),
 )
-class JobDetailView(RetrieveUpdateAPIView[Job]):
+class JobDetailView(RetrieveUpdateDestroyAPIView[Job]):
     serializer_class = JobSerializer
-    http_method_names = ("get", "patch", "head", "options")
+    http_method_names = ("get", "patch", "delete", "head", "options")
 
     def get_queryset(self) -> QuerySet[Job]:
         return jobs_visible_to(_user(self)).select_related("company", "office")
@@ -116,8 +148,11 @@ class JobDetailView(RetrieveUpdateAPIView[Job]):
     def get_object(self) -> Job:
         job = super().get_object()
         if self.request.method == "PATCH" and not can_change_job(_user(self), job):
-            raise Http404
+            raise PermissionDenied(NOT_YOURS)
         return job
+
+    def perform_destroy(self, instance: Job) -> None:
+        delete_job(instance, actor=_actor(self))
 
 
 @extend_schema_view(get=extend_schema(operation_id="public_jobs_retrieve", tags=["public"]))
@@ -139,54 +174,60 @@ class PublicJobView(RetrieveAPIView[Job]):
 class JobCountsView(APIView):
     def get(self, request: Request) -> Response:
         rows = jobs_visible_to(_user(self)).values("status").annotate(total=Count("id"))
-        counts = {status: 0 for status in ("pending", "active", "closed")}
+        counts = {str(status): 0 for status in JobStatus}
         for row in rows:
             counts[row["status"]] = row["total"]
         return Response(counts)
 
 
 class JobActionView(APIView):
-    """Shared lookup: 404 (never 403) when the user may not touch this job."""
-
-    write = False
+    """Shared lookup: 404 when the user may not see this job."""
 
     def get_job(self, pk: str) -> Job:
-        job = get_object_or_404(jobs_visible_to(_user(self)), pk=pk)
-        if self.write and not can_change_job(_user(self), job):
-            raise Http404
-        return job
+        return get_object_or_404(jobs_visible_to(_user(self)), pk=pk)
 
 
-@extend_schema_view(
-    post=extend_schema(
-        operation_id="jobs_close_create", tags=["jobs"], request=None, responses=JobSerializer
-    )
-)
-class JobCloseView(JobActionView):
-    write = True
+class JobTransitionView(JobActionView):
+    """One lifecycle function, which checks the matching permission itself (403 if not)."""
+
+    transition: Callable[..., Job]
 
     def post(self, request: Request, pk: str) -> Response:
-        job = self.get_job(pk)
-        if job.status != JobStatus.ACTIVE:
-            raise ValidationError({"status": ["Only an active job can be closed."]})
-        job.close()
+        job = self.transition(self.get_job(pk), actor=_actor(self))
         return Response(JobSerializer(job, context={"request": request}).data)
 
 
-@extend_schema_view(
-    post=extend_schema(
-        operation_id="jobs_reopen_create", tags=["jobs"], request=None, responses=JobSerializer
+def _transition_schema(operation_id: str) -> Any:
+    return extend_schema_view(
+        post=extend_schema(
+            operation_id=operation_id, tags=["jobs"], request=None, responses=JobSerializer
+        )
     )
-)
-class JobReopenView(JobActionView):
-    write = True
 
-    def post(self, request: Request, pk: str) -> Response:
-        job = self.get_job(pk)
-        if job.status != JobStatus.CLOSED:
-            raise ValidationError({"status": ["Only a closed job can be reopened."]})
-        job.reopen()
-        return Response(JobSerializer(job, context={"request": request}).data)
+
+@_transition_schema("jobs_submit_create")
+class JobSubmitView(JobTransitionView):
+    transition = staticmethod(submit_job)
+
+
+@_transition_schema("jobs_withdraw_create")
+class JobWithdrawView(JobTransitionView):
+    transition = staticmethod(withdraw_job)
+
+
+@_transition_schema("jobs_post_create")
+class JobPostView(JobTransitionView):
+    transition = staticmethod(post_job)
+
+
+@_transition_schema("jobs_close_create")
+class JobCloseView(JobTransitionView):
+    transition = staticmethod(close_job)
+
+
+@_transition_schema("jobs_reopen_create")
+class JobReopenView(JobTransitionView):
+    transition = staticmethod(reopen_job)
 
 
 @extend_schema_view(
@@ -409,3 +450,140 @@ class JdParseDetailView(RetrieveAPIView[JdParse]):
 
     def get_queryset(self) -> QuerySet[JdParse]:
         return JdParse.objects.filter(uploaded_by=_user(self))
+
+
+@extend_schema_view(
+    get=extend_schema(
+        operation_id="jobs_change_requests_list",
+        tags=["jobs"],
+        responses=ChangeRequestSerializer,
+        parameters=[
+            OpenApiParameter(
+                "status",
+                str,
+                enum=["pending", "approved", "rejected", "withdrawn", "all"],
+                description="Which proposals to list. Defaults to pending.",
+            )
+        ],
+    ),
+    post=extend_schema(
+        operation_id="jobs_change_requests_create",
+        tags=["jobs"],
+        description="Propose an edit, close, reopen or delete of the job to the company admins.",
+        request=ChangeRequestCreateSerializer,
+        responses={201: ChangeRequestSerializer},
+    ),
+)
+class JobChangeRequestListCreateView(ListAPIView[JobChangeRequest]):
+    """Proposals on one job that the viewer may see (admins all, a requester their own).
+
+    Pending by default; ``?status=`` picks another state or ``all``.
+    """
+
+    serializer_class = ChangeRequestSerializer
+    queryset = JobChangeRequest.objects.none()
+
+    def get_queryset(self) -> QuerySet[JobChangeRequest]:
+        job = get_object_or_404(jobs_visible_to(_user(self)), pk=self.kwargs["pk"])
+        wanted = self.request.query_params.get("status", ChangeStatus.PENDING.value)
+        if wanted != "all" and wanted not in ChangeStatus.values:
+            raise ParseError("Unknown status.")
+        queryset = change_requests_visible_to(_user(self)).filter(job=job)
+        if wanted != "all":
+            queryset = queryset.filter(status=wanted)
+        return queryset.select_related("job", "requested_by", "reviewed_by").order_by("-created_at")
+
+    def post(self, request: Request, pk: str) -> Response:
+        job = get_object_or_404(jobs_visible_to(_user(self)), pk=pk)
+        form = ChangeRequestCreateSerializer(data=request.data)
+        form.is_valid(raise_exception=True)
+        change = propose_change(
+            job,
+            actor=_actor(self),
+            kind=form.validated_data["kind"],
+            changes=form.validated_data.get("changes"),
+        )
+        return Response(ChangeRequestSerializer(change).data, status=status.HTTP_201_CREATED)
+
+
+@extend_schema_view(
+    get=extend_schema(
+        operation_id="company_change_requests_list",
+        tags=["jobs"],
+        responses=ChangeRequestSerializer,
+    )
+)
+class CompanyChangeRequestListView(ListAPIView[JobChangeRequest]):
+    """Every pending proposal in the company: the admin's inbox."""
+
+    serializer_class = ChangeRequestSerializer
+    queryset = JobChangeRequest.objects.none()
+
+    def get_queryset(self) -> QuerySet[JobChangeRequest]:
+        if not is_admin(_user(self)):
+            raise PermissionDenied("Only a company admin can see every proposal.")
+        return (
+            change_requests_visible_to(_user(self))
+            .filter(status=ChangeStatus.PENDING)
+            .select_related("job", "requested_by", "reviewed_by")
+        )
+
+
+class ChangeRequestActionView(APIView):
+    """404 unless the viewer may see the request; the decision functions check the rest."""
+
+    def get_change(self, pk: str) -> JobChangeRequest:
+        return get_object_or_404(change_requests_visible_to(_user(self)), pk=pk)
+
+    def respond(self, change: JobChangeRequest) -> Response:
+        change = JobChangeRequest.objects.select_related("job", "requested_by", "reviewed_by").get(
+            pk=change.pk
+        )
+        return Response(ChangeRequestSerializer(change).data)
+
+
+@extend_schema_view(
+    post=extend_schema(
+        operation_id="change_requests_approve_create",
+        tags=["jobs"],
+        request=None,
+        responses=ChangeRequestSerializer,
+    )
+)
+class ChangeRequestApproveView(ChangeRequestActionView):
+    def post(self, request: Request, pk: str) -> Response:
+        change = self.get_change(pk)
+        approve_change(change, actor=_actor(self))
+        return self.respond(change)
+
+
+@extend_schema_view(
+    post=extend_schema(
+        operation_id="change_requests_reject_create",
+        tags=["jobs"],
+        request=ChangeRequestDecisionSerializer,
+        responses=ChangeRequestSerializer,
+    )
+)
+class ChangeRequestRejectView(ChangeRequestActionView):
+    def post(self, request: Request, pk: str) -> Response:
+        change = self.get_change(pk)
+        form = ChangeRequestDecisionSerializer(data=request.data)
+        form.is_valid(raise_exception=True)
+        reject_change(change, actor=_actor(self), note=form.validated_data["note"])
+        return self.respond(change)
+
+
+@extend_schema_view(
+    post=extend_schema(
+        operation_id="change_requests_withdraw_create",
+        tags=["jobs"],
+        request=None,
+        responses=ChangeRequestSerializer,
+    )
+)
+class ChangeRequestWithdrawView(ChangeRequestActionView):
+    def post(self, request: Request, pk: str) -> Response:
+        change = self.get_change(pk)
+        withdraw_change(change, actor=_actor(self))
+        return self.respond(change)

@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from typing import cast
 
 import pytest
@@ -34,3 +35,22 @@ def test_me_reports_recruiter_kind(api_client: APIClient) -> None:
     api_client.force_login(recruiter)
 
     assert api_client.get(ME_URL).json()["kind"] == "recruiter"
+
+
+def test_me_reports_team_and_can_publish(
+    company_ta: User, client_for: Callable[[User], APIClient]
+) -> None:
+    membership = company_ta.membership
+    membership.can_publish = True
+    membership.save()
+
+    company = client_for(company_ta).get(ME_URL).json()["company"]
+
+    assert company["team"] == {"id": str(membership.team_id), "name": membership.team.name}  # type: ignore[union-attr]
+    assert company["can_publish"] is True
+
+
+def test_me_admin_has_no_team(company_admin: User, client_for: Callable[[User], APIClient]) -> None:
+    company = client_for(company_admin).get(ME_URL).json()["company"]
+    assert company["team"] is None
+    assert company["can_publish"] is False

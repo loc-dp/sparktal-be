@@ -1,0 +1,6 @@
+{% extends "email/base.txt" %}{% block content %}
+{{ requester_name }} sent "{{ job_title }}" for you to post.
+
+Review the job and post it to Sparktal:
+{{ job_url }}
+{% endblock %}

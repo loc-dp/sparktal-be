@@ -4,7 +4,9 @@ import factory
 from django.core.files.base import ContentFile
 from factory.django import DjangoModelFactory
 
+from apps.accounts.models import User
 from apps.accounts.tests.factories import UserFactory
+from apps.companies.models import Team
 from apps.companies.tests.factories import CompanyFactory, OfficeFactory
 from apps.core.testing.pdf import make_pdf
 from apps.jobs.models import (
@@ -19,11 +21,19 @@ from apps.jobs.models import (
 from apps.recruiters.tests.factories import RecruiterProfileFactory
 
 
+def team_of(user: User | None) -> Team | None:
+    membership = getattr(user, "membership", None)
+    return membership.team if membership is not None else None
+
+
 class JobFactory(DjangoModelFactory[Job]):
     class Meta:
         model = Job
 
     company = factory.SubFactory(CompanyFactory)
+    created_by = None
+    # Like the API: a job lands in its creator's team; with no creator it has no team.
+    team = factory.LazyAttribute(lambda job: team_of(job.created_by))
     title = factory.Sequence(lambda n: f"Senior Engineer {n}")
     function = "engineering"
     why_we_need_you = "The payments team needs a fourth backend engineer to keep up with volume."
@@ -41,6 +51,13 @@ class JobFactory(DjangoModelFactory[Job]):
     office = factory.LazyAttribute(
         lambda job: job.company.offices.first() or OfficeFactory(company=job.company)
     )
+
+
+def join_job_team(member: User, job: Job) -> None:
+    """Move `member` into the team that owns `job`, so they see it."""
+    membership = member.membership
+    membership.team = job.team
+    membership.save(update_fields=["team"])
 
 
 class JobAssignmentFactory(DjangoModelFactory[JobAssignment]):

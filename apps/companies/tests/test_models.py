@@ -19,6 +19,7 @@ from apps.companies.tests.factories import (
     CompanyFactory,
     CompanyMembershipFactory,
     OfficeFactory,
+    TeamFactory,
 )
 
 pytestmark = pytest.mark.django_db
@@ -112,3 +113,40 @@ def test_only_an_office_abroad_has_a_place(city: str, place: str) -> None:
 
 def test_the_codes_for_claude_include_abroad() -> None:
     assert "abroad = Outside Vietnam" in location_codes(with_other=False)
+
+
+def test_team_names_are_unique_per_company_ignoring_case(company: Company) -> None:
+    TeamFactory(company=company, name="Payments")
+
+    with pytest.raises(IntegrityError), transaction.atomic():
+        TeamFactory(company=company, name="payments")
+
+
+def test_same_team_name_allowed_in_another_company(company: Company) -> None:
+    TeamFactory(company=company, name="Payments")
+
+    TeamFactory(company=CompanyFactory(), name="Payments")
+
+
+def test_membership_constraint_rejects_admin_with_team(company: Company) -> None:
+    with pytest.raises(IntegrityError), transaction.atomic():
+        CompanyMembershipFactory(
+            company=company, role=CompanyRole.ADMIN, team=TeamFactory(company=company)
+        )
+
+
+def test_membership_constraint_rejects_hiring_manager_without_team(company: Company) -> None:
+    with pytest.raises(IntegrityError), transaction.atomic():
+        CompanyMembershipFactory(company=company, role=CompanyRole.HIRING_MANAGER, team=None)
+
+
+def test_membership_constraint_rejects_can_publish_for_hiring_manager(company: Company) -> None:
+    with pytest.raises(IntegrityError), transaction.atomic():
+        CompanyMembershipFactory(company=company, role=CompanyRole.HIRING_MANAGER, can_publish=True)
+
+
+def test_factory_gives_talent_acquisition_a_team_in_the_same_company(company: Company) -> None:
+    membership = CompanyMembershipFactory(company=company, role=CompanyRole.TALENT_ACQUISITION)
+
+    assert membership.team is not None
+    assert membership.team.company_id == company.id

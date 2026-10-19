@@ -10,30 +10,27 @@ from apps.chat.access import (
 from apps.chat.models import Channel, ChannelRead
 from apps.chat.tests.factories import ChannelFactory, MessageFactory
 from apps.companies.models import Company
-from apps.jobs.access import grant_creator_perms
 from apps.jobs.tests.factories import JobFactory
 from apps.recruiters.models import RecruiterProfile
 
 pytestmark = pytest.mark.django_db
 
 
-def test_admin_and_ta_see_every_channel_of_their_company(
+def test_admin_and_ta_see_every_channel_of_their_teams_jobs(
     company: Company, company_admin: User, company_ta: User
 ) -> None:
-    channel = ChannelFactory(job=JobFactory(company=company))
+    channel = ChannelFactory(job=JobFactory(company=company, created_by=company_ta))
     assert list(channels_visible_to(company_admin)) == [channel]
     assert list(channels_visible_to(company_ta)) == [channel]
 
 
-def test_hiring_manager_only_sees_channels_of_granted_jobs(
-    company: Company, company_hm: User
+def test_hiring_manager_only_sees_channels_of_their_teams_jobs(
+    company: Company, company_hm: User, company_ta: User
 ) -> None:
-    mine = JobFactory(company=company, created_by=company_hm)
-    grant_creator_perms(mine, company_hm)
-    granted = ChannelFactory(job=mine)
-    hidden = ChannelFactory(job=JobFactory(company=company))
-    assert list(channels_visible_to(company_hm)) == [granted]
-    assert can_access_channel(company_hm, granted)
+    ours = ChannelFactory(job=JobFactory(company=company, team=company_hm.membership.team))
+    hidden = ChannelFactory(job=JobFactory(company=company, created_by=company_ta))
+    assert list(channels_visible_to(company_hm)) == [ours]
+    assert can_access_channel(company_hm, ours)
     assert not can_access_channel(company_hm, hidden)
 
 
@@ -63,7 +60,9 @@ def test_audience_is_every_member_who_may_view_the_job_plus_the_recruiter(
     recruiter_user: User,
     recruiter_profile: RecruiterProfile,
 ) -> None:
-    channel = ChannelFactory(job=JobFactory(company=company), recruiter=recruiter_profile)
+    channel = ChannelFactory(
+        job=JobFactory(company=company, created_by=company_ta), recruiter=recruiter_profile
+    )
     audience = set(channel_audience(channel))
     assert audience == {company_admin, company_ta, recruiter_user}
     assert company_hm not in audience
@@ -72,7 +71,9 @@ def test_audience_is_every_member_who_may_view_the_job_plus_the_recruiter(
 def test_unread_counts_messages_from_the_other_side_only(
     company: Company, company_ta: User, recruiter_profile: RecruiterProfile
 ) -> None:
-    channel = ChannelFactory(job=JobFactory(company=company), recruiter=recruiter_profile)
+    channel = ChannelFactory(
+        job=JobFactory(company=company, created_by=company_ta), recruiter=recruiter_profile
+    )
     MessageFactory(channel=channel, author=recruiter_profile.user)
     MessageFactory(channel=channel, author=recruiter_profile.user)
     MessageFactory(channel=channel, author=company_ta)
@@ -84,7 +85,9 @@ def test_unread_counts_messages_from_the_other_side_only(
 def test_unread_is_zero_after_marking_read(
     company: Company, company_ta: User, recruiter_profile: RecruiterProfile
 ) -> None:
-    channel = ChannelFactory(job=JobFactory(company=company), recruiter=recruiter_profile)
+    channel = ChannelFactory(
+        job=JobFactory(company=company, created_by=company_ta), recruiter=recruiter_profile
+    )
     MessageFactory(channel=channel, author=recruiter_profile.user)
     channel.refresh_from_db()
     ChannelRead.objects.create(

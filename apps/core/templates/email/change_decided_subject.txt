@@ -1,0 +1,1 @@
+Your proposal on {{ job_title }} was {{ decision }}

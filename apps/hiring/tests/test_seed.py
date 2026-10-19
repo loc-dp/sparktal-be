@@ -23,7 +23,12 @@ def test_seed_adds_hiring_activity_to_the_backend_job() -> None:
     assert approval.application.candidate.full_name == "Lê Thu Trang"
     assert approval.requested_by is not None
     assert approval.requested_by.email == "maianh.tran@velapay.vn"
-    assert approval.approver.email == "huy.phan@velapay.vn"
+    assert approval.approver.email == "khoa.nguyen@velapay.vn"
+
+
+def test_the_seeded_approver_can_see_the_job() -> None:
+    call_command("seed_demo", force=True)
+    approval = ApprovalRequest.objects.get(status=ApprovalStatus.PENDING)
     assert can_view_job(approval.approver, approval.application.job)
 
 

@@ -40,8 +40,8 @@ def test_company_never_sees_how_to_reach_the_candidate(ta_client: Any, applicati
     assert not {"email", "phone", "dob", "id", "notes"} & set(candidate)
 
 
-@pytest.mark.parametrize("who", ["company_admin", "granted_hm"])
-def test_admin_and_a_granted_hiring_manager_can_read(
+@pytest.mark.parametrize("who", ["company_admin", "team_hm"])
+def test_admin_and_a_hiring_manager_of_the_team_can_read(
     who: str, request: pytest.FixtureRequest, client_for: Any, application: Any
 ) -> None:
     user = request.getfixturevalue(who)

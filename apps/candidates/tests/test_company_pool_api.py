@@ -9,7 +9,6 @@ from apps.accounts.models import User
 from apps.candidates.models import Application, Stage
 from apps.candidates.tests.factories import ApplicationFactory, CandidateFactory
 from apps.companies.tests.factories import CompanyFactory
-from apps.jobs.access import grant_creator_perms
 from apps.jobs.models import Job
 from apps.jobs.tests.factories import JobFactory
 from apps.recruiters.models import RecruiterProfile
@@ -39,7 +38,7 @@ def ago(days: int) -> Any:
 def test_lists_each_candidate_once_with_every_job_they_reached(
     client_for: ClientFor, company_ta: User, job: Job, recruiter_profile: RecruiterProfile
 ) -> None:
-    second_job = JobFactory(company=job.company, title="Data Analyst")
+    second_job = JobFactory(company=job.company, team=job.team, title="Data Analyst")
     first = submit(job, recruiter_profile, "Nguyễn Thị Hằng", submitted_at=ago(3))
     submit(
         second_job,
@@ -98,7 +97,7 @@ def test_the_same_person_from_two_recruiters_is_one_entry(
     client_for: ClientFor, company_ta: User, job: Job, recruiter_profile: RecruiterProfile
 ) -> None:
     rival = RecruiterProfileFactory(nickname="Bluefin Search")
-    second_job = JobFactory(company=job.company)
+    second_job = JobFactory(company=job.company, team=job.team)
     original = submit(job, recruiter_profile, "Trần Minh Khoa", submitted_at=ago(5))
     submit(
         second_job,
@@ -130,7 +129,7 @@ def test_most_recently_submitted_comes_first(
 def test_search_stage_and_job_filters(
     client_for: ClientFor, company_ta: User, job: Job, recruiter_profile: RecruiterProfile
 ) -> None:
-    other_job = JobFactory(company=job.company)
+    other_job = JobFactory(company=job.company, team=job.team)
     submit(job, recruiter_profile, "Lê Văn An", stage=Stage.SCREEN)
     submit(other_job, recruiter_profile, "Phạm Thu Hà", stage=Stage.OFFER)
     client = client_for(company_ta)
@@ -154,16 +153,15 @@ def test_another_companys_candidates_never_show(
     assert client_for(company_ta).get(POOL).json()["count"] == 0
 
 
-def test_a_hiring_manager_sees_only_jobs_granted_to_them(
+def test_a_hiring_manager_sees_only_their_teams_jobs(
     client_for: ClientFor,
     company_hm: User,
     job: Job,
     recruiter_profile: RecruiterProfile,
 ) -> None:
-    granted = JobFactory(company=job.company)
-    grant_creator_perms(granted, company_hm)
+    ours = JobFactory(company=job.company, team=company_hm.membership.team)
     submit(job, recruiter_profile, "Hidden")
-    submit(granted, recruiter_profile, "Visible")
+    submit(ours, recruiter_profile, "Visible")
 
     names = [e["full_name"] for e in client_for(company_hm).get(POOL).json()["results"]]
 

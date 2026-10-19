@@ -28,13 +28,16 @@ def test_other_companies_and_recruiters_have_no_access(
     assert not AnonymousUser().has_perm("companies.view_company", company)
 
 
-def test_every_member_may_add_jobs(
-    company_admin: User, company_ta: User, company_hm: User, recruiter_user: User
+def test_admin_and_ta_may_add_jobs(
+    company_admin: User, company_ta: User, recruiter_user: User
 ) -> None:
     assert company_admin.has_perm("jobs.add_job")
     assert company_ta.has_perm("jobs.add_job")
-    assert company_hm.has_perm("jobs.add_job")
     assert not recruiter_user.has_perm("jobs.add_job")
+
+
+def test_hiring_manager_cannot_add_job(company_hm: User) -> None:
+    assert not company_hm.has_perm("jobs.add_job")
 
 
 def test_access_helpers(company: Company, company_ta: User, recruiter_user: User) -> None:

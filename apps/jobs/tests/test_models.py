@@ -1,8 +1,19 @@
 import pytest
+from django.db import IntegrityError, transaction
 
+from apps.accounts.models import User
 from apps.companies.models import Company, Location
 from apps.companies.tests.factories import OfficeFactory
-from apps.jobs.models import BountyType, Job, JobStatus, PayBasis, WorkModel
+from apps.jobs.models import (
+    BountyType,
+    ChangeKind,
+    ChangeStatus,
+    Job,
+    JobChangeRequest,
+    JobStatus,
+    PayBasis,
+    WorkModel,
+)
 from apps.jobs.tests.factories import JobFactory
 
 pytestmark = pytest.mark.django_db
@@ -11,7 +22,7 @@ pytestmark = pytest.mark.django_db
 def test_defaults_match_the_create_form(company: Company) -> None:
     job = Job.objects.create(company=company, title="Head of Finance", function="finance")
 
-    assert job.status == JobStatus.PENDING
+    assert job.status == JobStatus.DRAFT
     assert job.pay_basis == PayBasis.GROSS
     assert job.work_model == WorkModel.ONSITE
     assert job.bounty_type == BountyType.PCT
@@ -33,25 +44,6 @@ def test_history_is_recorded(company: Company) -> None:
     assert job.history.count() == 2
 
 
-def test_publish_and_close_transitions(company: Company) -> None:
-    job = JobFactory(company=company, status=JobStatus.PENDING, published_at=None)
-
-    job.publish()
-
-    assert job.status == JobStatus.ACTIVE
-    assert job.published_at is not None
-
-    job.close()
-
-    assert job.status == JobStatus.CLOSED
-    assert job.closed_at is not None
-
-    job.reopen()
-
-    assert job.status == JobStatus.ACTIVE
-    assert job.closed_at is None
-
-
 def test_location_label(company: Company) -> None:
     remote = JobFactory(company=company, work_model=WorkModel.REMOTE, office=None)
     onsite = JobFactory(
@@ -67,3 +59,26 @@ def test_a_job_abroad_is_labelled_by_its_office_place(company: Company) -> None:
     job = JobFactory(company=company, work_model=WorkModel.HYBRID, office=office)
 
     assert job.location_label == "Singapore"
+
+
+def test_new_job_defaults_to_draft(company: Company) -> None:
+    job = Job.objects.create(company=company, title="Head of Finance")
+
+    assert job.status == "draft"
+
+
+def test_draft_may_omit_jd_body(company: Company) -> None:
+    job = Job(company=company, title="Head of Finance", function="finance")
+
+    job.full_clean(exclude=["share_token", "created_by"])
+
+
+def test_one_pending_change_request_per_requester(job: Job, company_ta: User) -> None:
+    JobChangeRequest.objects.create(job=job, requested_by=company_ta, kind=ChangeKind.CLOSE)
+
+    with pytest.raises(IntegrityError), transaction.atomic():
+        JobChangeRequest.objects.create(job=job, requested_by=company_ta, kind=ChangeKind.EDIT)
+
+    JobChangeRequest.objects.update(status=ChangeStatus.REJECTED)
+    JobChangeRequest.objects.create(job=job, requested_by=company_ta, kind=ChangeKind.EDIT)
+    assert job.change_requests.filter(status=ChangeStatus.PENDING).count() == 1

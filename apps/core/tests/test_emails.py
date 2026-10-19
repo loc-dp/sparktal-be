@@ -76,3 +76,15 @@ def test_build_email_attaches_html_and_text_bodies() -> None:
     assert message.to == ["r@example.com"]
     assert "No <b>track</b> record." in message.body
     assert "No &lt;b&gt;track&lt;/b&gt; record." in html_of(message)
+
+
+def test_subject_is_plain_text_while_the_html_body_stays_escaped() -> None:
+    message = build_email(
+        "email/job_submitted",
+        "admin@orbit.vn",
+        {"job_title": "R&D <Lead>", "requester_name": "Linh", "job_url": "http://x/jobs/1/edit"},
+    )
+
+    assert message.subject == "R&D <Lead> is waiting for you to post"
+    assert "R&amp;D &lt;Lead&gt;" in html_of(message)
+    assert "R&D <Lead>" not in html_of(message)

@@ -6,12 +6,12 @@ from apps.jobs.models import Job, JobStatus
 pytestmark = pytest.mark.django_db
 
 
-def test_seed_creates_the_six_vela_pay_jobs() -> None:
+def test_seed_creates_the_nine_vela_pay_jobs() -> None:
     call_command("seed_demo", "--force")
 
     jobs = Job.objects.filter(company__name="Vela Pay")
-    assert jobs.count() == 6
-    assert jobs.filter(status=JobStatus.ACTIVE).count() == 4
+    assert jobs.count() == 9
+    assert jobs.filter(status=JobStatus.ACTIVE).count() == 5
     assert jobs.filter(status=JobStatus.PENDING).count() == 1
     assert jobs.filter(status=JobStatus.CLOSED).count() == 1
 
@@ -38,7 +38,7 @@ def test_seed_removes_jobs_that_are_not_part_of_the_demo() -> None:
     call_command("seed_demo", "--reset", "--force")
 
     assert not Job.objects.filter(title="Left over from an E2E run").exists()
-    assert Job.objects.filter(company__name="Vela Pay").count() == 6
+    assert Job.objects.filter(company__name="Vela Pay").count() == 9
 
 
 def test_seed_clears_edits_made_through_the_ui() -> None:

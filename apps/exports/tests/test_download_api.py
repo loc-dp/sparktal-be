@@ -11,8 +11,8 @@ from apps.candidates.tests.factories import ApplicationFactory
 from apps.exports.models import CvExport, CvExportStatus
 from apps.exports.tasks import MANIFEST_NAME, build_cv_export
 from apps.exports.tests.factories import CvExportFactory
-from apps.jobs.access import grant_creator_perms
 from apps.jobs.models import Job
+from apps.jobs.tests.factories import join_job_team
 
 pytestmark = pytest.mark.django_db
 
@@ -119,7 +119,7 @@ def test_permission_matrix(
     assert client_for(company_admin).get(download_url).status_code == 200
     assert client_for(company_hm).get(status_url).status_code == 404
     assert client_for(company_hm).get(download_url).status_code == 404
-    grant_creator_perms(job, company_hm)
+    join_job_team(company_hm, job)
     assert client_for(company_hm).get(status_url).status_code == 200
     assert client_for(other_company_admin).get(status_url).status_code == 404
     assert client_for(other_company_admin).get(download_url).status_code == 404

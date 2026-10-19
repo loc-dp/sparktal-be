@@ -2,12 +2,12 @@ from collections.abc import Callable
 from typing import cast
 
 import pytest
-from guardian.shortcuts import assign_perm
 from rest_framework.test import APIClient
 
 from apps.accounts.models import User
 from apps.candidates.models import Application, Stage
 from apps.candidates.tests.factories import ApplicationFactory, CandidateFactory
+from apps.companies.tests.factories import TeamFactory
 from apps.jobs.models import Job
 from apps.recruiters.models import RecruiterProfile
 
@@ -55,7 +55,17 @@ def admin_client(company_admin: User, client_for: Callable[[User], APIClient]) -
     return client_for(company_admin)
 
 
+def move_to_another_team(member: User) -> None:
+    """The member leaves the job's team, and with it every job of that team."""
+    membership = member.membership
+    membership.team = TeamFactory(company=membership.company)
+    membership.save(update_fields=["team"])
+
+
 @pytest.fixture
-def granted_hm(company_hm: User, job: Job) -> User:
-    assign_perm("jobs.view_job", company_hm, job)
+def team_hm(company_hm: User, job: Job) -> User:
+    """A Hiring Manager in the job's team, so they see the job and its candidates."""
+    membership = company_hm.membership
+    membership.team = job.team
+    membership.save(update_fields=["team"])
     return company_hm

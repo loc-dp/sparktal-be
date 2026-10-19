@@ -1,0 +1,13 @@
+{% extends "email/base.html" %}
+{% block title %}Your proposal on {{ job_title }} was {{ decision }}{% endblock %}
+{% block preheader %}Your proposal ({{ kind_label }}) was {{ decision }}.{% endblock %}
+{% block eyebrow %}Change proposal{% endblock %}
+{% block headline %}Your proposal was {{ decision }}.{% endblock %}
+{% block lead %}On {{ job_title }}: {{ kind_label }}.{% endblock %}
+{% block action %}{% include "email/_button.html" with url=job_url label="See the job" %}{% endblock %}
+{% block details %}
+{% if note %}<p style="margin:0;color:#52525B;">Note from your admin: <strong style="color:#0B0B0F;font-weight:600;">{{ note }}</strong></p>{% endif %}
+{% endblock %}
+{% block footnote %}
+<p style="margin:24px 0 0 0;padding-top:20px;border-top:1px solid #E4E4E7;font-size:12px;line-height:1.6;color:#6B6B76;">The button not working? Paste this address into your browser:<br><a href="{{ job_url }}" style="color:#52525B;word-break:break-all;">{{ job_url }}</a></p>
+{% endblock %}

@@ -13,6 +13,7 @@ from apps.companies.models import (
     Location,
     Office,
     SizeRange,
+    Team,
 )
 
 
@@ -41,6 +42,14 @@ class OfficeFactory(DjangoModelFactory[Office]):
     position = factory.Sequence(lambda n: n)
 
 
+class TeamFactory(DjangoModelFactory[Team]):
+    class Meta:
+        model = Team
+
+    company = factory.SubFactory(CompanyFactory)
+    name = factory.Sequence(lambda n: f"Team {n}")
+
+
 class CompanyMembershipFactory(DjangoModelFactory[CompanyMembership]):
     class Meta:
         model = CompanyMembership
@@ -48,3 +57,9 @@ class CompanyMembershipFactory(DjangoModelFactory[CompanyMembership]):
     user = factory.SubFactory(UserFactory)
     company = factory.SubFactory(CompanyFactory)
     role = CompanyRole.ADMIN
+    # HM/TA must belong to a team; an admin never does.
+    team = factory.Maybe(
+        factory.LazyAttribute(lambda m: m.role != CompanyRole.ADMIN),
+        yes_declaration=factory.SubFactory(TeamFactory, company=factory.SelfAttribute("..company")),
+        no_declaration=None,
+    )

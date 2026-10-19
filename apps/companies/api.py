@@ -5,7 +5,7 @@ from uuid import UUID
 
 from django.core.files.uploadedfile import UploadedFile
 from django.db import transaction
-from django.db.models import QuerySet
+from django.db.models import Count, Q, QuerySet
 from drf_spectacular.utils import extend_schema, extend_schema_view
 from PIL import Image, UnidentifiedImageError
 from rest_framework.exceptions import APIException, NotFound, PermissionDenied, ValidationError
@@ -16,19 +16,24 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.accounts.invites import InviteError, send_password_invite
-from apps.companies.access import company_of
+from apps.accounts.models import User
+from apps.companies.access import company_of, membership_of
 from apps.companies.home import home_payload
-from apps.companies.members import MemberRuleError, change_role, invite_member, remove_member
-from apps.companies.models import Company, CompanyMembership
+from apps.companies.members import MemberRuleError, invite_member, remove_member, update_member
+from apps.companies.models import Company, CompanyMembership, CompanyRole, Team
 from apps.companies.serializers import (
     CompanyCompleteSerializer,
     CompanyHomeSerializer,
     CompanySerializer,
     ImageUploadSerializer,
     MemberInviteSerializer,
-    MemberRoleSerializer,
     MemberSerializer,
+    MemberUpdateSerializer,
+    TeamSerializer,
+    TeamWriteSerializer,
 )
+from apps.companies.teams import create_team, delete_team, rename_team, resolve_team
+from apps.jobs.access import jobs_visible_to
 
 UPLOAD_REQUEST = {
     "multipart/form-data": {
@@ -190,6 +195,20 @@ class InviteEmailFailed(APIException):
     default_code = "invite_email_failed"
 
 
+def members_visible_to(request: Request) -> QuerySet[CompanyMembership]:
+    """An admin sees everyone in the company; anyone else only their own team."""
+    company = get_company_or_404(request)
+    queryset = CompanyMembership.objects.filter(company=company)
+    membership = membership_of(request.user)  # type: ignore[arg-type]
+    if membership is None:
+        return queryset.none()
+    if membership.role == CompanyRole.ADMIN:
+        return queryset
+    if membership.team_id is None:
+        return queryset.none()
+    return queryset.filter(team_id=membership.team_id)
+
+
 def require_manage_members(request: Request, company: Company) -> None:
     if not request.user.has_perm("companies.manage_members", company):
         raise PermissionDenied("Only a Company Admin can manage the team.")
@@ -213,30 +232,40 @@ class MemberListCreateView(ListCreateAPIView[CompanyMembership]):
     pagination_class = None
 
     def get_queryset(self) -> QuerySet[CompanyMembership]:
-        company = get_company_or_404(self.request)
-        return CompanyMembership.objects.filter(company=company).select_related("user")
+        return members_visible_to(self.request).select_related("user", "team")
 
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         company = get_company_or_404(request)
         require_manage_members(request, company)
         payload = MemberInviteSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
+        data = payload.validated_data
         with transaction.atomic():
-            membership = invite_member(company, **payload.validated_data)
+            team = None
+            if data["role"] != CompanyRole.ADMIN:
+                team = resolve_team(
+                    company, team_id=data.get("team"), new_team_name=data.get("new_team_name")
+                )
+            membership = invite_member(
+                company,
+                email=data["email"],
+                full_name=data["full_name"],
+                role=data["role"],
+                team=team,
+                can_publish=data["can_publish"],
+            )
             try:
                 send_password_invite(membership.user.email, **invite_details(membership, request))
             except InviteError as exc:
                 raise InviteEmailFailed() from exc
-        data = MemberSerializer(membership, context=self.get_serializer_context()).data
-        return Response(data, status=201)
+        body = MemberSerializer(membership, context=self.get_serializer_context()).data
+        return Response(body, status=201)
 
 
 def member_or_404(request: Request, member_id: UUID) -> CompanyMembership:
-    company = get_company_or_404(request)
+    """404 for another team's member too, so nobody can probe outside their team."""
     membership = (
-        CompanyMembership.objects.filter(company=company, pk=member_id)
-        .select_related("user", "company")
-        .first()
+        members_visible_to(request).filter(pk=member_id).select_related("user", "company").first()
     )
     if membership is None:
         raise NotFound("No such team member.")
@@ -247,7 +276,7 @@ def member_or_404(request: Request, member_id: UUID) -> CompanyMembership:
     patch=extend_schema(
         operation_id="company_member_partial_update",
         tags=["companies"],
-        request=MemberRoleSerializer,
+        request=MemberUpdateSerializer,
         responses=MemberSerializer,
     ),
     delete=extend_schema(
@@ -258,9 +287,24 @@ class MemberDetailView(APIView):
     def patch(self, request: Request, id: UUID) -> Response:
         membership = member_or_404(request, id)
         require_manage_members(request, membership.company)
-        payload = MemberRoleSerializer(data=request.data)
+        payload = MemberUpdateSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
-        change_role(membership, payload.validated_data["role"])
+        data = payload.validated_data
+        changes: dict[str, Any] = {}
+        if "role" in data:
+            changes["role"] = data["role"]
+        if "can_publish" in data:
+            changes["can_publish"] = data["can_publish"]
+        target_role = data.get("role", membership.role)
+        with transaction.atomic():
+            if target_role != CompanyRole.ADMIN and ("team" in data or "new_team_name" in data):
+                changes["team"] = resolve_team(
+                    membership.company,
+                    team_id=data.get("team"),
+                    new_team_name=data.get("new_team_name"),
+                )
+            update_member(membership, **changes)
+        membership = member_or_404(request, id)
         return Response(MemberSerializer(membership, context={"request": request}).data)
 
     def delete(self, request: Request, id: UUID) -> Response:
@@ -288,4 +332,87 @@ class MemberResendInviteView(APIView):
             send_password_invite(membership.user.email, **invite_details(membership, request))
         except InviteError as exc:
             raise InviteEmailFailed() from exc
+        return Response(status=204)
+
+
+def team_queryset(company: Company, viewer: User) -> QuerySet[Team]:
+    """Teams with their headcount and the number of their jobs the viewer can see."""
+    return Team.objects.filter(company=company).annotate(
+        member_count=Count("memberships", distinct=True),
+        job_count=Count("jobs", filter=Q(jobs__in=jobs_visible_to(viewer)), distinct=True),
+    )
+
+
+def team_or_404(request: Request, team_id: UUID) -> Team:
+    company = get_company_or_404(request)
+    team = team_queryset(company, request.user).filter(pk=team_id).first()  # type: ignore[arg-type]
+    if team is None:
+        raise NotFound("No such team.")
+    return team
+
+
+@extend_schema_view(
+    get=extend_schema(
+        operation_id="company_teams_list",
+        tags=["companies"],
+        responses=TeamSerializer(many=True),
+    ),
+    post=extend_schema(
+        operation_id="company_teams_create",
+        tags=["companies"],
+        request=TeamWriteSerializer,
+        responses={201: TeamSerializer},
+    ),
+)
+class TeamListCreateView(ListCreateAPIView[Team]):
+    serializer_class = TeamSerializer
+    pagination_class = None
+
+    def get_queryset(self) -> QuerySet[Team]:
+        company = get_company_or_404(self.request)
+        queryset = team_queryset(company, self.request.user)  # type: ignore[arg-type]
+        membership = membership_of(self.request.user)  # type: ignore[arg-type]
+        if membership is None:
+            raise NotFound("You are not a member of a company.")
+        if membership.role == CompanyRole.ADMIN:
+            return queryset
+        if membership.team_id is None:
+            return queryset.none()
+        return queryset.filter(pk=membership.team_id)
+
+    def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        company = get_company_or_404(request)
+        require_manage_members(request, company)
+        payload = TeamWriteSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        team = create_team(company, payload.validated_data["name"])
+        fresh = team_queryset(company, request.user).get(pk=team.pk)  # type: ignore[arg-type]
+        return Response(TeamSerializer(fresh).data, status=201)
+
+
+@extend_schema_view(
+    patch=extend_schema(
+        operation_id="company_team_partial_update",
+        tags=["companies"],
+        request=TeamWriteSerializer,
+        responses=TeamSerializer,
+    ),
+    delete=extend_schema(
+        operation_id="company_team_destroy", tags=["companies"], responses={204: None}
+    ),
+)
+class TeamDetailView(APIView):
+    def patch(self, request: Request, id: UUID) -> Response:
+        team = team_or_404(request, id)
+        require_manage_members(request, team.company)
+        payload = TeamWriteSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        rename_team(team, payload.validated_data["name"])
+        fresh = team_queryset(team.company, request.user).get(pk=team.pk)  # type: ignore[arg-type]
+        return Response(TeamSerializer(fresh).data)
+
+    def delete(self, request: Request, id: UUID) -> Response:
+        team = team_or_404(request, id)
+        require_manage_members(request, team.company)
+        delete_team(team)
         return Response(status=204)

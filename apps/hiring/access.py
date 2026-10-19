@@ -9,7 +9,7 @@ from apps.candidates.models import Application
 from apps.jobs.access import can_view_job
 from apps.recruiters.access import approved_recruiter
 
-DETAIL_HINTS = ("job", "job__company", "candidate", "recruiter", "duplicate_of")
+DETAIL_HINTS = ("job", "job__company", "candidate", "recruiter", "duplicate_of__job")
 
 
 def _application_or_404(pk: UUID) -> Application:

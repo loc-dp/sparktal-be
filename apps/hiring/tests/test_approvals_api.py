@@ -2,14 +2,13 @@ from typing import Any
 from unittest.mock import ANY
 
 import pytest
-from guardian.shortcuts import remove_perm
 
 from apps.accounts.models import User
 from apps.candidates.models import Stage
 from apps.companies.models import CompanyRole
 from apps.companies.tests.factories import CompanyMembershipFactory
 from apps.hiring.models import ApprovalRequest, ApprovalStatus
-from apps.hiring.tests.conftest import at_stage
+from apps.hiring.tests.conftest import at_stage, move_to_another_team
 
 pytestmark = pytest.mark.django_db
 
@@ -37,11 +36,11 @@ def decide(client: Any, approval_id: str, approve: bool, note: str = "") -> Any:
 
 
 def test_approvers_are_teammates_who_can_see_the_job(
-    ta_client: Any, application: Any, company: Any, company_admin: Any, granted_hm: Any
+    ta_client: Any, application: Any, company: Any, company_admin: Any, team_hm: Any
 ) -> None:
     CompanyMembershipFactory(company=company, role=CompanyRole.HIRING_MANAGER)
     rows = ta_client.get(f"/api/v1/applications/{application.pk}/approvers").json()
-    assert {row["id"] for row in rows} == {str(company_admin.pk), str(granted_hm.pk)}
+    assert {row["id"] for row in rows} == {str(company_admin.pk), str(team_hm.pk)}
     assert {row["role"] for row in rows} == {"admin", "hiring_manager"}
 
 
@@ -111,11 +110,11 @@ def test_only_the_approver_decides(
     client_for: Any,
     application: Any,
     company_admin: Any,
-    granted_hm: Any,
+    team_hm: Any,
     other_company_admin: Any,
 ) -> None:
     approval_id = ask(ta_client, application, company_admin).json()["pending_approval"]["id"]
-    teammate = decide(client_for(granted_hm), approval_id, True)
+    teammate = decide(client_for(team_hm), approval_id, True)
     assert teammate.status_code == 403
     assert (
         teammate.json()["detail"] == f"Only {company_admin.full_name} can decide on this request."
@@ -132,13 +131,13 @@ def test_deciding_twice_is_409(
 
 
 def test_approver_who_lost_access_cannot_decide(
-    ta_client: Any, client_for: Any, application: Any, granted_hm: Any, job: Any
+    ta_client: Any, client_for: Any, application: Any, team_hm: Any
 ) -> None:
-    approval_id = ask(ta_client, application, granted_hm).json()["pending_approval"]["id"]
-    remove_perm("jobs.view_job", granted_hm, job)
-    assert decide(client_for(granted_hm), approval_id, True).status_code == 404
+    approval_id = ask(ta_client, application, team_hm).json()["pending_approval"]["id"]
+    move_to_another_team(team_hm)
+    assert decide(client_for(team_hm), approval_id, True).status_code == 404
     rows = ta_client.get(f"/api/v1/applications/{application.pk}/approvers").json()
-    assert str(granted_hm.pk) not in {row["id"] for row in rows}
+    assert str(team_hm.pk) not in {row["id"] for row in rows}
 
 
 def test_waiting_list_shows_requests_for_me_only(
@@ -165,10 +164,10 @@ def test_moving_the_stage_cancels_the_request(
 
 
 def test_a_request_to_someone_who_lost_access_stops_blocking(
-    ta_client: Any, application: Any, company_admin: Any, granted_hm: Any, job: Any
+    ta_client: Any, application: Any, company_admin: Any, team_hm: Any
 ) -> None:
-    stuck = ask(ta_client, application, granted_hm).json()["pending_approval"]["id"]
-    remove_perm("jobs.view_job", granted_hm, job)
+    stuck = ask(ta_client, application, team_hm).json()["pending_approval"]["id"]
+    move_to_another_team(team_hm)
     body = detail(ta_client, application)
     assert body["pending_approval"] is None
     assert "request_approval" in body["actions"]
@@ -177,10 +176,10 @@ def test_a_request_to_someone_who_lost_access_stops_blocking(
 
 
 def test_a_request_to_a_deactivated_teammate_stops_blocking(
-    ta_client: Any, application: Any, granted_hm: Any
+    ta_client: Any, application: Any, team_hm: Any
 ) -> None:
-    ask(ta_client, application, granted_hm)
-    User.objects.filter(pk=granted_hm.pk).update(is_active=False)
+    ask(ta_client, application, team_hm)
+    User.objects.filter(pk=team_hm.pk).update(is_active=False)
     body = detail(ta_client, application)
     assert body["pending_approval"] is None
     assert "request_approval" in body["actions"]

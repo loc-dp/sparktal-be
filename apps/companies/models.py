@@ -2,6 +2,7 @@ import uuid
 
 from django.db import models
 from django.db.models import Q
+from django.db.models.functions import Lower
 from django.utils import timezone
 from simple_history.models import HistoricalRecords
 
@@ -148,15 +149,45 @@ class Office(models.Model):
         return self.place if self.city == Location.ABROAD else self.get_city_display()
 
 
+class Team(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name="teams")
+    name = models.CharField(max_length=60)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("name",)
+        constraints = (
+            models.UniqueConstraint(Lower("name"), "company", name="team_name_unique_per_company"),
+        )
+
+    def __str__(self) -> str:
+        return f"{self.name} ({self.company.name})"
+
+
 class CompanyMembership(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="membership")
     company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name="memberships")
     role = models.CharField(max_length=24, choices=CompanyRole.choices)
+    team = models.ForeignKey(
+        Team, on_delete=models.PROTECT, null=True, blank=True, related_name="memberships"
+    )
+    can_publish = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ("user__full_name",)
+        constraints = (
+            models.CheckConstraint(
+                condition=(
+                    Q(role=CompanyRole.ADMIN, team__isnull=True, can_publish=False)
+                    | Q(role=CompanyRole.HIRING_MANAGER, team__isnull=False, can_publish=False)
+                    | Q(role=CompanyRole.TALENT_ACQUISITION, team__isnull=False)
+                ),
+                name="membership_team_matches_role",
+            ),
+        )
 
     def __str__(self) -> str:
         return f"{self.user.email} @ {self.company.name} ({self.role})"

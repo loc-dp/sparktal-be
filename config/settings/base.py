@@ -256,6 +256,8 @@ SPECTACULAR_SETTINGS = {
         "VerdictEnum": "apps.hiring.models.Verdict.choices",
         "ApplicationActionEnum": "apps.hiring.workflow.Action.choices",
         "CvKindEnum": "apps.hiring.cv.CvKind.choices",
+        "ChangeKindEnum": "apps.jobs.models.ChangeKind.choices",
+        "ChangeStatusEnum": "apps.jobs.models.ChangeStatus.choices",
     },
     "SWAGGER_UI_DIST": "SIDECAR",
     "SWAGGER_UI_FAVICON_HREF": "SIDECAR",

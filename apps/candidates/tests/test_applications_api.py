@@ -6,9 +6,8 @@ from rest_framework.test import APIClient
 from apps.accounts.models import User
 from apps.candidates.models import Stage
 from apps.candidates.tests.factories import ApplicationFactory, CandidateFactory
-from apps.jobs.access import grant_creator_perms
 from apps.jobs.models import Job
-from apps.jobs.tests.factories import JobFactory
+from apps.jobs.tests.factories import JobFactory, join_job_team
 
 pytestmark = pytest.mark.django_db
 
@@ -131,7 +130,7 @@ def test_permission_matrix(
     assert client_for(company_admin).get(url(job)).status_code == 200
     assert client_for(company_ta).get(url(job)).status_code == 200
     assert client_for(company_hm).get(url(job)).status_code == 404
-    grant_creator_perms(job, company_hm)
+    join_job_team(company_hm, job)
     assert client_for(company_hm).get(url(job)).status_code == 200
     assert client_for(other_company_admin).get(url(job)).status_code == 404
     assert client_for(recruiter_user).get(url(job)).status_code == 404

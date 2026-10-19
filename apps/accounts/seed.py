@@ -6,6 +6,7 @@ DEMO_USERS: list[tuple[str, str, str]] = [
     ("maianh.tran@velapay.vn", "Trần Mai Anh", UserKind.COMPANY),
     ("khoa.nguyen@velapay.vn", "Nguyễn Minh Khoa", UserKind.COMPANY),
     ("huy.phan@velapay.vn", "Phan Đức Huy", UserKind.COMPANY),
+    ("thu.vo@velapay.vn", "Võ Hoài Thu", UserKind.COMPANY),
     ("northstar@example.com", "Võ Thanh Bình", UserKind.RECRUITER),
     ("bluefin@example.com", "Lý Hải Yến", UserKind.RECRUITER),
     ("atlas@example.com", "Hà Quang Minh", UserKind.RECRUITER),

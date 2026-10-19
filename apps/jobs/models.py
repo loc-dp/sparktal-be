@@ -5,20 +5,27 @@ from typing import Any
 from django.contrib.postgres.fields import ArrayField
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
+from django.db.models import Q
 from django.utils import timezone
 from simple_history.models import HistoricalRecords
 
 from apps.accounts.models import User
-from apps.companies.models import Company, Office
+from apps.companies.models import Company, Office, Team
 
 BOUNTY_PCT_MIN = 5
 BOUNTY_PCT_MAX = 30
 
 
 class JobStatus(models.TextChoices):
-    PENDING = "pending", "Pending"
+    DRAFT = "draft", "Draft"
+    SUBMITTED = "submitted", "Waiting for company admin"
+    PENDING = "pending", "Waiting for Sparktal"
     ACTIVE = "active", "Active"
     CLOSED = "closed", "Closed"
+
+
+# Jobs only their creator (and company admins) can see; recruiters never do.
+PRIVATE_STATUSES = (JobStatus.DRAFT, JobStatus.SUBMITTED)
 
 
 class JobFunction(models.TextChoices):
@@ -93,9 +100,10 @@ class Job(models.Model):
     function = models.CharField(
         max_length=16, choices=JobFunction.choices, default=JobFunction.OTHER
     )
-    why_we_need_you = models.TextField()
-    roles = models.TextField(help_text="One responsibility per line.")
-    qualifications = models.TextField(help_text="One must-have per line.")
+    # Blank allowed: a draft may be partial; submitting validates the full body.
+    why_we_need_you = models.TextField(blank=True)
+    roles = models.TextField(blank=True, help_text="One responsibility per line.")
+    qualifications = models.TextField(blank=True, help_text="One must-have per line.")
     nice_to_have = models.TextField(blank=True)
     benefits = models.TextField(blank=True)
 
@@ -141,7 +149,11 @@ class Job(models.Model):
     bounty_amount = models.DecimalField(max_digits=15, decimal_places=0, null=True, blank=True)
 
     skills = ArrayField(models.CharField(max_length=40), default=list, blank=True)
-    status = models.CharField(max_length=8, choices=JobStatus.choices, default=JobStatus.PENDING)
+    status = models.CharField(max_length=16, choices=JobStatus.choices, default=JobStatus.DRAFT)
+    team = models.ForeignKey(
+        Team, on_delete=models.PROTECT, null=True, blank=True, related_name="jobs"
+    )
+    deleted_at = models.DateTimeField(null=True, blank=True)
     note_for_recruiters = models.TextField(blank=True)
     share_token = models.CharField(
         max_length=32, unique=True, default=new_share_token, editable=False
@@ -166,22 +178,53 @@ class Job(models.Model):
             return "Remote (Vietnam)"
         return self.office.label if self.office else "—"
 
-    def publish(self) -> None:
-        self.status = JobStatus.ACTIVE
-        self.published_at = self.published_at or timezone.now()
-        self.closed_at = None
-        self.save(update_fields=["status", "published_at", "closed_at", "updated_at"])
 
-    def close(self) -> None:
-        self.status = JobStatus.CLOSED
-        self.closed_at = timezone.now()
-        self.save(update_fields=["status", "closed_at", "updated_at"])
+class ChangeKind(models.TextChoices):
+    EDIT = "edit", "Edit"
+    CLOSE = "close", "Close"
+    REOPEN = "reopen", "Reopen"
+    DELETE = "delete", "Delete"
 
-    def reopen(self) -> None:
-        self.status = JobStatus.ACTIVE
-        self.closed_at = None
-        self.published_at = self.published_at or timezone.now()
-        self.save(update_fields=["status", "closed_at", "published_at", "updated_at"])
+
+class ChangeStatus(models.TextChoices):
+    PENDING = "pending", "Pending"
+    APPROVED = "approved", "Approved"
+    REJECTED = "rejected", "Rejected"
+    WITHDRAWN = "withdrawn", "Withdrawn"
+
+
+class JobChangeRequest(models.Model):
+    """A member's proposal to change a job they may not change themselves."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    job = models.ForeignKey(Job, on_delete=models.CASCADE, related_name="change_requests")
+    requested_by = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="job_change_requests"
+    )
+    kind = models.CharField(max_length=8, choices=ChangeKind.choices)
+    changes = models.JSONField(default=dict, blank=True)
+    status = models.CharField(
+        max_length=16, choices=ChangeStatus.choices, default=ChangeStatus.PENDING
+    )
+    review_note = models.TextField(blank=True)
+    reviewed_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("-created_at",)
+        constraints = (
+            models.UniqueConstraint(
+                fields=("job", "requested_by"),
+                condition=Q(status="pending"),
+                name="one_pending_change_per_requester",
+            ),
+        )
+
+    def __str__(self) -> str:
+        return f"{self.kind} · {self.job.title} · {self.status}"
 
 
 class JobAssignment(models.Model):

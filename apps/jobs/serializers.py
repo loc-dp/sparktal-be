@@ -15,6 +15,7 @@ from apps.companies.access import company_of, membership_of
 from apps.companies.models import CompanyRole, Office, Team
 from apps.core.documents import validate_document
 from apps.jobs.access import NOT_YOURS, JobPermissions, job_permissions
+from apps.jobs.bounty import BountyReadFields
 from apps.jobs.functions import guess_function
 from apps.jobs.lifecycle import (
     BRIEF_REQUIRED_MESSAGES,
@@ -24,19 +25,18 @@ from apps.jobs.lifecycle import (
     submit_job,
 )
 from apps.jobs.models import (
-    BOUNTY_PCT_MAX,
-    BOUNTY_PCT_MIN,
     PRIVATE_STATUSES,
-    BountyType,
     ChangeKind,
     ChangeStatus,
     JdParse,
     Job,
     JobChangeRequest,
     JobFunction,
+    JobInvite,
     JobStatus,
     WorkModel,
 )
+from apps.jobs.notifications import notify_ops_job_edited
 
 MAX_SKILLS = 20
 
@@ -137,7 +137,6 @@ class JobIntent(models.TextChoices):
 
 class JobSerializer(serializers.ModelSerializer[Job]):
     location_label = serializers.CharField(read_only=True)
-    bounty_pct = serializers.IntegerField(required=False, allow_null=True)
     # Left out, the server picks it from the title and skills.
     function = serializers.ChoiceField(choices=JobFunction.choices, required=False)
     can_edit = serializers.SerializerMethodField()
@@ -169,9 +168,6 @@ class JobSerializer(serializers.ModelSerializer[Job]):
             "work_model",
             "office",
             "location_label",
-            "bounty_type",
-            "bounty_pct",
-            "bounty_amount",
             "skills",
             *BRIEF_FIELDS,
             "status",
@@ -300,25 +296,6 @@ class JobSerializer(serializers.ModelSerializer[Job]):
                 {"salary_max": ["Max salary must be at least the min"]}
             )
 
-        bounty_type = current("bounty_type", BountyType.PCT)
-        if bounty_type == BountyType.FIXED:
-            if not current("bounty_amount"):
-                raise serializers.ValidationError(
-                    {"bounty_amount": ["Enter the fixed bounty amount"]}
-                )
-            attrs["bounty_pct"] = None
-        else:
-            pct = current("bounty_pct", 15)
-            if pct is None or not BOUNTY_PCT_MIN <= int(pct) <= BOUNTY_PCT_MAX:
-                raise serializers.ValidationError(
-                    {
-                        "bounty_pct": [
-                            f"Bounty must be between {BOUNTY_PCT_MIN} and {BOUNTY_PCT_MAX}%"
-                        ]
-                    }
-                )
-            attrs["bounty_amount"] = None
-
         if current("work_model", WorkModel.ONSITE) == WorkModel.REMOTE:
             attrs["office"] = None
 
@@ -378,6 +355,10 @@ class JobSerializer(serializers.ModelSerializer[Job]):
                 job.change_requests.filter(status=ChangeStatus.PENDING).update(
                     status=ChangeStatus.WITHDRAWN
                 )
+            if changed and job.status == JobStatus.ACTIVE:
+                # Spec §5: a live edit takes effect at once, and Sparktal hears what changed.
+                edited = list(changed)
+                transaction.on_commit(lambda: notify_ops_job_edited(job, edited), robust=True)
             return self._apply_intent(job, intent)
 
     def _apply_intent(self, job: Job, intent: str) -> Job:
@@ -436,7 +417,6 @@ class JobListItemSerializer(serializers.ModelSerializer[Job]):
     days_to_onboard = serializers.IntegerField(read_only=True, allow_null=True)
     current_stage = serializers.SerializerMethodField()
     location_label = serializers.CharField(read_only=True)
-    bounty_label = serializers.SerializerMethodField()
     team_name = serializers.CharField(source="team.name", read_only=True, allow_null=True)
     # Proposals the viewer may see on this job: an admin all, a requester their own, others 0.
     pending_changes = serializers.IntegerField(read_only=True)
@@ -459,7 +439,6 @@ class JobListItemSerializer(serializers.ModelSerializer[Job]):
             "current_stage",
             "days_open",
             "days_to_onboard",
-            "bounty_label",
             "pending_changes",
         )
 
@@ -470,13 +449,6 @@ class JobListItemSerializer(serializers.ModelSerializer[Job]):
             return None
         stage: str = STAGE_ORDER[rank]
         return stage
-
-    @extend_schema_field(serializers.CharField())
-    def get_bounty_label(self, job: Job) -> str:
-        if job.bounty_type == BountyType.FIXED and job.bounty_amount:
-            grouped = f"{int(job.bounty_amount):,}".replace(",", ".")
-            return f"{grouped} ₫ fixed"
-        return f"{job.bounty_pct or 0}% of annual salary"
 
 
 class JobCountsSerializer(serializers.Serializer[dict[str, int]]):
@@ -525,7 +497,7 @@ class JobOverviewSerializer(serializers.Serializer[dict[str, object]]):
     note_for_recruiters = serializers.CharField(allow_blank=True)
 
 
-class MarketplaceJobListItemSerializer(serializers.ModelSerializer[Job]):
+class MarketplaceJobListItemSerializer(BountyReadFields, serializers.ModelSerializer[Job]):
     company = serializers.SerializerMethodField()
     location_label = serializers.CharField(read_only=True)
     joined = serializers.BooleanField(read_only=True)
@@ -565,8 +537,18 @@ class MarketplaceJobListItemSerializer(serializers.ModelSerializer[Job]):
         }
 
 
+class MarketplaceInviteSerializer(serializers.ModelSerializer[JobInvite]):
+    """The viewer's own invite on a job, enough to show Accept / Decline or what came of it."""
+
+    class Meta:
+        model = JobInvite
+        fields = ("id", "status")
+        read_only_fields = fields
+
+
 class MarketplaceJobSerializer(MarketplaceJobListItemSerializer):
     channel_id = serializers.SerializerMethodField()
+    invite = serializers.SerializerMethodField()
 
     class Meta:
         model = Job
@@ -579,7 +561,16 @@ class MarketplaceJobSerializer(MarketplaceJobListItemSerializer):
             *BRIEF_FIELDS,
             "note_for_recruiters",
             "channel_id",
+            "invite",
         )
+
+    @extend_schema_field(MarketplaceInviteSerializer(allow_null=True))
+    def get_invite(self, job: Job) -> dict[str, Any] | None:
+        recruiter = self.context.get("recruiter")
+        if recruiter is None:
+            return None
+        invite = JobInvite.objects.filter(job=job, recruiter=recruiter).only("id", "status").first()
+        return dict(MarketplaceInviteSerializer(invite).data) if invite else None
 
     @extend_schema_field(serializers.UUIDField(allow_null=True))
     def get_channel_id(self, job: Job) -> str | None:

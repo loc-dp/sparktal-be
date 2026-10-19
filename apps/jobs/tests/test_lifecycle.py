@@ -8,11 +8,9 @@ from rest_framework.exceptions import PermissionDenied, ValidationError
 
 from apps.candidates.models import Stage
 from apps.candidates.tests.factories import ApplicationFactory
-from apps.companies.models import Company
 from apps.jobs.access import NOT_YOURS
 from apps.jobs.lifecycle import (
     JobRuleError,
-    activate_job,
     close_job,
     delete_job,
     missing_for_posting,
@@ -22,9 +20,9 @@ from apps.jobs.lifecycle import (
     submit_job,
     withdraw_job,
 )
-from apps.jobs.models import Job, JobStatus
+from apps.jobs.models import InviteStatus, Job, JobStatus
 from apps.jobs.tests.conftest import TeamWorld
-from apps.jobs.tests.factories import JobFactory
+from apps.jobs.tests.factories import JobAssignmentFactory, JobFactory, JobInviteFactory
 
 pytestmark = pytest.mark.django_db
 
@@ -184,23 +182,6 @@ def test_close_is_403_for_ta_without_publish_on_own_submitted_job(team_world: Te
     assert str(error.value.detail) == NOT_YOURS
 
 
-def test_activate_job_is_the_staff_stop_gap(company: Company) -> None:
-    job = JobFactory(company=company, status=JobStatus.PENDING, published_at=None)
-
-    activate_job(job)
-
-    job.refresh_from_db()
-    assert job.status == JobStatus.ACTIVE
-    assert job.published_at is not None
-
-
-def test_activate_job_only_takes_pending(company: Company) -> None:
-    job = JobFactory(company=company, status=JobStatus.CLOSED)
-
-    with pytest.raises(JobRuleError):
-        activate_job(job)
-
-
 def test_delete_blocked_by_live_application(team_world: TeamWorld) -> None:
     job = team_world.job_a  # active, with a candidate at stage "new"
     close_job(job, actor=team_world.admin)
@@ -237,3 +218,69 @@ def test_closed_job_whose_candidates_are_done_can_be_deleted(team_world: TeamWor
 
     job.refresh_from_db()
     assert job.deleted_at is not None
+
+
+def test_post_marks_when_the_job_entered_the_queue(team_world: TeamWorld) -> None:
+    job = _complete(team_world, created_by=team_world.ta_publish, posted_at=None)
+
+    post_job(job, actor=team_world.ta_publish)
+
+    job.refresh_from_db()
+    assert job.posted_at is not None
+    assert job.published_at is None
+
+
+def test_close_cancels_pending_invites(team_world: TeamWorld) -> None:
+    job = team_world.job_a
+    pending = JobInviteFactory(job=job)
+    accepted = JobInviteFactory(job=job, status=InviteStatus.ACCEPTED)
+
+    close_job(job, actor=team_world.ta_publish)
+
+    pending.refresh_from_db()
+    accepted.refresh_from_db()
+    assert pending.status == InviteStatus.CANCELLED
+    assert accepted.status == InviteStatus.ACCEPTED
+
+
+@pytest.mark.parametrize("on_marketplace", [True, False])
+def test_reopen_keeps_marketplace_flag(team_world: TeamWorld, on_marketplace: bool) -> None:
+    job = team_world.job_a
+    Job.objects.filter(pk=job.pk).update(on_marketplace=on_marketplace)
+    assignment = JobAssignmentFactory(job=job)
+    close_job(job, actor=team_world.ta_publish)
+
+    reopen_job(job, actor=team_world.ta_publish)
+
+    job.refresh_from_db()
+    assert job.status == JobStatus.ACTIVE
+    assert job.on_marketplace is on_marketplace
+    assignment.refresh_from_db()
+    assert assignment.is_active
+
+
+def test_reopen_without_bounty_returns_to_queue(
+    team_world: TeamWorld,
+    mailoutbox: list[Any],
+    django_capture_on_commit_callbacks: Callable[..., Any],
+) -> None:
+    job = team_world.job_a
+    Job.objects.filter(pk=job.pk).update(on_marketplace=False)  # direct-only before it closed
+    assignment = JobAssignmentFactory(job=job)
+    accepted = JobInviteFactory(job=job, recruiter=assignment.recruiter, status="accepted")
+    close_job(job, actor=team_world.ta_publish)
+    Job.objects.filter(pk=job.pk).update(bounty_type=None, bounty_pct=None, bounty_amount=None)
+
+    with django_capture_on_commit_callbacks(execute=True):
+        reopen_job(job, actor=team_world.ta_publish)
+
+    job.refresh_from_db()
+    assert job.status == JobStatus.PENDING
+    assert job.closed_at is None
+    assert job.on_marketplace is False
+    assignment.refresh_from_db()
+    accepted.refresh_from_db()
+    assert assignment.is_active
+    assert accepted.status == InviteStatus.ACCEPTED
+    assert [message.to for message in mailoutbox] == [["ops@test.local"]]
+    assert mailoutbox[0].subject == "New job to distribute: Payments Backend Engineer · Orbit Pay"

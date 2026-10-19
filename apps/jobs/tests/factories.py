@@ -2,6 +2,7 @@ from datetime import UTC
 
 import factory
 from django.core.files.base import ContentFile
+from django.utils import timezone
 from factory.django import DjangoModelFactory
 
 from apps.accounts.models import User
@@ -10,10 +11,12 @@ from apps.companies.models import Team
 from apps.companies.tests.factories import CompanyFactory, OfficeFactory
 from apps.core.testing.pdf import make_pdf
 from apps.jobs.models import (
+    PRIVATE_STATUSES,
     BountyType,
     JdParse,
     Job,
     JobAssignment,
+    JobInvite,
     JobStatus,
     PayBasis,
     WorkModel,
@@ -47,7 +50,12 @@ class JobFactory(DjangoModelFactory[Job]):
     bounty_pct = 18
     skills = factory.List(["Go", "PostgreSQL"])
     status = JobStatus.ACTIVE
+    on_marketplace = True
     published_at = factory.Faker("date_time_this_year", tzinfo=UTC)
+    # Posted when it went live, unless it is still with the company.
+    posted_at = factory.LazyAttribute(
+        lambda job: None if job.status in PRIVATE_STATUSES else job.published_at or timezone.now()
+    )
     office = factory.LazyAttribute(
         lambda job: job.company.offices.first() or OfficeFactory(company=job.company)
     )
@@ -63,6 +71,14 @@ def join_job_team(member: User, job: Job) -> None:
 class JobAssignmentFactory(DjangoModelFactory[JobAssignment]):
     class Meta:
         model = JobAssignment
+
+    job = factory.SubFactory(JobFactory)
+    recruiter = factory.SubFactory(RecruiterProfileFactory)
+
+
+class JobInviteFactory(DjangoModelFactory[JobInvite]):
+    class Meta:
+        model = JobInvite
 
     job = factory.SubFactory(JobFactory)
     recruiter = factory.SubFactory(RecruiterProfileFactory)

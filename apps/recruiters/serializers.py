@@ -10,7 +10,10 @@ from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from apps.accounts.models import User, UserKind
-from apps.jobs.models import Job, JobFunction
+from apps.jobs.bounty import JoinedBountyReadFields
+from apps.jobs.distribution import DECLINE_REASON_MAX
+from apps.jobs.models import Job, JobFunction, JobInvite
+from apps.jobs.serializers import MarketplaceJobListItemSerializer
 from apps.recruiters.models import RecruiterProfile
 
 NICKNAME_RE = re.compile(r"^(?!.*_)[\w &.\-]{3,60}$", re.UNICODE)
@@ -141,7 +144,7 @@ class NicknameCheckSerializer(serializers.Serializer[Any]):
     available = serializers.BooleanField()
 
 
-class RecruiterJobSerializer(serializers.ModelSerializer[Job]):
+class RecruiterJobSerializer(JoinedBountyReadFields, serializers.ModelSerializer[Job]):
     company = serializers.SerializerMethodField()
     location_label = serializers.CharField(read_only=True)
     submitted_count = serializers.IntegerField(read_only=True)
@@ -175,7 +178,7 @@ class RecruiterJobSerializer(serializers.ModelSerializer[Job]):
         return {"id": str(job.company_id), "name": job.company.name}
 
 
-class WaitingJobSerializer(serializers.Serializer[dict[str, Any]]):
+class WaitingJobSerializer(JoinedBountyReadFields):
     id = serializers.UUIDField()
     title = serializers.CharField()
     company_name = serializers.CharField()
@@ -183,9 +186,6 @@ class WaitingJobSerializer(serializers.Serializer[dict[str, Any]]):
     work_model = serializers.CharField()
     salary_min = serializers.DecimalField(max_digits=15, decimal_places=0, allow_null=True)
     salary_max = serializers.DecimalField(max_digits=15, decimal_places=0, allow_null=True)
-    bounty_type = serializers.CharField()
-    bounty_pct = serializers.IntegerField(allow_null=True)
-    bounty_amount = serializers.DecimalField(max_digits=15, decimal_places=0, allow_null=True)
     published_at = serializers.DateTimeField(allow_null=True)
 
 
@@ -197,4 +197,20 @@ class RecruiterOverviewSerializer(serializers.Serializer[dict[str, Any]]):
     cv_in_interviews = serializers.IntegerField()
     offer = serializers.IntegerField()
     marketplace_open_count = serializers.IntegerField()
+    pending_invites = serializers.IntegerField()
     waiting_jobs = WaitingJobSerializer(many=True)
+
+
+class RecruiterInviteSerializer(serializers.ModelSerializer[JobInvite]):
+    """An open invite: when it was sent and the job it offers, as the marketplace shows it."""
+
+    job = MarketplaceJobListItemSerializer(read_only=True)
+
+    class Meta:
+        model = JobInvite
+        fields = ("id", "created_at", "job")
+        read_only_fields = fields
+
+
+class DeclineInviteSerializer(serializers.Serializer[dict[str, Any]]):
+    reason = serializers.CharField(required=False, allow_blank=True, max_length=DECLINE_REASON_MAX)

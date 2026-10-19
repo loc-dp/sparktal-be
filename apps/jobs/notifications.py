@@ -1,12 +1,17 @@
 import logging
+from collections.abc import Sequence
+from decimal import Decimal
 
 from django.conf import settings
+from django.core.exceptions import FieldDoesNotExist
 from django.core.mail import EmailMultiAlternatives
+from django.urls import reverse
+from django.utils.text import capfirst
 
 from apps.accounts.models import User
 from apps.companies.models import CompanyMembership, CompanyRole
 from apps.core.emails import build_email
-from apps.jobs.models import ChangeKind, ChangeStatus, Job, JobChangeRequest
+from apps.jobs.models import BountyType, ChangeKind, ChangeStatus, Job, JobChangeRequest, JobInvite
 
 logger = logging.getLogger(__name__)
 
@@ -97,5 +102,78 @@ def notify_requester_change_decided(change: JobChangeRequest) -> None:
         message = build_email("email/change_decided", requester.email, context)
     except Exception:
         logger.exception("Could not prepare the change decided email for %s", change.pk)
+        return
+    send_safely(message)
+
+
+def ops_job_url(job: Job) -> str:
+    """Where Sparktal ops handle `job`: the Django Admin until part 3 brings `/a/jobs/{id}`."""
+    return f"{settings.BACKEND_URL}{reverse('admin:jobs_job_change', args=[job.pk])}"
+
+
+def _field_label(name: str) -> str:
+    """`salary_max` reads "Salary max", the model field's own name where there is one."""
+    try:
+        field = Job._meta.get_field(name)
+    except FieldDoesNotExist:
+        field = None
+    return str(capfirst(getattr(field, "verbose_name", None) or name.replace("_", " ")))
+
+
+def _notify_ops(template_prefix: str, job: Job, **context: object) -> None:
+    """Email SPARKTAL_OPS_EMAIL about `job`; any failure is logged, never raised."""
+    if not settings.SPARKTAL_OPS_EMAIL:
+        return
+    try:
+        message = build_email(
+            template_prefix,
+            settings.SPARKTAL_OPS_EMAIL,
+            {
+                "job_title": job.title,
+                "company_name": job.company.name,
+                "job_url": ops_job_url(job),
+                **context,
+            },
+        )
+    except Exception:
+        logger.exception("Could not build the %s email for job %s", template_prefix, job.pk)
+        return
+    send_safely(message)
+
+
+def notify_ops_job_queued(job: Job) -> None:
+    """Tell Sparktal a job waits for its bounty and channels (spec §10)."""
+    _notify_ops("email/ops_job_queued", job)
+
+
+def notify_ops_job_edited(job: Job, fields: Sequence[str]) -> None:
+    """Tell Sparktal the company changed a live job, naming the fields it changed."""
+    _notify_ops("email/ops_job_edited", job, fields=[_field_label(name) for name in fields])
+
+
+def _vnd(amount: Decimal) -> str:
+    """`120.000.000`, as the marketplace writes VND."""
+    return f"{int(amount):,}".replace(",", ".")
+
+
+def notify_recruiter_invited(invite: JobInvite) -> None:
+    """Tell a recruiter Sparktal offered them a job, with its bounty as the marketplace shows it."""
+    try:
+        job = invite.job
+        recruiter = invite.recruiter
+        context = {
+            "job_title": job.title,
+            "company_name": job.company.name,
+            "nickname": recruiter.nickname,
+            "bounty_type": job.bounty_type,
+            "bounty_pct": job.bounty_pct,
+            "bounty_amount": _vnd(job.bounty_amount)
+            if job.bounty_type == BountyType.FIXED and job.bounty_amount is not None
+            else None,
+            "job_url": f"{settings.FRONTEND_URL}/r/marketplace/{job.pk}",
+        }
+        message = build_email("email/recruiter_invited", recruiter.user.email, context)
+    except Exception:
+        logger.exception("Could not prepare the invite email for %s", invite.pk)
         return
     send_safely(message)

@@ -20,8 +20,16 @@ from apps.jobs.access import (
     can_view_job,
     job_permissions,
 )
-from apps.jobs.models import PRIVATE_STATUSES, ChangeStatus, Job, JobStatus, WorkModel
-from apps.jobs.notifications import notify_admins_job_submitted
+from apps.jobs.bounty import has_bounty
+from apps.jobs.models import (
+    PRIVATE_STATUSES,
+    ChangeStatus,
+    InviteStatus,
+    Job,
+    JobStatus,
+    WorkModel,
+)
+from apps.jobs.notifications import notify_admins_job_submitted, notify_ops_job_queued
 
 REQUIRED_MESSAGES = {
     "title": "Enter a job title",
@@ -118,7 +126,9 @@ def post_job(job: Job, *, actor: User) -> Job:
         raise PermissionDenied(NOT_YOURS)
     _require_complete(job)
     job.status = JobStatus.PENDING
-    job.save(update_fields=["status", "updated_at"])
+    job.posted_at = timezone.now()
+    job.save(update_fields=["status", "posted_at", "updated_at"])
+    transaction.on_commit(lambda: notify_ops_job_queued(job), robust=True)
     return job
 
 
@@ -128,32 +138,28 @@ def close_job(job: Job, *, actor: User) -> Job:
     job.status = JobStatus.CLOSED
     job.closed_at = timezone.now()
     job.save(update_fields=["status", "closed_at", "updated_at"])
+    # Recruiters already on it keep their place; an offer nobody took up is withdrawn.
+    job.invites.filter(status=InviteStatus.PENDING).update(status=InviteStatus.CANCELLED)
     return job
 
 
 @transaction.atomic
 def reopen_job(job: Job, *, actor: User) -> Job:
-    job = _locked(job, actor, lambda p: p.reopen)
-    job.status = JobStatus.ACTIVE
-    job.closed_at = None
-    job.published_at = job.published_at or timezone.now()
-    job.save(update_fields=["status", "closed_at", "published_at", "updated_at"])
-    return job
+    """Back on the channels it had, with its recruiters (spec §5).
 
-
-@transaction.atomic
-def activate_job(job: Job) -> Job:
-    """Stop-gap for the Django Admin: Sparktal staff approve a pending job (no actor check).
-
-    Part 2 replaces it with distribution to recruiters.
+    A job without a bounty (legacy data) goes back to the Sparktal queue instead.
     """
-    job = Job.objects.select_for_update().get(pk=job.pk)
-    if job.status != JobStatus.PENDING:
-        raise JobRuleError("Only a job waiting for Sparktal can be approved.")
-    job.status = JobStatus.ACTIVE
-    job.published_at = job.published_at or timezone.now()
+    job = _locked(job, actor, lambda p: p.reopen)
     job.closed_at = None
-    job.save(update_fields=["status", "published_at", "closed_at", "updated_at"])
+    if has_bounty(job):
+        job.status = JobStatus.ACTIVE
+        job.published_at = job.published_at or timezone.now()
+        job.save(update_fields=["status", "closed_at", "published_at", "updated_at"])
+        return job
+    job.status = JobStatus.PENDING
+    job.posted_at = job.posted_at or timezone.now()
+    job.save(update_fields=["status", "closed_at", "posted_at", "updated_at"])
+    transaction.on_commit(lambda: notify_ops_job_queued(job), robust=True)
     return job
 
 

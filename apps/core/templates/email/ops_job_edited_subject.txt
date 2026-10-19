@@ -1,0 +1,1 @@
+Live job edited: {{ job_title }} · {{ company_name }}

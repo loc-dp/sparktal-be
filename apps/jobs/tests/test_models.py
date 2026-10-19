@@ -5,7 +5,6 @@ from apps.accounts.models import User
 from apps.companies.models import Company, Location
 from apps.companies.tests.factories import OfficeFactory
 from apps.jobs.models import (
-    BountyType,
     ChangeKind,
     ChangeStatus,
     Job,
@@ -25,7 +24,7 @@ def test_defaults_match_the_create_form(company: Company) -> None:
     assert job.status == JobStatus.DRAFT
     assert job.pay_basis == PayBasis.GROSS
     assert job.work_model == WorkModel.ONSITE
-    assert job.bounty_type == BountyType.PCT
+    assert (job.bounty_type, job.bounty_pct, job.bounty_amount) == (None, None, None)
     assert len(job.share_token) >= 20
     assert job.published_at is None
 

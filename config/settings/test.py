@@ -27,6 +27,7 @@ CELERY_TASK_EAGER_PROPAGATES = True
 CELERY_BROKER_URL = "memory://"
 
 EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
+SPARKTAL_OPS_EMAIL = "ops@test.local"
 
 MIDDLEWARE = [m for m in MIDDLEWARE if m != "whitenoise.middleware.WhiteNoiseMiddleware"]
 

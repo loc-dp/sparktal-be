@@ -1,0 +1,6 @@
+{% extends "email/base.txt" %}{% block content %}
+"{{ job_title }}" from {{ company_name }} is waiting in the Sparktal queue.
+
+Set the bounty, then distribute it to the marketplace, to invited recruiters, or both:
+{{ job_url }}
+{% endblock %}

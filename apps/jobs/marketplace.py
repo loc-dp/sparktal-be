@@ -6,7 +6,8 @@ from django_filters import rest_framework as filters
 
 from apps.candidates.models import Stage
 from apps.companies.models import Location
-from apps.jobs.models import Job, JobAssignment, JobFunction, JobStatus, WorkModel
+from apps.jobs.access import live_jobs
+from apps.jobs.models import Job, JobAssignment, JobFunction, WorkModel
 
 if TYPE_CHECKING:
     from apps.recruiters.models import RecruiterProfile
@@ -18,10 +19,12 @@ class ArrayToString(Func):
 
 
 def marketplace_queryset(recruiter: "RecruiterProfile | None") -> QuerySet[Job]:
+    """The list and what Join takes: live jobs Sparktal put on the marketplace."""
     if recruiter is None:
         return Job.objects.none()
     return (
-        Job.objects.filter(status=JobStatus.ACTIVE)
+        live_jobs()
+        .filter(on_marketplace=True)
         .select_related("company", "office")
         .order_by("-published_at", "-created_at")
     )

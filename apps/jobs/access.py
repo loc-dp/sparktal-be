@@ -8,13 +8,21 @@ approvals, the company home and the counts.
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, ClassVar
 
-from django.db.models import Q, QuerySet
+from django.db.models import Exists, OuterRef, Q, QuerySet
 
 from apps.accounts.models import User
 from apps.candidates.models import Stage
 from apps.companies.access import membership_of
 from apps.companies.models import CompanyRole
-from apps.jobs.models import PRIVATE_STATUSES, Job, JobAssignment, JobStatus
+from apps.jobs.bounty import HAS_BOUNTY, has_bounty
+from apps.jobs.models import (
+    PRIVATE_STATUSES,
+    InviteStatus,
+    Job,
+    JobAssignment,
+    JobInvite,
+    JobStatus,
+)
 
 if TYPE_CHECKING:
     from apps.recruiters.models import RecruiterProfile
@@ -150,7 +158,29 @@ def can_change_job(user: User | None, job: Job) -> bool:
     return job_permissions(user, job).edit
 
 
+def live_jobs() -> QuerySet[Job]:
+    """What a headhunter can ever see: active, not deleted, and with a bounty set (spec §9)."""
+    return Job.objects.filter(HAS_BOUNTY, status=JobStatus.ACTIVE, deleted_at__isnull=True)
+
+
+def jobs_offered_to(recruiter: "RecruiterProfile | None") -> QuerySet[Job]:
+    """The live jobs `recruiter` may open: on the marketplace, invited to, or already on.
+
+    A subquery per channel rather than a join, so a job reachable twice is still one row.
+    """
+    if recruiter is None:
+        return Job.objects.none()
+    invited = JobInvite.objects.filter(
+        job=OuterRef("pk"), recruiter=recruiter, status=InviteStatus.PENDING
+    )
+    working = JobAssignment.objects.filter(
+        job=OuterRef("pk"), recruiter=recruiter, left_at__isnull=True
+    )
+    return live_jobs().filter(Q(on_marketplace=True) | Exists(invited) | Exists(working))
+
+
 def jobs_joined_by(recruiter: "RecruiterProfile | None") -> QuerySet[Job]:
+    """Every job `recruiter` is on, closed and deleted too, so their CVs and commission stay."""
     if recruiter is None:
         return Job.objects.none()
     return Job.objects.filter(
@@ -159,6 +189,12 @@ def jobs_joined_by(recruiter: "RecruiterProfile | None") -> QuerySet[Job]:
 
 
 def can_submit_to_job(recruiter: "RecruiterProfile | None", job: Job) -> bool:
-    if recruiter is None or job.status != JobStatus.ACTIVE:
+    """A live job the recruiter is on; the marketplace being off does not matter."""
+    if (
+        recruiter is None
+        or job.status != JobStatus.ACTIVE
+        or job.deleted_at is not None
+        or not has_bounty(job)
+    ):
         return False
     return JobAssignment.objects.filter(job=job, recruiter=recruiter, left_at__isnull=True).exists()

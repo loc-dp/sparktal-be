@@ -2300,6 +2300,71 @@ paths:
               schema:
                 $ref: '#/components/schemas/RecruiterProfile'
           description: ''
+  /api/v1/recruiters/me/invites:
+    get:
+      operationId: recruiters_invites_list
+      tags:
+      - recruiters
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RecruiterInvite'
+          description: ''
+  /api/v1/recruiters/me/invites/{id}/accept:
+    post:
+      operationId: recruiters_invites_accept_create
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - recruiters
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JoinResult'
+          description: ''
+  /api/v1/recruiters/me/invites/{id}/decline:
+    post:
+      operationId: recruiters_invites_decline_create
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - recruiters
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeclineInviteRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/DeclineInviteRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/DeclineInviteRequest'
+      security:
+      - cookieAuth: []
+      responses:
+        '204':
+          description: No response body
   /api/v1/recruiters/me/jobs:
     get:
       operationId: recruiters_jobs_list
@@ -3485,6 +3550,12 @@ components:
       - decided_at
       - id
       - reason
+    DeclineInviteRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+          maxLength: 500
     DetailJob:
       type: object
       properties:
@@ -3787,6 +3858,18 @@ components:
       description: |-
         * `in_person` - In person
         * `online` - Online
+    InviteStatusEnum:
+      enum:
+      - pending
+      - accepted
+      - declined
+      - cancelled
+      type: string
+      description: |-
+        * `pending` - Pending
+        * `accepted` - Accepted
+        * `declined` - Declined
+        * `cancelled` - Cancelled
     JdParse:
       type: object
       properties:
@@ -3888,16 +3971,6 @@ components:
         location_label:
           type: string
           readOnly: true
-        bounty_type:
-          $ref: '#/components/schemas/BountyTypeEnum'
-        bounty_pct:
-          type: integer
-          nullable: true
-        bounty_amount:
-          type: string
-          format: decimal
-          pattern: ^-?\d{0,15}(?:\.\d{0,0})?$
-          nullable: true
         skills:
           type: array
           items:
@@ -4077,14 +4150,10 @@ components:
           type: integer
           readOnly: true
           nullable: true
-        bounty_label:
-          type: string
-          readOnly: true
         pending_changes:
           type: integer
           readOnly: true
       required:
-      - bounty_label
       - created_at
       - current_stage
       - cv_count
@@ -4201,16 +4270,6 @@ components:
         office:
           type: string
           format: uuid
-          nullable: true
-        bounty_type:
-          $ref: '#/components/schemas/BountyTypeEnum'
-        bounty_pct:
-          type: integer
-          nullable: true
-        bounty_amount:
-          type: string
-          format: decimal
-          pattern: ^-?\d{0,15}(?:\.\d{0,0})?$
           nullable: true
         skills:
           type: array
@@ -4345,6 +4404,22 @@ components:
         * `bn` - Bac Ninh
         * `other` - Other province
         * `abroad` - Outside Vietnam
+    MarketplaceInvite:
+      type: object
+      description: The viewer's own invite on a job, enough to show Accept / Decline
+        or what came of it.
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/InviteStatusEnum'
+          readOnly: true
+      required:
+      - id
+      - status
     MarketplaceJob:
       type: object
       properties:
@@ -4380,16 +4455,20 @@ components:
         pay_basis:
           $ref: '#/components/schemas/PayBasisEnum'
         bounty_type:
-          $ref: '#/components/schemas/BountyTypeEnum'
+          allOf:
+          - $ref: '#/components/schemas/BountyTypeEnum'
+          readOnly: true
         bounty_pct:
           type: integer
           maximum: 30
           minimum: 5
+          readOnly: true
           nullable: true
         bounty_amount:
           type: string
           format: decimal
           pattern: ^-?\d{0,15}(?:\.\d{0,0})?$
+          readOnly: true
           nullable: true
         skills:
           type: array
@@ -4475,11 +4554,20 @@ components:
           format: uuid
           nullable: true
           readOnly: true
+        invite:
+          allOf:
+          - $ref: '#/components/schemas/MarketplaceInvite'
+          nullable: true
+          readOnly: true
       required:
+      - bounty_amount
+      - bounty_pct
+      - bounty_type
       - channel_id
       - company
       - created_at
       - id
+      - invite
       - joined
       - location_label
       - recruiters_working
@@ -4520,16 +4608,20 @@ components:
         pay_basis:
           $ref: '#/components/schemas/PayBasisEnum'
         bounty_type:
-          $ref: '#/components/schemas/BountyTypeEnum'
+          allOf:
+          - $ref: '#/components/schemas/BountyTypeEnum'
+          readOnly: true
         bounty_pct:
           type: integer
           maximum: 30
           minimum: 5
+          readOnly: true
           nullable: true
         bounty_amount:
           type: string
           format: decimal
           pattern: ^-?\d{0,15}(?:\.\d{0,0})?$
+          readOnly: true
           nullable: true
         skills:
           type: array
@@ -4556,6 +4648,9 @@ components:
           type: integer
           readOnly: true
       required:
+      - bounty_amount
+      - bounty_pct
+      - bounty_type
       - company
       - created_at
       - id
@@ -4878,6 +4973,9 @@ components:
           maxLength: 4000
       required:
       - body
+    NullEnum:
+      enum:
+      - null
     Office:
       type: object
       properties:
@@ -5256,16 +5354,6 @@ components:
           type: string
           format: uuid
           nullable: true
-        bounty_type:
-          $ref: '#/components/schemas/BountyTypeEnum'
-        bounty_pct:
-          type: integer
-          nullable: true
-        bounty_amount:
-          type: string
-          format: decimal
-          pattern: ^-?\d{0,15}(?:\.\d{0,0})?$
-          nullable: true
         skills:
           type: array
           items:
@@ -5541,6 +5629,27 @@ components:
       required:
       - last_read_at
       - unread_count
+    RecruiterInvite:
+      type: object
+      description: 'An open invite: when it was sent and the job it offers, as the
+        marketplace shows it.'
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        job:
+          allOf:
+          - $ref: '#/components/schemas/MarketplaceJobListItem'
+          readOnly: true
+      required:
+      - created_at
+      - id
+      - job
     RecruiterJob:
       type: object
       properties:
@@ -5576,16 +5685,22 @@ components:
           pattern: ^-?\d{0,15}(?:\.\d{0,0})?$
           nullable: true
         bounty_type:
-          $ref: '#/components/schemas/BountyTypeEnum'
+          readOnly: true
+          nullable: true
+          oneOf:
+          - $ref: '#/components/schemas/BountyTypeEnum'
+          - $ref: '#/components/schemas/NullEnum'
         bounty_pct:
           type: integer
           maximum: 30
           minimum: 5
+          readOnly: true
           nullable: true
         bounty_amount:
           type: string
           format: decimal
           pattern: ^-?\d{0,15}(?:\.\d{0,0})?$
+          readOnly: true
           nullable: true
         joined_at:
           type: string
@@ -5604,6 +5719,9 @@ components:
           nullable: true
       required:
       - active_count
+      - bounty_amount
+      - bounty_pct
+      - bounty_type
       - company
       - id
       - joined_at
@@ -5642,6 +5760,8 @@ components:
           type: integer
         marketplace_open_count:
           type: integer
+        pending_invites:
+          type: integer
         waiting_jobs:
           type: array
           items:
@@ -5654,6 +5774,7 @@ components:
       - jobs_waiting_for_cv
       - marketplace_open_count
       - offer
+      - pending_invites
       - waiting_jobs
     RecruiterProfile:
       type: object
@@ -6266,6 +6387,24 @@ components:
     WaitingJob:
       type: object
       properties:
+        bounty_type:
+          readOnly: true
+          nullable: true
+          oneOf:
+          - $ref: '#/components/schemas/BountyTypeEnum'
+          - $ref: '#/components/schemas/NullEnum'
+        bounty_pct:
+          type: integer
+          maximum: 30
+          minimum: 5
+          readOnly: true
+          nullable: true
+        bounty_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,15}(?:\.\d{0,0})?$
+          readOnly: true
+          nullable: true
         id:
           type: string
           format: uuid
@@ -6283,16 +6422,6 @@ components:
           pattern: ^-?\d{0,15}(?:\.\d{0,0})?$
           nullable: true
         salary_max:
-          type: string
-          format: decimal
-          pattern: ^-?\d{0,15}(?:\.\d{0,0})?$
-          nullable: true
-        bounty_type:
-          type: string
-        bounty_pct:
-          type: integer
-          nullable: true
-        bounty_amount:
           type: string
           format: decimal
           pattern: ^-?\d{0,15}(?:\.\d{0,0})?$

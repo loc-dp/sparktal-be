@@ -1,0 +1,8 @@
+{% extends "email/base.txt" %}{% block content %}
+{{ nickname }}, Sparktal picked you for "{{ job_title }}" at {{ company_name }}.
+
+Bounty: {% if bounty_type == "fixed" %}Fixed amount · {{ bounty_amount }} ₫{% else %}{{ bounty_pct }}% of annual salary{% endif %}
+
+Read the brief, then accept or decline the invite:
+{{ job_url }}
+{% endblock %}

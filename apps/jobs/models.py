@@ -12,9 +12,6 @@ from simple_history.models import HistoricalRecords
 from apps.accounts.models import User
 from apps.companies.models import Company, Office, Team
 
-BOUNTY_PCT_MIN = 5
-BOUNTY_PCT_MAX = 30
-
 
 class JobStatus(models.TextChoices):
     DRAFT = "draft", "Draft"
@@ -139,13 +136,11 @@ class Job(models.Model):
     )
     working_hours = models.CharField(max_length=24, choices=WorkingHours.choices, blank=True)
 
-    bounty_type = models.CharField(max_length=8, choices=BountyType.choices, default=BountyType.PCT)
-    bounty_pct = models.PositiveSmallIntegerField(
-        null=True,
-        blank=True,
-        default=15,
-        validators=[MinValueValidator(BOUNTY_PCT_MIN), MaxValueValidator(BOUNTY_PCT_MAX)],
+    # Sparktal's to set (spec §8): empty until it does, and `apps.jobs.bounty` is the one validator.
+    bounty_type = models.CharField(  # noqa: DJ001 - None is "no bounty yet", "" is not a type
+        max_length=8, choices=BountyType.choices, null=True, blank=True
     )
+    bounty_pct = models.PositiveSmallIntegerField(null=True, blank=True)
     bounty_amount = models.DecimalField(max_digits=15, decimal_places=0, null=True, blank=True)
 
     skills = ArrayField(models.CharField(max_length=40), default=list, blank=True)
@@ -159,8 +154,14 @@ class Job(models.Model):
         max_length=32, unique=True, default=new_share_token, editable=False
     )
 
+    # Sparktal's channel (spec §9); invited recruiters are `JobInvite` rows.
+    on_marketplace = models.BooleanField(default=False)
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    # When the company posted it, so it entered the Sparktal queue.
+    posted_at = models.DateTimeField(null=True, blank=True)
+    # When Sparktal distributed it, so it went live.
     published_at = models.DateTimeField(null=True, blank=True)
     closed_at = models.DateTimeField(null=True, blank=True)
 
@@ -248,6 +249,43 @@ class JobAssignment(models.Model):
     @property
     def is_active(self) -> bool:
         return self.left_at is None
+
+
+class InviteStatus(models.TextChoices):
+    PENDING = "pending", "Pending"
+    ACCEPTED = "accepted", "Accepted"
+    DECLINED = "declined", "Declined"
+    CANCELLED = "cancelled", "Cancelled"
+
+
+class JobInvite(models.Model):
+    """Sparktal offers a job straight to one recruiter (spec §9); see `apps.jobs.distribution`."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    job = models.ForeignKey(Job, on_delete=models.CASCADE, related_name="invites")
+    recruiter = models.ForeignKey(
+        "recruiters.RecruiterProfile", on_delete=models.CASCADE, related_name="job_invites"
+    )
+    status = models.CharField(
+        max_length=16, choices=InviteStatus.choices, default=InviteStatus.PENDING
+    )
+    decline_reason = models.TextField(blank=True)
+    invited_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    responded_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ("-created_at",)
+        constraints = (
+            models.UniqueConstraint(
+                fields=("job", "recruiter"), name="one_invite_per_recruiter_per_job"
+            ),
+        )
+
+    def __str__(self) -> str:
+        return f"{self.recruiter.nickname} · {self.job.title} · {self.status}"
 
 
 class JdParseStatus(models.TextChoices):

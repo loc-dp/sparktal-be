@@ -1,0 +1,8 @@
+{% extends "email/base.txt" %}{% block content %}
+{{ company_name }} edited "{{ job_title }}". The changes are already live for recruiters.
+
+Changed: {{ fields|join:", " }}
+
+See the job:
+{{ job_url }}
+{% endblock %}

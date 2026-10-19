@@ -202,6 +202,8 @@ CELERY_BEAT_SCHEDULE = {
 
 EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
 DEFAULT_FROM_EMAIL = env.str("DEFAULT_FROM_EMAIL", default="Sparktal <no-reply@sparktal.com>")
+# Sparktal ops: told when a posted job waits for distribution and when a live job is edited.
+SPARKTAL_OPS_EMAIL = env.str("SPARKTAL_OPS_EMAIL", default="long.mai@sparktal.com")
 
 # CV parsing with Claude. Both must be set; otherwise only the regex parser runs.
 ANTHROPIC_API_KEY = env.str("ANTHROPIC_API_KEY", default="")
@@ -213,6 +215,8 @@ JD_PARSE_MODEL = env.str("JD_PARSE_MODEL", default="")
 JD_PARSE_TIMEOUT_SECONDS = env.float("JD_PARSE_TIMEOUT_SECONDS", default=90.0)
 
 FRONTEND_URL = env.str("FRONTEND_URL", default="http://localhost:3000")
+# The API's own address: ops emails link to the job in its Django Admin.
+BACKEND_URL = env.str("BACKEND_URL", default="http://localhost:8001")
 
 HEADLESS_ONLY = True
 HEADLESS_FRONTEND_URLS = {
@@ -258,6 +262,8 @@ SPECTACULAR_SETTINGS = {
         "CvKindEnum": "apps.hiring.cv.CvKind.choices",
         "ChangeKindEnum": "apps.jobs.models.ChangeKind.choices",
         "ChangeStatusEnum": "apps.jobs.models.ChangeStatus.choices",
+        "InviteStatusEnum": "apps.jobs.models.InviteStatus.choices",
+        "BountyTypeEnum": "apps.jobs.models.BountyType.choices",
     },
     "SWAGGER_UI_DIST": "SIDECAR",
     "SWAGGER_UI_FAVICON_HREF": "SIDECAR",

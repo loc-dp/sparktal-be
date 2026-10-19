@@ -96,6 +96,7 @@ def test_reset_removes_teammates_left_behind_by_e2e() -> None:
 
 OLD_CATCH_ALL = "Team chung"  # what earlier seed runs created
 GROWTH_ACTIVE = "Growth Marketing Manager"
+GROWTH_INVITE_ONLY = "Growth Analyst (invite only)"
 GROWTH_DRAFT = "Merchant Acquisition Lead"
 GROWTH_SUBMITTED = "Lifecycle Marketing Specialist"
 
@@ -130,6 +131,7 @@ def test_seed_demo_has_draft_submitted_and_proposal() -> None:
     growth = Job.objects.filter(team__name="Growth")
     assert {j.title: j.status for j in growth} == {
         GROWTH_ACTIVE: JobStatus.ACTIVE,
+        GROWTH_INVITE_ONLY: JobStatus.ACTIVE,
         GROWTH_DRAFT: JobStatus.DRAFT,
         GROWTH_SUBMITTED: JobStatus.SUBMITTED,
     }
@@ -152,7 +154,7 @@ def test_seed_demo_twice_duplicates_nothing_and_leaves_no_team_chung() -> None:
 
     company = Company.objects.get(name="Vela Pay")
     assert sorted(company.teams.values_list("name", flat=True)) == ["Growth", "Payments"]
-    assert Job.objects.filter(company=company).count() == 9
+    assert Job.objects.filter(company=company).count() == 10
     assert JobChangeRequest.objects.count() == 1
 
 

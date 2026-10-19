@@ -50,7 +50,7 @@ from apps.candidates.tasks import parse_cv
 from apps.core.http import content_disposition
 from apps.core.pagination import DefaultPagination
 from apps.hiring.serializers import SubmissionDetailSerializer
-from apps.jobs.access import can_submit_to_job, can_view_job, jobs_joined_by
+from apps.jobs.access import can_submit_to_job, can_view_job, jobs_joined_by, jobs_offered_to
 from apps.jobs.models import Job
 from apps.recruiters.access import IsApprovedRecruiter, approved_recruiter
 from apps.recruiters.models import RecruiterProfile
@@ -66,11 +66,17 @@ def submission_target(request: Request, job_id: Any) -> tuple[RecruiterProfile, 
     job = Job.objects.filter(pk=job_id).select_related("company").first()
     if recruiter is None or job is None:
         raise Http404
-    if not jobs_joined_by(recruiter).filter(pk=job.pk).exists():
+    if jobs_joined_by(recruiter).filter(pk=job.pk).exists():
+        # Theirs even once it closed, was deleted or lost its bounty (it stays in their
+        # Commission Vault), so they can see it: refuse with 403 rather than pretend it is gone.
+        if not can_submit_to_job(recruiter, job):
+            raise PermissionDenied(NOT_OPEN)
+        return recruiter, job
+    if jobs_offered_to(recruiter).filter(pk=job.pk).exists():
         raise PermissionDenied(NOT_JOINED)
-    if not can_submit_to_job(recruiter, job):
-        raise PermissionDenied(NOT_OPEN)
-    return recruiter, job
+    # Not theirs and not offered to them (not live, or direct-only to somebody else): it does
+    # not exist as far as this recruiter can tell.
+    raise Http404
 
 
 def candidate_or_404(recruiter: RecruiterProfile, candidate_id: Any) -> Candidate:

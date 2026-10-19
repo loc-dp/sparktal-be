@@ -25,9 +25,15 @@ from rest_framework.views import APIView
 
 from apps.accounts.models import User
 from apps.candidates.models import Stage
-from apps.chat.signals import ensure_channel
 from apps.companies.access import company_of
-from apps.jobs.access import NOT_YOURS, can_change_job, jobs_visible_to
+from apps.jobs.access import (
+    NOT_YOURS,
+    can_change_job,
+    jobs_joined_by,
+    jobs_offered_to,
+    jobs_visible_to,
+)
+from apps.jobs.distribution import join_marketplace_job
 from apps.jobs.filters import JobFilterSet
 from apps.jobs.jd_parsing import is_enabled as jd_parsing_enabled
 from apps.jobs.lifecycle import (
@@ -324,8 +330,11 @@ class MarketplaceJobDetailView(RetrieveAPIView[Job]):
     serializer_class = MarketplaceJobSerializer
 
     def get_queryset(self) -> QuerySet[Job]:
+        # Also what they were invited to, which the list leaves out.
         recruiter = _recruiter(self)
-        return annotate_marketplace(marketplace_queryset(recruiter), recruiter)
+        return annotate_marketplace(
+            jobs_offered_to(recruiter).select_related("company", "office"), recruiter
+        )
 
     def get_serializer_context(self) -> dict[str, Any]:
         return {**super().get_serializer_context(), "recruiter": _recruiter(self)}
@@ -333,9 +342,6 @@ class MarketplaceJobDetailView(RetrieveAPIView[Job]):
 
 class MarketplaceActionView(APIView):
     permission_classes = (IsApprovedRecruiter,)
-
-    def get_job(self, pk: str) -> Job:
-        return get_object_or_404(marketplace_queryset(_recruiter(self)), pk=pk)
 
 
 @extend_schema_view(
@@ -348,14 +354,7 @@ class MarketplaceActionView(APIView):
 )
 class MarketplaceJoinView(MarketplaceActionView):
     def post(self, request: Request, pk: str) -> Response:
-        recruiter = _recruiter(self)
-        job = self.get_job(pk)
-        with transaction.atomic():
-            assignment, created = JobAssignment.objects.get_or_create(job=job, recruiter=recruiter)
-            if not created and assignment.left_at is not None:
-                assignment.left_at = None
-                assignment.save(update_fields=["left_at"])
-        channel, _ = ensure_channel(job, recruiter)
+        assignment, created, channel = join_marketplace_job(pk, _recruiter(self))
         payload = {"assignment_id": assignment.pk, "channel_id": channel.pk, "joined": True}
         return Response(
             JoinResultSerializer(payload).data,
@@ -374,7 +373,8 @@ class MarketplaceJoinView(MarketplaceActionView):
 class MarketplaceLeaveView(MarketplaceActionView):
     def post(self, request: Request, pk: str) -> Response:
         recruiter = _recruiter(self)
-        job = self.get_job(pk)
+        # Any job they are on, closed or deleted too: they may always step off it.
+        job = get_object_or_404(jobs_joined_by(recruiter), pk=pk)
         assignment = get_object_or_404(
             JobAssignment, job=job, recruiter=recruiter, left_at__isnull=True
         )

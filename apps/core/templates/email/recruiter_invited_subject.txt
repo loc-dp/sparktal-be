@@ -1,0 +1,1 @@
+{{ company_name }} job for you: {{ job_title }}

@@ -1,5 +1,8 @@
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import timedelta
 from typing import Any
+from unittest.mock import patch
 
 from django.utils import timezone
 
@@ -7,14 +10,18 @@ from apps.accounts.models import User
 from apps.companies.models import Company, Team
 from apps.companies.seed import TEAMS
 from apps.core.seed import DEMO_EMAILS, SeedContext, register_resetter, register_seeder
+from apps.jobs import distribution
+from apps.jobs.distribution import accept_invite, invite_recruiters
 from apps.jobs.functions import guess_function
 from apps.jobs.models import (
     BountyType,
     ChangeKind,
     ChangeStatus,
+    InviteStatus,
     Job,
     JobAssignment,
     JobChangeRequest,
+    JobInvite,
     JobStatus,
     Language,
     PayBasis,
@@ -148,7 +155,6 @@ JOBS: list[dict[str, Any]] = [
         "days_ago": 2,
         "status": JobStatus.PENDING,
         "salary": (90_000_000, 120_000_000),
-        "bounty_pct": 20,
         "work_model": WorkModel.HYBRID,
         "skills": ["FP&A", "IFRS", "Treasury", "Fundraising", "Team leadership", "VAS"],
         "why": "Preparing for Series C international funding round and subsequent regional expansion. We require a seasoned finance leader to consolidate FP&A, treasury, and multi-currency capital allocation.",
@@ -202,6 +208,7 @@ GROWTH_JOBS: list[dict[str, Any]] = [
         "title": "Growth Marketing Manager",
         "days_ago": 6,
         "status": JobStatus.ACTIVE,
+        "direct_only": True,
         "salary": (35_000_000, 50_000_000),
         "bounty_pct": 15,
         "work_model": WorkModel.HYBRID,
@@ -214,11 +221,26 @@ GROWTH_JOBS: list[dict[str, Any]] = [
         "note_for_recruiters": "",
     },
     {
+        "title": "Growth Analyst (invite only)",
+        "days_ago": 4,
+        "status": JobStatus.ACTIVE,
+        "direct_only": True,
+        "salary": (28_000_000, 40_000_000),
+        "bounty_pct": 15,
+        "work_model": WorkModel.HYBRID,
+        "skills": ["SQL", "GA4", "Experimentation", "Python", "Attribution"],
+        "why": "Growth runs a dozen experiments a month and every readout is built by hand. We need an analyst who owns experiment design, attribution and the weekly growth numbers.",
+        "roles": "Design and read out A/B tests with Growth and Product\nBuild the weekly funnel and channel attribution dashboards\nSize new acquisition channels before budget is committed\nKeep the growth metrics definitions consistent across teams",
+        "quals": "3+ years in growth, marketing or product analytics\nStrong SQL and a solid grasp of experiment statistics\nComfortable presenting findings to non-analysts",
+        "nice": "Experience in fintech or payments\nPython for ad-hoc analysis",
+        "benefits": "13th-month salary\nPremium health insurance\nLearning budget 20.000.000 ₫",
+        "note_for_recruiters": "Sparktal is offering this role to a few chosen headhunters only; it is not on the marketplace.",
+    },
+    {
         "title": "Merchant Acquisition Lead",
         "days_ago": 3,
         "status": JobStatus.DRAFT,
         "salary": (30_000_000, 45_000_000),
-        "bounty_pct": 12,
         "work_model": WorkModel.ONSITE,
         "skills": ["B2B sales", "Merchant onboarding", "Negotiation"],
         "why": "We are opening a field team to sign offline merchants in Ho Chi Minh City.",
@@ -233,7 +255,6 @@ GROWTH_JOBS: list[dict[str, Any]] = [
         "days_ago": 1,
         "status": JobStatus.SUBMITTED,
         "salary": (22_000_000, 32_000_000),
-        "bounty_pct": 12,
         "work_model": WorkModel.REMOTE,
         "skills": ["Email marketing", "CRM", "Segmentation", "Copywriting"],
         "why": "Activation emails and in-app messages are run by hand. We need a specialist to automate merchant lifecycle journeys.",
@@ -294,6 +315,8 @@ def seed(ctx: SeedContext) -> None:
         office = None if spec["work_model"] == WorkModel.REMOTE else offices[spec.get("office", 0)]
         # Seeds are fixtures: status is set directly, so no lifecycle email goes out.
         unposted = spec["status"] in (JobStatus.PENDING, JobStatus.DRAFT, JobStatus.SUBMITTED)
+        posted = spec["status"] in (JobStatus.PENDING, JobStatus.ACTIVE, JobStatus.CLOSED)
+        live = spec["status"] in (JobStatus.ACTIVE, JobStatus.CLOSED)
         job, _ = Job.objects.update_or_create(
             company=company,
             title=spec["title"],
@@ -312,13 +335,20 @@ def seed(ctx: SeedContext) -> None:
                 "pay_basis": PayBasis.GROSS,
                 "work_model": spec["work_model"],
                 "office": office,
-                "bounty_type": spec.get("bounty_type", BountyType.PCT),
+                # Sparktal sets the bounty once a job is posted: a pending job has none yet.
+                "bounty_type": spec.get(
+                    "bounty_type", BountyType.PCT if "bounty_pct" in spec else None
+                ),
                 "bounty_pct": spec.get("bounty_pct"),
                 "bounty_amount": spec.get("bounty_amount"),
+                # Live jobs are on the marketplace, except the ones Sparktal gives to chosen
+                # headhunters only (their invites are made by `seed_invites`).
+                "on_marketplace": live and not spec.get("direct_only", False),
                 "skills": spec["skills"],
                 "status": spec["status"],
                 "note_for_recruiters": spec.get("note_for_recruiters", ""),
                 **brief_defaults(spec, created),
+                "posted_at": created if posted else None,
                 "published_at": None if unposted else created,
                 "closed_at": now - timedelta(days=60)
                 if spec["status"] == JobStatus.CLOSED
@@ -394,3 +424,53 @@ def seed_assignments(ctx: SeedContext) -> None:
 @register_resetter(order=45)
 def reset_assignments() -> None:
     JobAssignment.objects.filter(recruiter__user__email__in=DEMO_EMAILS).delete()
+
+
+# Sparktal's direct channel (spec §9), by job title: the headhunters it invited, and who of
+# them already accepted.
+INVITES: dict[str, list[str]] = {
+    "Growth Marketing Manager": ["Bluefin Search", "NorthStar Talent"],
+    "Growth Analyst (invite only)": ["Bluefin Search"],
+}
+ACCEPTED_INVITES: list[tuple[str, str]] = [("Growth Marketing Manager", "NorthStar Talent")]
+
+
+@contextmanager
+def _without_invite_email() -> Iterator[None]:
+    """Make `invite_recruiters` send no email inside the block: demo data mails nobody.
+
+    It queues `notify_recruiter_invited` for after the commit, looking the name up in
+    `apps.jobs.distribution` when it queues. For the block that name is a no-op; every other
+    `transaction.on_commit` callback is left alone.
+    """
+    with patch.object(distribution, "notify_recruiter_invited", lambda invite: None):
+        yield
+
+
+@register_seeder(order=46)
+def seed_invites(ctx: SeedContext) -> None:
+    """Invite through the service the Sparktal portal uses, so the rows are what production makes.
+
+    A second run changes nothing: a pending invite and a working recruiter are left alone, and an
+    invite someone declined (or Sparktal cancelled) is sent again.
+    """
+    jobs: dict[str, Job] = ctx.refs.get("jobs") or {
+        job.title: job for job in Job.objects.filter(company__name="Vela Pay")
+    }
+    recruiters: dict[str, RecruiterProfile] = ctx.refs["recruiters"]
+    users: dict[str, User] = ctx.refs.get("users", {})
+    ops = users.get("admin@sparktal.vn") or User.objects.get(email="admin@sparktal.vn")
+    with _without_invite_email():
+        for title, nicknames in INVITES.items():
+            invite_recruiters(
+                jobs[title], actor=ops, recruiters=[recruiters[name] for name in nicknames]
+            )
+        for title, nickname in ACCEPTED_INVITES:
+            invite = JobInvite.objects.get(job=jobs[title], recruiter=recruiters[nickname])
+            if invite.status == InviteStatus.PENDING:
+                accept_invite(invite, recruiter=recruiters[nickname])
+
+
+@register_resetter(order=46)
+def reset_invites() -> None:
+    JobInvite.objects.filter(job__company__name="Vela Pay").delete()

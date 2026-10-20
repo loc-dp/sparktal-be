@@ -1,16 +1,21 @@
 from typing import cast
 
 import pytest
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from rest_framework.exceptions import ValidationError
 
 from apps.accounts.models import User
 from apps.companies.members import (
+    ACCOUNT_LOCKED,
+    EMAIL_TAKEN,
     LAST_ADMIN,
     TEAM_REQUIRED,
     UNSET,
     MemberRuleError,
     invite_member,
     remove_member,
+    set_locked,
     update_member,
 )
 from apps.companies.models import Company, CompanyMembership, CompanyRole
@@ -53,6 +58,47 @@ def test_invite_admin_drops_team_and_can_publish(company: Company) -> None:
 def test_invite_hm_never_gets_can_publish(company: Company) -> None:
     m = invite(company, role="hiring_manager", team=TeamFactory(company=company), can_publish=True)
     assert m.can_publish is False
+
+
+def removed_member(company: Company, *, locked: bool) -> User:
+    seat = cast(
+        CompanyMembership,
+        CompanyMembershipFactory(company=company, role=CompanyRole.ADMIN, user__email="gone@x.vn"),
+    )
+    keeper = CompanyMembershipFactory(company=company, role=CompanyRole.ADMIN).user
+    if locked:
+        set_locked(seat, locked=True)
+    remove_member(seat, actor=keeper)
+    return User.objects.get(pk=seat.user_id)
+
+
+def test_invite_of_a_removed_locked_user_says_what_the_caller_asks(company: Company) -> None:
+    user = removed_member(company, locked=True)
+
+    with pytest.raises(ValidationError) as default:
+        invite(company, email=user.email, role="admin")
+    with pytest.raises(ValidationError) as ops:
+        invite(company, email=user.email, role="admin", locked_detail=ACCOUNT_LOCKED)
+
+    # By default nobody learns of the lock; Sparktal's own portal asks to be told.
+    assert default.value.detail == {"email": [EMAIL_TAKEN]}
+    assert ops.value.detail == {"email": [ACCOUNT_LOCKED]}
+    user.refresh_from_db()
+    assert user.is_active is False
+    assert user.locked_at is not None
+
+
+def test_invite_locks_the_existing_user_row(company: Company) -> None:
+    user = removed_member(company, locked=False)
+
+    with CaptureQueriesContext(connection) as queries:
+        invite(company, email=user.email, role="admin")
+
+    table = User._meta.db_table
+    reads = [q["sql"] for q in queries.captured_queries if q["sql"].startswith("SELECT")]
+    assert any(f'FROM "{table}"' in sql and "FOR UPDATE" in sql for sql in reads)
+    user.refresh_from_db()
+    assert user.is_active is True
 
 
 def test_update_member_to_admin_clears_team_and_can_publish(company: Company) -> None:

@@ -16,10 +16,16 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.accounts.invites import InviteError, send_password_invite
-from apps.accounts.models import User
 from apps.companies.access import company_of, membership_of
 from apps.companies.home import home_payload
-from apps.companies.members import MemberRuleError, invite_member, remove_member, update_member
+from apps.companies.members import (
+    ACCOUNT_LOCKED,
+    EMAIL_TAKEN,
+    MemberRuleError,
+    invite_member,
+    remove_member,
+    update_member,
+)
 from apps.companies.models import Company, CompanyMembership, CompanyRole, Team
 from apps.companies.serializers import (
     CompanyCompleteSerializer,
@@ -34,6 +40,7 @@ from apps.companies.serializers import (
 )
 from apps.companies.teams import create_team, delete_team, rename_team, resolve_team
 from apps.jobs.access import jobs_visible_to
+from apps.jobs.models import Job
 
 UPLOAD_REQUEST = {
     "multipart/form-data": {
@@ -180,24 +187,30 @@ class CompanyHomeView(APIView):
         return Response(home_payload(request.user))  # type: ignore[arg-type]
 
 
-def invite_details(membership: CompanyMembership, request: Request) -> dict[str, str | None]:
-    """What the invite email says about the company, the role and who sent it."""
-    return {
-        "company_name": membership.company.name,
-        "role_label": membership.get_role_display(),
-        "invited_by": getattr(request.user, "full_name", None) or None,
-    }
-
-
 class InviteEmailFailed(APIException):
     status_code = 502
     default_detail = "We couldn't send the invite email, so nothing was saved. Please try again."
     default_code = "invite_email_failed"
 
 
-def members_visible_to(request: Request) -> QuerySet[CompanyMembership]:
+def send_invite(membership: CompanyMembership, *, invited_by: str | None) -> None:
+    """Email the set-password invite now, inside the caller's transaction.
+
+    A failure raises `InviteEmailFailed` (502), so everything the caller saved rolls back.
+    """
+    try:
+        send_password_invite(
+            membership.user.email,
+            company_name=membership.company.name,
+            role_label=membership.get_role_display(),
+            invited_by=invited_by,
+        )
+    except InviteError as exc:
+        raise InviteEmailFailed() from exc
+
+
+def members_visible_to(request: Request, company: Company) -> QuerySet[CompanyMembership]:
     """An admin sees everyone in the company; anyone else only their own team."""
-    company = get_company_or_404(request)
     queryset = CompanyMembership.objects.filter(company=company)
     membership = membership_of(request.user)  # type: ignore[arg-type]
     if membership is None:
@@ -214,6 +227,86 @@ def require_manage_members(request: Request, company: Company) -> None:
         raise PermissionDenied("Only a Company Admin can manage the team.")
 
 
+def team_queryset(company: Company, counted_jobs: QuerySet[Job]) -> QuerySet[Team]:
+    """Teams with their headcount and how many of `counted_jobs` are theirs."""
+    return Team.objects.filter(company=company).annotate(
+        member_count=Count("memberships", distinct=True),
+        job_count=Count("jobs", filter=Q(jobs__in=counted_jobs), distinct=True),
+    )
+
+
+class TeamScope:
+    # Where the member and team views look, and who may change what they find there.
+    #
+    # On the company side every answer comes from the signed-in member's own seat. The Sparktal
+    # ops portal subclasses each view with `apps.ops.api.OpsCompanyScope`, which overrides every
+    # hook below: the company comes from the URL, staff see all of it, and `IsSparktalStaff` has
+    # already decided who may act. (Comments, not a docstring: drf-spectacular would show a
+    # docstring as the description of every view that inherits this.)
+
+    # What a Sparktal lock is called. Inviting a removed member Sparktal locked reads as a taken
+    # address, so no company learns of a lock it did not see; resending to your own locked
+    # member (you see its Locked pill) says so, without "unlock it": only Sparktal can.
+    locked_invite_detail: str = EMAIL_TAKEN
+    locked_resend_detail: str = ACCOUNT_LOCKED
+
+    def company_for(self, request: Request, **kwargs: Any) -> Company:
+        """The company the request is about; `kwargs` are the URL's."""
+        return get_company_or_404(request)
+
+    def require_manage(self, request: Request, company: Company) -> None:
+        """403 unless the user may manage the company's members and teams."""
+        require_manage_members(request, company)
+
+    def visible_members(self, request: Request, company: Company) -> QuerySet[CompanyMembership]:
+        """The members the user may see. Anyone else is a 404, never a 403."""
+        return members_visible_to(request, company)
+
+    def visible_teams(self, request: Request, teams: QuerySet[Team]) -> QuerySet[Team]:
+        """Which of the company's `teams` the team list shows."""
+        membership = membership_of(request.user)  # type: ignore[arg-type]
+        if membership is None:
+            raise NotFound("You are not a member of a company.")
+        if membership.role == CompanyRole.ADMIN:
+            return teams
+        if membership.team_id is None:
+            return teams.none()
+        return teams.filter(pk=membership.team_id)
+
+    def counted_jobs(self, request: Request) -> QuerySet[Job]:
+        """The jobs a team's `job_count` counts: the ones the user can see."""
+        return jobs_visible_to(request.user)  # type: ignore[arg-type]
+
+    def inviter(self, request: Request) -> str | None:
+        """Who the invite email says sent it."""
+        return getattr(request.user, "full_name", None) or None
+
+    # Built on the hooks above.
+
+    def teams_of(self, request: Request, company: Company) -> QuerySet[Team]:
+        return team_queryset(company, self.counted_jobs(request))
+
+    def member_or_404(
+        self, request: Request, company: Company, member_id: UUID
+    ) -> CompanyMembership:
+        """404 for another team's member too, so nobody can probe outside their team."""
+        membership = (
+            self.visible_members(request, company)
+            .filter(pk=member_id)
+            .select_related("user", "company")
+            .first()
+        )
+        if membership is None:
+            raise NotFound("No such team member.")
+        return membership
+
+    def team_or_404(self, request: Request, company: Company, team_id: UUID) -> Team:
+        team = self.teams_of(request, company).filter(pk=team_id).first()
+        if team is None:
+            raise NotFound("No such team.")
+        return team
+
+
 @extend_schema_view(
     get=extend_schema(
         operation_id="company_members_list",
@@ -227,16 +320,17 @@ def require_manage_members(request: Request, company: Company) -> None:
         responses={201: MemberSerializer},
     ),
 )
-class MemberListCreateView(ListCreateAPIView[CompanyMembership]):
+class MemberListCreateView(TeamScope, ListCreateAPIView[CompanyMembership]):
     serializer_class = MemberSerializer
     pagination_class = None
 
     def get_queryset(self) -> QuerySet[CompanyMembership]:
-        return members_visible_to(self.request).select_related("user", "team")
+        company = self.company_for(self.request, **self.kwargs)
+        return self.visible_members(self.request, company).select_related("user", "team")
 
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        company = get_company_or_404(request)
-        require_manage_members(request, company)
+        company = self.company_for(request, **self.kwargs)
+        self.require_manage(request, company)
         payload = MemberInviteSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
         data = payload.validated_data
@@ -253,23 +347,11 @@ class MemberListCreateView(ListCreateAPIView[CompanyMembership]):
                 role=data["role"],
                 team=team,
                 can_publish=data["can_publish"],
+                locked_detail=self.locked_invite_detail,
             )
-            try:
-                send_password_invite(membership.user.email, **invite_details(membership, request))
-            except InviteError as exc:
-                raise InviteEmailFailed() from exc
+            send_invite(membership, invited_by=self.inviter(request))
         body = MemberSerializer(membership, context=self.get_serializer_context()).data
         return Response(body, status=201)
-
-
-def member_or_404(request: Request, member_id: UUID) -> CompanyMembership:
-    """404 for another team's member too, so nobody can probe outside their team."""
-    membership = (
-        members_visible_to(request).filter(pk=member_id).select_related("user", "company").first()
-    )
-    if membership is None:
-        raise NotFound("No such team member.")
-    return membership
 
 
 @extend_schema_view(
@@ -283,10 +365,11 @@ def member_or_404(request: Request, member_id: UUID) -> CompanyMembership:
         operation_id="company_member_destroy", tags=["companies"], responses={204: None}
     ),
 )
-class MemberDetailView(APIView):
-    def patch(self, request: Request, id: UUID) -> Response:
-        membership = member_or_404(request, id)
-        require_manage_members(request, membership.company)
+class MemberDetailView(TeamScope, APIView):
+    def patch(self, request: Request, id: UUID, **kwargs: Any) -> Response:
+        company = self.company_for(request, **self.kwargs)
+        membership = self.member_or_404(request, company, id)
+        self.require_manage(request, company)
         payload = MemberUpdateSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
         data = payload.validated_data
@@ -299,17 +382,18 @@ class MemberDetailView(APIView):
         with transaction.atomic():
             if target_role != CompanyRole.ADMIN and ("team" in data or "new_team_name" in data):
                 changes["team"] = resolve_team(
-                    membership.company,
+                    company,
                     team_id=data.get("team"),
                     new_team_name=data.get("new_team_name"),
                 )
             update_member(membership, **changes)
-        membership = member_or_404(request, id)
+        membership = self.member_or_404(request, company, id)
         return Response(MemberSerializer(membership, context={"request": request}).data)
 
-    def delete(self, request: Request, id: UUID) -> Response:
-        membership = member_or_404(request, id)
-        require_manage_members(request, membership.company)
+    def delete(self, request: Request, id: UUID, **kwargs: Any) -> Response:
+        company = self.company_for(request, **self.kwargs)
+        membership = self.member_or_404(request, company, id)
+        self.require_manage(request, company)
         remove_member(membership, actor=request.user)  # type: ignore[arg-type]
         return Response(status=204)
 
@@ -322,33 +406,18 @@ class MemberDetailView(APIView):
         responses={204: None},
     )
 )
-class MemberResendInviteView(APIView):
-    def post(self, request: Request, id: UUID) -> Response:
-        membership = member_or_404(request, id)
-        require_manage_members(request, membership.company)
+class MemberResendInviteView(TeamScope, APIView):
+    def post(self, request: Request, id: UUID, **kwargs: Any) -> Response:
+        company = self.company_for(request, **self.kwargs)
+        membership = self.member_or_404(request, company, id)
+        self.require_manage(request, company)
         if membership.user.has_usable_password():
             raise MemberRuleError("This person has already set a password.")
-        try:
-            send_password_invite(membership.user.email, **invite_details(membership, request))
-        except InviteError as exc:
-            raise InviteEmailFailed() from exc
+        # Sparktal locked it; allauth would mail the switched-off address "no Sparktal account".
+        if membership.user.locked_at is not None:
+            raise MemberRuleError(self.locked_resend_detail)
+        send_invite(membership, invited_by=self.inviter(request))
         return Response(status=204)
-
-
-def team_queryset(company: Company, viewer: User) -> QuerySet[Team]:
-    """Teams with their headcount and the number of their jobs the viewer can see."""
-    return Team.objects.filter(company=company).annotate(
-        member_count=Count("memberships", distinct=True),
-        job_count=Count("jobs", filter=Q(jobs__in=jobs_visible_to(viewer)), distinct=True),
-    )
-
-
-def team_or_404(request: Request, team_id: UUID) -> Team:
-    company = get_company_or_404(request)
-    team = team_queryset(company, request.user).filter(pk=team_id).first()  # type: ignore[arg-type]
-    if team is None:
-        raise NotFound("No such team.")
-    return team
 
 
 @extend_schema_view(
@@ -364,29 +433,21 @@ def team_or_404(request: Request, team_id: UUID) -> Team:
         responses={201: TeamSerializer},
     ),
 )
-class TeamListCreateView(ListCreateAPIView[Team]):
+class TeamListCreateView(TeamScope, ListCreateAPIView[Team]):
     serializer_class = TeamSerializer
     pagination_class = None
 
     def get_queryset(self) -> QuerySet[Team]:
-        company = get_company_or_404(self.request)
-        queryset = team_queryset(company, self.request.user)  # type: ignore[arg-type]
-        membership = membership_of(self.request.user)  # type: ignore[arg-type]
-        if membership is None:
-            raise NotFound("You are not a member of a company.")
-        if membership.role == CompanyRole.ADMIN:
-            return queryset
-        if membership.team_id is None:
-            return queryset.none()
-        return queryset.filter(pk=membership.team_id)
+        company = self.company_for(self.request, **self.kwargs)
+        return self.visible_teams(self.request, self.teams_of(self.request, company))
 
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        company = get_company_or_404(request)
-        require_manage_members(request, company)
+        company = self.company_for(request, **self.kwargs)
+        self.require_manage(request, company)
         payload = TeamWriteSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
         team = create_team(company, payload.validated_data["name"])
-        fresh = team_queryset(company, request.user).get(pk=team.pk)  # type: ignore[arg-type]
+        fresh = self.teams_of(request, company).get(pk=team.pk)
         return Response(TeamSerializer(fresh).data, status=201)
 
 
@@ -401,18 +462,20 @@ class TeamListCreateView(ListCreateAPIView[Team]):
         operation_id="company_team_destroy", tags=["companies"], responses={204: None}
     ),
 )
-class TeamDetailView(APIView):
-    def patch(self, request: Request, id: UUID) -> Response:
-        team = team_or_404(request, id)
-        require_manage_members(request, team.company)
+class TeamDetailView(TeamScope, APIView):
+    def patch(self, request: Request, id: UUID, **kwargs: Any) -> Response:
+        company = self.company_for(request, **self.kwargs)
+        team = self.team_or_404(request, company, id)
+        self.require_manage(request, company)
         payload = TeamWriteSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
         rename_team(team, payload.validated_data["name"])
-        fresh = team_queryset(team.company, request.user).get(pk=team.pk)  # type: ignore[arg-type]
+        fresh = self.teams_of(request, company).get(pk=team.pk)
         return Response(TeamSerializer(fresh).data)
 
-    def delete(self, request: Request, id: UUID) -> Response:
-        team = team_or_404(request, id)
-        require_manage_members(request, team.company)
+    def delete(self, request: Request, id: UUID, **kwargs: Any) -> Response:
+        company = self.company_for(request, **self.kwargs)
+        team = self.team_or_404(request, company, id)
+        self.require_manage(request, company)
         delete_team(team)
         return Response(status=204)

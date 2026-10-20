@@ -13,6 +13,7 @@ from apps.companies.models import (
     Team,
 )
 from apps.core.seed import DEMO_PASSWORD, SeedContext, register_resetter, register_seeder
+from apps.jobs.models import Job
 
 ABOUT = (
     "Vela Pay builds payment infrastructure for Southeast Asian merchants: QR checkout, "
@@ -82,7 +83,12 @@ def seed(ctx: SeedContext) -> None:
     # Invited but has not set a password yet: the Team page shows "Invited".
     invited, _ = User.objects.update_or_create(
         email="tuan.vo@velapay.vn",
-        defaults={"full_name": "Võ Anh Tuấn", "kind": UserKind.COMPANY, "is_active": True},
+        defaults={
+            "full_name": "Võ Anh Tuấn",
+            "kind": UserKind.COMPANY,
+            "is_active": True,
+            "locked_at": None,
+        },
     )
     invited.set_unusable_password()
     invited.save(update_fields=["password"])
@@ -115,7 +121,12 @@ def seed(ctx: SeedContext) -> None:
     onboarding.offices.all().delete()
     new_admin, _ = User.objects.update_or_create(
         email="new.admin@example.com",
-        defaults={"full_name": "Đỗ Thu Hà", "kind": UserKind.COMPANY, "is_active": True},
+        defaults={
+            "full_name": "Đỗ Thu Hà",
+            "kind": UserKind.COMPANY,
+            "is_active": True,
+            "locked_at": None,
+        },
     )
     new_admin.set_password(DEMO_PASSWORD)
     new_admin.save(update_fields=["password"])
@@ -127,6 +138,11 @@ def seed(ctx: SeedContext) -> None:
     ctx.refs["onboarding_company"] = onboarding
 
 
+# What the E2E suite names the companies it opens through the ops portal: "E2E <digits>". Only
+# that exact shape: a real customer called "E2E Logistics" on the demo server must survive.
+E2E_COMPANY_NAME = r"^E2E \d+$"
+
+
 @register_resetter(order=20)
 def reset() -> None:
     """Teammates the E2E suite invited (and failed to clean up) are not part of the demo."""
@@ -135,3 +151,22 @@ def reset() -> None:
     # then every team no job still sits in. Jobs-seeder leftovers are moved by the jobs seeder.
     CompanyMembership.objects.filter(company__name="Vela Pay").delete()
     Team.objects.filter(company__name="Vela Pay", jobs__isnull=True).delete()
+    reset_e2e_companies()
+
+
+def reset_e2e_companies() -> None:
+    """Drop the companies the E2E suite opened, with everyone and everything in them.
+
+    The recruiters resetter (order 30, so before this one) already deleted the
+    `@e2e.example.com` users; this also takes anyone else who sat in such a company. Seats and
+    jobs go before the company, because each of them PROTECTs its team.
+    """
+    companies = Company.objects.filter(name__regex=E2E_COMPANY_NAME)
+    people = list(
+        User.objects.filter(membership__company__in=companies).values_list("pk", flat=True)
+    )
+    CompanyMembership.objects.filter(company__in=companies).delete()
+    # Every job, soft-deleted ones too; their applications, invites and assignments cascade.
+    Job.objects.filter(company__in=companies).delete()
+    companies.delete()
+    User.objects.filter(pk__in=people).delete()

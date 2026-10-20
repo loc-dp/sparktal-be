@@ -184,3 +184,65 @@ def test_growth_hiring_manager_cannot_see_payments_jobs() -> None:
     for job in Job.objects.filter(team__name="Payments"):
         assert not can_view_job(huy, job)
     assert can_view_job(huy, Job.objects.get(title=GROWTH_ACTIVE))
+
+
+def test_reset_removes_companies_made_by_e2e() -> None:
+    """The E2E suite creates `E2E <stamp>` companies through the ops portal; a reset drops them
+    with their seats, teams, jobs and people."""
+    from django.utils import timezone
+
+    from apps.candidates.models import Application
+    from apps.candidates.tests.factories import ApplicationFactory
+    from apps.companies.members import invite_member
+    from apps.companies.provisioning import provision_company
+    from apps.jobs.models import JobAssignment, JobInvite
+    from apps.jobs.tests.factories import JobAssignmentFactory, JobFactory, JobInviteFactory
+
+    call_command("seed_demo", "--force")
+    admin = provision_company(
+        name="E2E 1729", admin_email="e2e-1729@e2e.example.com", admin_full_name="E2E Admin"
+    )
+    company = admin.company
+    team = Team.objects.create(company=company, name="Growth")
+    # Not an @e2e.example.com address: it goes because its company does.
+    hm = invite_member(
+        company,
+        email="hm.1729@elsewhere.vn",
+        full_name="E2E Manager",
+        role=CompanyRole.HIRING_MANAGER,
+        team=team,
+    )
+    bluefin = RecruiterProfile.objects.get(nickname="Bluefin Search")
+    live = JobFactory(company=company, team=team, created_by=hm.user, status=JobStatus.ACTIVE)
+    gone = JobFactory(
+        company=company, team=team, status=JobStatus.CLOSED, deleted_at=timezone.now()
+    )
+    JobInviteFactory(job=live, recruiter=bluefin)
+    JobAssignmentFactory(job=live, recruiter=bluefin)
+    ApplicationFactory(job=live, candidate__owner=bluefin)
+    lookalike = Company.objects.create(name="E2Equinox")
+    # A real customer could be called this; only the suite's "E2E <digits>" names go.
+    real = Company.objects.create(name="E2E Logistics")
+    Team.objects.create(company=real, name="Ops")
+    real_admin = invite_member(
+        real, email="boss@e2elogistics.vn", full_name="Boss", role=CompanyRole.ADMIN
+    )
+
+    call_command("seed_demo", "--reset", "--force")
+
+    assert not Company.objects.filter(name__regex=r"^E2E \d+$").exists()
+    assert Company.objects.filter(pk=real.pk).exists()
+    assert Team.objects.filter(company=real).exists()
+    assert CompanyMembership.objects.filter(pk=real_admin.pk).exists()
+    assert not Team.objects.filter(pk=team.pk).exists()
+    assert not Job.objects.filter(pk__in=[live.pk, gone.pk]).exists()
+    assert not JobInvite.objects.filter(job_id=live.pk).exists()
+    assert not JobAssignment.objects.filter(job_id=live.pk).exists()
+    assert not Application.objects.filter(job_id=live.pk).exists()
+    assert not CompanyMembership.objects.filter(company_id=company.pk).exists()
+    assert not User.objects.filter(
+        email__in=["e2e-1729@e2e.example.com", "hm.1729@elsewhere.vn"]
+    ).exists()
+    assert Company.objects.filter(pk=lookalike.pk).exists()
+    assert Company.objects.get(name="Vela Pay").memberships.count() == 6
+    assert RecruiterProfile.objects.filter(nickname="Bluefin Search").exists()

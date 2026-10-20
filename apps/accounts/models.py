@@ -4,6 +4,7 @@ from typing import ClassVar
 from django.contrib.auth.base_user import AbstractBaseUser
 from django.contrib.auth.models import PermissionsMixin
 from django.db import models
+from django.db.models import Q
 from django.utils import timezone
 
 from apps.accounts.managers import UserManager
@@ -23,6 +24,9 @@ class User(AbstractBaseUser, PermissionsMixin):
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
     date_joined = models.DateTimeField(default=timezone.now)
+    # Set while Sparktal has locked the account (spec §10). Only Sparktal clears it: the ops
+    # unlock, or the "Unlock selected users" admin action. Removing the seat leaves it set.
+    locked_at = models.DateTimeField(null=True, blank=True, editable=False)
 
     objects: ClassVar[UserManager] = UserManager()
 
@@ -33,6 +37,14 @@ class User(AbstractBaseUser, PermissionsMixin):
     class Meta:
         verbose_name = "user"
         verbose_name_plural = "users"
+        constraints = (
+            # A locked account stays switched off, whoever writes the row: re-inviting the
+            # address, the admin's "Active" box, a seeder.
+            models.CheckConstraint(
+                condition=Q(locked_at__isnull=True) | Q(is_active=False),
+                name="accounts_user_locked_is_inactive",
+            ),
+        )
 
     def __str__(self) -> str:
         return self.email

@@ -1,3 +1,5 @@
+import smtplib
+
 import pytest
 from django.core import mail
 
@@ -33,3 +35,18 @@ def test_unknown_email_gets_allauths_unknown_account_notice_without_a_reset_link
 
 def test_invite_error_is_an_exception() -> None:
     assert issubclass(InviteError, Exception)
+
+
+@pytest.mark.parametrize("failure", [smtplib.SMTPException("421"), ConnectionRefusedError()])
+def test_a_mail_server_failure_is_an_invite_error(
+    monkeypatch: pytest.MonkeyPatch, failure: Exception
+) -> None:
+    User.objects.create_user(email="new.hire@velapay.vn", password=None, full_name="New Hire")
+
+    def refuse(self: object, messages: object) -> int:
+        raise failure
+
+    monkeypatch.setattr("django.core.mail.backends.locmem.EmailBackend.send_messages", refuse)
+
+    with pytest.raises(InviteError):
+        send_password_invite("new.hire@velapay.vn")

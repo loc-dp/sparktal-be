@@ -54,6 +54,7 @@ INSTALLED_APPS = [
     "apps.exports",
     "apps.chat",
     "apps.hiring",
+    "apps.ops",
 ]
 
 MIDDLEWARE = [
@@ -215,7 +216,7 @@ JD_PARSE_MODEL = env.str("JD_PARSE_MODEL", default="")
 JD_PARSE_TIMEOUT_SECONDS = env.float("JD_PARSE_TIMEOUT_SECONDS", default=90.0)
 
 FRONTEND_URL = env.str("FRONTEND_URL", default="http://localhost:3000")
-# The API's own address: ops emails link to the job in its Django Admin.
+# The API's own address, kept for links to the API host; ops emails now use FRONTEND_URL.
 BACKEND_URL = env.str("BACKEND_URL", default="http://localhost:8001")
 
 HEADLESS_ONLY = True
@@ -264,6 +265,7 @@ SPECTACULAR_SETTINGS = {
         "ChangeStatusEnum": "apps.jobs.models.ChangeStatus.choices",
         "InviteStatusEnum": "apps.jobs.models.InviteStatus.choices",
         "BountyTypeEnum": "apps.jobs.models.BountyType.choices",
+        "RecruiterProfileStatusEnum": "apps.recruiters.models.RecruiterStatus.choices",
     },
     "SWAGGER_UI_DIST": "SIDECAR",
     "SWAGGER_UI_FAVICON_HREF": "SIDECAR",

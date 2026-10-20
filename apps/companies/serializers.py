@@ -307,8 +307,11 @@ class MemberSerializer(serializers.ModelSerializer[CompanyMembership]):
         )
         read_only_fields = fields
 
-    @extend_schema_field(serializers.ChoiceField(choices=["active", "invited"]))
+    @extend_schema_field(serializers.ChoiceField(choices=["active", "invited", "locked"]))
     def get_status(self, obj: CompanyMembership) -> str:
+        # Sparktal locked the account (`set_locked`): that wins over whether a password is set.
+        if obj.user.locked_at is not None:
+            return "locked"
         return "active" if obj.user.has_usable_password() else "invited"
 
     def get_is_me(self, obj: CompanyMembership) -> bool:

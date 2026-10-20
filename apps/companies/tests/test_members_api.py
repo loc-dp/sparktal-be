@@ -1,3 +1,4 @@
+import smtplib
 from collections.abc import Callable
 from typing import Any
 
@@ -243,6 +244,32 @@ def test_a_failed_invite_email_rolls_back_a_reactivation(
     assert former.is_active is False
     assert former.full_name == "Gone"
     assert not CompanyMembership.objects.filter(user=former).exists()
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        smtplib.SMTPException("421 Service not available"),
+        # What EMAIL_TIMEOUT raises when the mail server stalls (socket.timeout is TimeoutError).
+        TimeoutError("timed out"),
+    ],
+)
+def test_a_mail_server_failure_is_a_502_not_a_500(
+    failure: Exception,
+    client_for: ClientFor,
+    company_admin: User,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def refuse(self: object, messages: object) -> int:
+        raise failure
+
+    monkeypatch.setattr("django.core.mail.backends.locmem.EmailBackend.send_messages", refuse)
+
+    response = invite(client_for(company_admin))
+
+    assert response.status_code == 502
+    assert not User.objects.filter(email="new.hire@velapay.vn").exists()
+    assert not Team.objects.filter(name="Growth").exists()
 
 
 def join_team_of(user: User, teammate: User) -> None:

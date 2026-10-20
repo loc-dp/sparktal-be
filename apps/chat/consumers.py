@@ -27,3 +27,7 @@ class EventsConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
 
     async def event_push(self, event: dict[str, Any]) -> None:
         await self.send_json(event["payload"])
+
+    async def session_end(self, event: dict[str, Any]) -> None:
+        # The account was locked: same close code as connecting signed out.
+        await self.close(code=UNAUTHENTICATED_CLOSE_CODE)

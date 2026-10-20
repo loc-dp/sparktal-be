@@ -3,8 +3,8 @@ from django.db.models import QuerySet
 from django.http import HttpRequest
 
 from apps.accounts.models import User
-from apps.recruiters.emails import send_review_result
-from apps.recruiters.models import RecruiterProfile, RecruiterStatus
+from apps.recruiters.models import RecruiterProfile
+from apps.recruiters.review import ReviewError, approve_recruiter, reject_recruiter
 
 
 @admin.register(RecruiterProfile)
@@ -22,19 +22,26 @@ class RecruiterProfileAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
     )
     actions = ("approve_profiles", "reject_profiles")
 
-    @admin.action(description="Approve selected recruiters")
+    @admin.action(description="Approve selected recruiters", permissions=["change"])
     def approve_profiles(self, request: HttpRequest, queryset: QuerySet[RecruiterProfile]) -> None:
         assert isinstance(request.user, User)
-        waiting = list(queryset.exclude(status=RecruiterStatus.APPROVED))
-        for profile in waiting:
-            profile.approve(by=request.user)
-            send_review_result(profile)
-        self.message_user(request, f"Approved {len(waiting)} recruiter(s).", messages.SUCCESS)
+        approved = 0
+        for profile in queryset:
+            try:
+                approve_recruiter(profile, by=request.user)
+            except ReviewError:
+                continue  # Already approved: nothing to change, and nobody to tell.
+            approved += 1
+        self.message_user(request, f"Approved {approved} recruiter(s).", messages.SUCCESS)
 
-    @admin.action(description="Reject selected recruiters (fill in the review note first)")
+    @admin.action(
+        description="Reject selected recruiters (fill in the review note first)",
+        permissions=["change"],
+    )
     def reject_profiles(self, request: HttpRequest, queryset: QuerySet[RecruiterProfile]) -> None:
         assert isinstance(request.user, User)
-        missing = [profile for profile in queryset if not profile.review_note.strip()]
+        profiles = list(queryset)
+        missing = [profile for profile in profiles if not profile.review_note.strip()]
         if missing:
             self.message_user(
                 request,
@@ -43,7 +50,11 @@ class RecruiterProfileAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
                 messages.ERROR,
             )
             return
-        for profile in queryset:
-            profile.reject(by=request.user, note=profile.review_note)
-            send_review_result(profile)
-        self.message_user(request, f"Rejected {queryset.count()} recruiter(s).", messages.WARNING)
+        rejected = 0
+        for profile in profiles:
+            try:
+                reject_recruiter(profile, by=request.user, note=profile.review_note)
+            except ReviewError:
+                continue  # Already rejected: nothing to change, and nobody to tell.
+            rejected += 1
+        self.message_user(request, f"Rejected {rejected} recruiter(s).", messages.WARNING)

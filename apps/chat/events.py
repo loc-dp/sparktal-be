@@ -34,3 +34,15 @@ def broadcast_message(message: Message) -> None:
         async_to_sync(layer.group_send)(
             group_name(user), {"type": "event.push", "payload": payload}
         )
+
+
+def close_sockets(user: User) -> None:
+    """Close every events socket `user` has open, as when it connects signed out (4401).
+
+    A socket checks who is signed in only when it connects, so a locked account would keep one
+    open until it dropped. Call it after the lock is committed: a reconnect is then refused.
+    """
+    layer = get_channel_layer()
+    if layer is None:
+        return
+    async_to_sync(layer.group_send)(group_name(user), {"type": "session.end"})

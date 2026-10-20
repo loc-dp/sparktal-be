@@ -26,6 +26,7 @@ def seed(ctx: SeedContext) -> None:
                 "full_name": full_name,
                 "kind": kind,
                 "is_active": True,
+                "locked_at": None,
                 "is_staff": is_staff,
                 "is_superuser": is_staff,
             },

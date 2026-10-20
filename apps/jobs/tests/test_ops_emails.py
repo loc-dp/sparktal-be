@@ -9,6 +9,7 @@ from rest_framework.test import APIClient
 
 from apps.accounts.models import User
 from apps.jobs.models import ChangeKind, Job, JobStatus
+from apps.jobs.notifications import ops_job_url
 from apps.jobs.proposals import approve_change, propose_change
 from apps.jobs.tests.conftest import TeamWorld
 from apps.jobs.tests.factories import JobFactory
@@ -57,11 +58,47 @@ def test_post_emails_ops_once(
     message = mailoutbox[0]
     assert message.to == ["ops@test.local"]
     assert message.subject == "New job to distribute: Payments SRE · Orbit Pay"
-    link = f"/admin/jobs/job/{job.pk}/change/"
+    link = f"/a/jobs/{job.pk}"
     assert link in message.body
     assert link in _html(message)
     job.refresh_from_db()
     assert job.posted_at is not None
+
+
+def test_ops_email_links_to_portal(
+    team_world: TeamWorld,
+    client_for: ClientFor,
+    mailoutbox: list[Any],
+    settings: Any,
+    django_capture_on_commit_callbacks: Commit,
+) -> None:
+    """Both ops emails open the job in the ops portal at `{FRONTEND_URL}/a/jobs/{id}`."""
+    settings.FRONTEND_URL = "https://app.sparktal.test"
+    job = _draft(team_world)
+    portal = f"https://app.sparktal.test/a/jobs/{job.pk}"
+
+    with django_capture_on_commit_callbacks(execute=True):
+        queued = client_for(team_world.ta_publish).post(f"/api/v1/jobs/{job.pk}/post")
+    (queued_mail,) = mailoutbox
+    mailoutbox.clear()
+    live = team_world.job_a
+    with django_capture_on_commit_callbacks(execute=True):
+        edited = client_for(team_world.admin).patch(
+            f"/api/v1/jobs/{live.pk}", {"title": "Payments Platform Engineer"}, format="json"
+        )
+    (edited_mail,) = mailoutbox
+
+    assert queued.status_code == 200
+    assert edited.status_code == 200
+    assert ops_job_url(job) == portal
+    for message, url in (
+        (queued_mail, portal),
+        (edited_mail, f"https://app.sparktal.test/a/jobs/{live.pk}"),
+    ):
+        assert url in message.body
+        assert url in _html(message)
+        assert "/admin/" not in message.body
+        assert "/admin/" not in _html(message)
 
 
 def test_edit_of_active_job_emails_ops_with_changed_fields(
@@ -89,7 +126,7 @@ def test_edit_of_active_job_emails_ops_with_changed_fields(
     assert "Salary max" in message.body
     assert "Roles" not in message.body
     assert "Salary max" in _html(message)
-    assert f"/admin/jobs/job/{job.pk}/change/" in message.body
+    assert f"/a/jobs/{job.pk}" in message.body
 
     mailoutbox.clear()
     with django_capture_on_commit_callbacks(execute=True):

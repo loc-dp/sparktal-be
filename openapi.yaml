@@ -2242,6 +2242,696 @@ paths:
       responses:
         '204':
           description: No response body
+  /api/v1/ops/companies:
+    get:
+      operationId: ops_companies_list
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - in: query
+        name: search
+        schema:
+          type: string
+        description: Part of the company name.
+      tags:
+      - ops
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedOpsCompanyList'
+          description: ''
+    post:
+      operationId: ops_companies_create
+      description: Open a company account and email its first admin an invite. Nothing
+        is saved unless the invite goes out.
+      tags:
+      - ops
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OpsCompanyCreateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/OpsCompanyCreateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/OpsCompanyCreateRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OpsCompany'
+          description: ''
+  /api/v1/ops/companies/{company_id}:
+    get:
+      operationId: ops_companies_retrieve
+      parameters:
+      - in: path
+        name: company_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - ops
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OpsCompany'
+          description: ''
+  /api/v1/ops/companies/{company_id}/members:
+    get:
+      operationId: ops_company_members_list
+      parameters:
+      - in: path
+        name: company_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - ops
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Member'
+          description: ''
+    post:
+      operationId: ops_company_members_create
+      description: Invite a member, an admin included. Nothing is saved unless the
+        email goes.
+      parameters:
+      - in: path
+        name: company_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - ops
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MemberInviteRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/MemberInviteRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/MemberInviteRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Member'
+          description: ''
+  /api/v1/ops/companies/{company_id}/members/{id}:
+    patch:
+      operationId: ops_company_members_partial_update
+      parameters:
+      - in: path
+        name: company_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - ops
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedMemberUpdateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedMemberUpdateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedMemberUpdateRequest'
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Member'
+          description: ''
+    delete:
+      operationId: ops_company_members_destroy
+      parameters:
+      - in: path
+        name: company_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - ops
+      security:
+      - cookieAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/ops/companies/{company_id}/members/{id}/lock:
+    post:
+      operationId: ops_company_members_lock_create
+      description: Switch the member's account off. They are signed out on their next
+        request and cannot sign in; their seat, team and jobs stay.
+      parameters:
+      - in: path
+        name: company_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - ops
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Member'
+          description: ''
+  /api/v1/ops/companies/{company_id}/members/{id}/resend-invite:
+    post:
+      operationId: ops_company_members_resend_invite_create
+      parameters:
+      - in: path
+        name: company_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - ops
+      security:
+      - cookieAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/ops/companies/{company_id}/members/{id}/unlock:
+    post:
+      operationId: ops_company_members_unlock_create
+      description: Switch the member's account back on. They sign in again as before.
+      parameters:
+      - in: path
+        name: company_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - ops
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Member'
+          description: ''
+  /api/v1/ops/companies/{company_id}/teams:
+    get:
+      operationId: ops_company_teams_list
+      parameters:
+      - in: path
+        name: company_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - ops
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Team'
+          description: ''
+    post:
+      operationId: ops_company_teams_create
+      parameters:
+      - in: path
+        name: company_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - ops
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TeamWriteRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TeamWriteRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TeamWriteRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Team'
+          description: ''
+  /api/v1/ops/companies/{company_id}/teams/{id}:
+    patch:
+      operationId: ops_company_teams_partial_update
+      parameters:
+      - in: path
+        name: company_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - ops
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedTeamWriteRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedTeamWriteRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedTeamWriteRequest'
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Team'
+          description: ''
+    delete:
+      operationId: ops_company_teams_destroy
+      parameters:
+      - in: path
+        name: company_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - ops
+      security:
+      - cookieAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/ops/jobs:
+    get:
+      operationId: ops_jobs_list
+      parameters:
+      - in: query
+        name: company
+        schema:
+          type: string
+          format: uuid
+        description: Only this company's jobs.
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - in: query
+        name: search
+        schema:
+          type: string
+        description: Part of the title or company.
+      - in: query
+        name: status
+        schema:
+          type: string
+          enum:
+          - active
+          - closed
+          - pending
+        description: |-
+          Which tab: the queue (`pending`, the default), or `active` or `closed`.
+
+          * `pending` - Waiting for Sparktal
+          * `active` - Active
+          * `closed` - Closed
+      tags:
+      - ops
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedOpsJobListItemList'
+          description: ''
+  /api/v1/ops/jobs/{id}:
+    get:
+      operationId: ops_jobs_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - ops
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OpsJobDetail'
+          description: ''
+  /api/v1/ops/jobs/{id}/bounty:
+    put:
+      operationId: ops_jobs_bounty_update
+      description: Set the bounty of a posted job. It applies at once to every recruiter
+        on it.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - ops
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OpsBountyRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/OpsBountyRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/OpsBountyRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OpsJobDetail'
+          description: ''
+  /api/v1/ops/jobs/{id}/channels:
+    patch:
+      operationId: ops_jobs_channels_partial_update
+      description: Switch the marketplace, withdraw pending invites and invite more
+        recruiters on a distributed job. Nothing is saved unless every change works.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - ops
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedOpsChannelsRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedOpsChannelsRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedOpsChannelsRequest'
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OpsJobDetail'
+          description: ''
+  /api/v1/ops/jobs/{id}/distribute:
+    post:
+      operationId: ops_jobs_distribute_create
+      description: Set the bounty and take a job out of the queue, on the marketplace,
+        to the recruiters picked, or both. Nothing is saved unless the whole distribution
+        works.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - ops
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OpsDistributeRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/OpsDistributeRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/OpsDistributeRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OpsJobDetail'
+          description: ''
+  /api/v1/ops/overview:
+    get:
+      operationId: ops_overview_retrieve
+      tags:
+      - ops
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OpsOverview'
+          description: ''
+  /api/v1/ops/recruiters:
+    get:
+      operationId: ops_recruiters_list
+      description: Every recruiter, or the ones in one state. The review queue is
+        `pending`, oldest submission first; the rest read by nickname.
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - in: query
+        name: search
+        schema:
+          type: string
+        description: Part of the nickname, full name or email.
+      - in: query
+        name: status
+        schema:
+          type: string
+          enum:
+          - approved
+          - pending
+          - rejected
+        description: |-
+          Only recruiters in this state. Leave it out for all of them.
+
+          * `pending` - Pending review
+          * `approved` - Approved
+          * `rejected` - Rejected
+      tags:
+      - ops
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedOpsRecruiterList'
+          description: ''
+  /api/v1/ops/recruiters/{id}/approve:
+    post:
+      operationId: ops_recruiters_approve_create
+      description: Let a recruiter in and email them. It is a 400 if they are already
+        approved; a rejected recruiter can be approved.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - ops
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OpsRecruiter'
+          description: ''
+  /api/v1/ops/recruiters/{id}/reject:
+    post:
+      operationId: ops_recruiters_reject_create
+      description: Turn a recruiter down and email them the note. The note is required,
+        and it is a 400 if they are already rejected; an approved recruiter can be
+        rejected.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - ops
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OpsRecruiterRejectRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/OpsRecruiterRejectRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/OpsRecruiterRejectRequest'
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OpsRecruiter'
+          description: ''
   /api/v1/public/jobs/{share_token}:
     get:
       operationId: public_jobs_retrieve
@@ -4821,10 +5511,12 @@ components:
       enum:
       - active
       - invited
+      - locked
       type: string
       description: |-
         * `active` - active
         * `invited` - invited
+        * `locked` - locked
     Message:
       type: object
       properties:
@@ -5015,6 +5707,569 @@ components:
           maxLength: 120
       required:
       - address
+    OpsBountyRequest:
+      type: object
+      description: The bounty Sparktal sets on a job.
+      properties:
+        bounty_type:
+          $ref: '#/components/schemas/BountyTypeEnum'
+        bounty_pct:
+          type: integer
+          nullable: true
+        bounty_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,15}(?:\.\d{0,0})?$
+          nullable: true
+      required:
+      - bounty_type
+    OpsCompany:
+      type: object
+      description: A company as Sparktal staff list it, with its people, teams and
+        live and queued jobs.
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        name:
+          type: string
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        profile_completed:
+          type: boolean
+          readOnly: true
+        members:
+          type: integer
+          readOnly: true
+        teams:
+          type: integer
+          readOnly: true
+        active_jobs:
+          type: integer
+          readOnly: true
+        queued_jobs:
+          type: integer
+          readOnly: true
+      required:
+      - active_jobs
+      - created_at
+      - id
+      - members
+      - name
+      - profile_completed
+      - queued_jobs
+      - teams
+    OpsCompanyCreateRequest:
+      type: object
+      description: Open a company account and invite its first admin.
+      properties:
+        name:
+          type: string
+          description: 1 to 120 characters once trimmed.
+        admin_email:
+          type: string
+          format: email
+          minLength: 1
+          maxLength: 254
+        admin_full_name:
+          type: string
+          minLength: 1
+          maxLength: 120
+      required:
+      - admin_email
+      - admin_full_name
+      - name
+    OpsCompanyRef:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        name:
+          type: string
+          readOnly: true
+      required:
+      - id
+      - name
+    OpsDistributeRequest:
+      type: object
+      description: Set the bounty and take a job out of the queue.
+      properties:
+        bounty_type:
+          $ref: '#/components/schemas/BountyTypeEnum'
+        bounty_pct:
+          type: integer
+          nullable: true
+        bounty_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,15}(?:\.\d{0,0})?$
+          nullable: true
+        on_marketplace:
+          type: boolean
+        recruiter_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+      required:
+      - bounty_type
+      - on_marketplace
+      - recruiter_ids
+    OpsInvite:
+      type: object
+      description: An offer Sparktal made to one recruiter, and what came of it.
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        recruiter:
+          allOf:
+          - $ref: '#/components/schemas/OpsRecruiterRef'
+          readOnly: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/InviteStatusEnum'
+          readOnly: true
+        decline_reason:
+          type: string
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        responded_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+      required:
+      - created_at
+      - decline_reason
+      - id
+      - recruiter
+      - responded_at
+      - status
+    OpsInviteCounts:
+      type: object
+      properties:
+        pending:
+          type: integer
+        accepted:
+          type: integer
+        declined:
+          type: integer
+      required:
+      - accepted
+      - declined
+      - pending
+    OpsJobDetail:
+      type: object
+      description: 'One job as Sparktal staff read it: the whole JD and brief, the
+        bounty and the channels.'
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        title:
+          type: string
+          readOnly: true
+        function:
+          allOf:
+          - $ref: '#/components/schemas/FunctionEnum'
+          readOnly: true
+        company:
+          allOf:
+          - $ref: '#/components/schemas/OpsCompanyRef'
+          readOnly: true
+        team_name:
+          type: string
+          readOnly: true
+          nullable: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/JobStatusEnum'
+          readOnly: true
+        posted_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        published_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        on_marketplace:
+          type: boolean
+          readOnly: true
+        bounty_type:
+          readOnly: true
+          nullable: true
+          oneOf:
+          - $ref: '#/components/schemas/BountyTypeEnum'
+          - $ref: '#/components/schemas/NullEnum'
+        bounty_pct:
+          type: integer
+          readOnly: true
+          nullable: true
+        bounty_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,15}(?:\.\d{0,0})?$
+          readOnly: true
+          nullable: true
+        why_we_need_you:
+          type: string
+          readOnly: true
+        roles:
+          type: string
+          readOnly: true
+          description: One responsibility per line.
+        qualifications:
+          type: string
+          readOnly: true
+          description: One must-have per line.
+        nice_to_have:
+          type: string
+          readOnly: true
+        benefits:
+          type: string
+          readOnly: true
+        skills:
+          type: array
+          items:
+            type: string
+            maxLength: 40
+          readOnly: true
+        work_model:
+          allOf:
+          - $ref: '#/components/schemas/WorkModelEnum'
+          readOnly: true
+        location_label:
+          type: string
+          readOnly: true
+        salary_min:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,15}(?:\.\d{0,0})?$
+          readOnly: true
+          nullable: true
+        salary_max:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,15}(?:\.\d{0,0})?$
+          readOnly: true
+          nullable: true
+        pay_basis:
+          allOf:
+          - $ref: '#/components/schemas/PayBasisEnum'
+          readOnly: true
+        working_hours:
+          allOf:
+          - $ref: '#/components/schemas/WorkingHoursEnum'
+          readOnly: true
+        reporting_line:
+          type: string
+          readOnly: true
+        role_type:
+          allOf:
+          - $ref: '#/components/schemas/RoleTypeEnum'
+          readOnly: true
+        has_internal_candidate:
+          type: boolean
+          readOnly: true
+          nullable: true
+        search_duration:
+          allOf:
+          - $ref: '#/components/schemas/SearchDurationEnum'
+          readOnly: true
+        target_start_date:
+          type: string
+          format: date
+          readOnly: true
+          nullable: true
+        interview_rounds_count:
+          type: integer
+          readOnly: true
+          nullable: true
+        interview_process_details:
+          type: string
+          readOnly: true
+        languages:
+          type: array
+          items:
+            $ref: '#/components/schemas/LanguagesEnum'
+          readOnly: true
+        core_competencies:
+          type: string
+          readOnly: true
+          description: One per line.
+        probation_expectations:
+          type: string
+          readOnly: true
+        salary_negotiable:
+          type: boolean
+          readOnly: true
+          nullable: true
+        allowances:
+          type: string
+          readOnly: true
+          description: One allowance or reward per line.
+        note_for_recruiters:
+          type: string
+          readOnly: true
+        recruiters_working:
+          type: integer
+          readOnly: true
+        invites:
+          type: array
+          items:
+            $ref: '#/components/schemas/OpsInvite'
+          readOnly: true
+      required:
+      - allowances
+      - benefits
+      - bounty_amount
+      - bounty_pct
+      - bounty_type
+      - company
+      - core_competencies
+      - function
+      - has_internal_candidate
+      - id
+      - interview_process_details
+      - interview_rounds_count
+      - invites
+      - languages
+      - location_label
+      - nice_to_have
+      - note_for_recruiters
+      - on_marketplace
+      - pay_basis
+      - posted_at
+      - probation_expectations
+      - published_at
+      - qualifications
+      - recruiters_working
+      - reporting_line
+      - role_type
+      - roles
+      - salary_max
+      - salary_min
+      - salary_negotiable
+      - search_duration
+      - skills
+      - status
+      - target_start_date
+      - team_name
+      - title
+      - why_we_need_you
+      - work_model
+      - working_hours
+    OpsJobListItem:
+      type: object
+      description: A job as Sparktal staff list it.
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        title:
+          type: string
+          readOnly: true
+        company:
+          allOf:
+          - $ref: '#/components/schemas/OpsCompanyRef'
+          readOnly: true
+        team_name:
+          type: string
+          readOnly: true
+          nullable: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/JobStatusEnum'
+          readOnly: true
+        posted_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        published_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        bounty_type:
+          readOnly: true
+          nullable: true
+          oneOf:
+          - $ref: '#/components/schemas/BountyTypeEnum'
+          - $ref: '#/components/schemas/NullEnum'
+        bounty_pct:
+          type: integer
+          readOnly: true
+          nullable: true
+        bounty_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,15}(?:\.\d{0,0})?$
+          readOnly: true
+          nullable: true
+        on_marketplace:
+          type: boolean
+          readOnly: true
+        invites:
+          allOf:
+          - $ref: '#/components/schemas/OpsInviteCounts'
+          readOnly: true
+        recruiters_working:
+          type: integer
+          readOnly: true
+      required:
+      - bounty_amount
+      - bounty_pct
+      - bounty_type
+      - company
+      - id
+      - invites
+      - on_marketplace
+      - posted_at
+      - published_at
+      - recruiters_working
+      - status
+      - team_name
+      - title
+    OpsOverview:
+      type: object
+      properties:
+        companies:
+          type: integer
+        active_jobs:
+          type: integer
+        queued_jobs:
+          type: integer
+        pending_recruiters:
+          type: integer
+        cvs_submitted:
+          type: integer
+        hires:
+          type: integer
+        queue:
+          type: array
+          items:
+            $ref: '#/components/schemas/OpsJobListItem'
+      required:
+      - active_jobs
+      - companies
+      - cvs_submitted
+      - hires
+      - pending_recruiters
+      - queue
+      - queued_jobs
+    OpsRecruiter:
+      type: object
+      description: A recruiter as Sparktal staff review them.
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        nickname:
+          type: string
+          readOnly: true
+        full_name:
+          type: string
+          readOnly: true
+        email:
+          type: string
+          format: email
+          readOnly: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/RecruiterProfileStatusEnum'
+          readOnly: true
+        expertise:
+          type: array
+          items:
+            type: string
+            maxLength: 24
+          readOnly: true
+        years_experience:
+          type: integer
+          readOnly: true
+          nullable: true
+        linkedin:
+          type: string
+          format: uri
+          readOnly: true
+        bio:
+          type: string
+          readOnly: true
+        submitted_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        reviewed_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        review_note:
+          type: string
+          readOnly: true
+        active_jobs:
+          type: integer
+          readOnly: true
+      required:
+      - active_jobs
+      - bio
+      - email
+      - expertise
+      - full_name
+      - id
+      - linkedin
+      - nickname
+      - review_note
+      - reviewed_at
+      - status
+      - submitted_at
+      - years_experience
+    OpsRecruiterRef:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        nickname:
+          type: string
+          readOnly: true
+        email:
+          type: string
+          format: email
+          readOnly: true
+      required:
+      - email
+      - id
+      - nickname
+    OpsRecruiterRejectRequest:
+      type: object
+      description: Why Sparktal turns a recruiter down. They read it in the email.
+      properties:
+        note:
+          type: string
+          default: ''
+          description: The reason the recruiter is told. A blank or missing note is
+            a 400.
     PaginatedApplicationListList:
       type: object
       required:
@@ -5153,6 +6408,75 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/MarketplaceJobListItem'
+    PaginatedOpsCompanyList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/OpsCompany'
+    PaginatedOpsJobListItemList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/OpsJobListItem'
+    PaginatedOpsRecruiterList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/OpsRecruiter'
     PaginatedRecruiterJobList:
       type: object
       required:
@@ -5420,6 +6744,22 @@ components:
           maxLength: 200
         can_publish:
           type: boolean
+    PatchedOpsChannelsRequest:
+      type: object
+      description: Change who a live job reaches.
+      properties:
+        on_marketplace:
+          type: boolean
+        invite_recruiter_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+        cancel_invite_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
     PatchedRecruiterProfileRequest:
       type: object
       properties:

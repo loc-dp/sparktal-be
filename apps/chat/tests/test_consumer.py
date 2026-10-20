@@ -92,3 +92,24 @@ async def test_posted_message_reaches_both_sides_but_not_an_outsider() -> None:
 async def test_group_name_uses_uuid_hex() -> None:
     world = await database_sync_to_async(build_world)()
     assert group_name(world["ta"]) == f"user_{world['ta'].pk.hex}"
+
+
+async def test_locking_an_account_closes_its_open_sockets() -> None:
+    from apps.companies.members import set_locked
+
+    world = await database_sync_to_async(build_world)()
+    other = await database_sync_to_async(build_world)("Outside Search")
+    ta_socket = await connect_as(world["ta"])
+    other_socket = await connect_as(other["ta"])
+    assert (await ta_socket.connect())[0] is True
+    assert (await other_socket.connect())[0] is True
+
+    def lock() -> None:
+        set_locked(world["ta"].membership, locked=True)
+
+    await database_sync_to_async(lock)()
+
+    assert await ta_socket.receive_output(timeout=3) == {"type": "websocket.close", "code": 4401}
+    await other_socket.send_json_to({"type": "ping"})
+    assert await other_socket.receive_json_from(timeout=2) == {"type": "pong"}
+    await other_socket.disconnect()

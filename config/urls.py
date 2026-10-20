@@ -18,6 +18,7 @@ urlpatterns = [
     path("api/v1/", include("apps.exports.urls")),
     path("api/v1/", include("apps.chat.urls")),
     path("api/v1/", include("apps.hiring.urls")),
+    path("api/v1/", include("apps.ops.urls")),
 ]
 
 if settings.DEBUG:

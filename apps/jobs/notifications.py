@@ -5,7 +5,6 @@ from decimal import Decimal
 from django.conf import settings
 from django.core.exceptions import FieldDoesNotExist
 from django.core.mail import EmailMultiAlternatives
-from django.urls import reverse
 from django.utils.text import capfirst
 
 from apps.accounts.models import User
@@ -107,8 +106,8 @@ def notify_requester_change_decided(change: JobChangeRequest) -> None:
 
 
 def ops_job_url(job: Job) -> str:
-    """Where Sparktal ops handle `job`: the Django Admin until part 3 brings `/a/jobs/{id}`."""
-    return f"{settings.BACKEND_URL}{reverse('admin:jobs_job_change', args=[job.pk])}"
+    """Where Sparktal ops handle `job`: its page in the ops portal."""
+    return f"{settings.FRONTEND_URL}/a/jobs/{job.pk}"
 
 
 def _field_label(name: str) -> str:

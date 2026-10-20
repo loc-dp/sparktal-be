@@ -10,7 +10,7 @@ from django.test import RequestFactory
 
 
 class InviteError(Exception):
-    """allauth refused to send the set-password email."""
+    """allauth refused to send the set-password email, or the mail server did."""
 
 
 @dataclass(frozen=True)
@@ -62,4 +62,7 @@ def send_password_invite(
         form = ResetPasswordForm(data={"email": email})
         if not form.is_valid():
             raise InviteError(form.errors.as_text())
-        form.save(request)
+        try:
+            form.save(request)
+        except OSError as exc:  # smtplib.SMTPException and socket errors are OSErrors
+            raise InviteError(f"The mail server refused the invite: {exc}") from exc

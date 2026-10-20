@@ -15,6 +15,10 @@ from apps.jobs.models import BountyType, Job
 
 BOUNTY_PCT_MIN = 5
 BOUNTY_PCT_MAX = 30
+# The sentences of the bounty rule. The FE forms (zod) say the same ones.
+BOUNTY_TYPE_MESSAGE = "Pick a bounty type."
+BOUNTY_PCT_MESSAGE = f"Bounty must be between {BOUNTY_PCT_MIN} and {BOUNTY_PCT_MAX}%"
+BOUNTY_AMOUNT_MESSAGE = "Enter the fixed bounty amount"
 
 # A bounty is set when the value its type asks for is there.
 HAS_BOUNTY = Q(bounty_type=BountyType.PCT, bounty_pct__isnull=False) | Q(
@@ -39,7 +43,7 @@ def clean_bounty(
     """The three bounty fields as they are stored: the one the type does not use is None."""
     if bounty_type == BountyType.FIXED:
         if not bounty_amount or bounty_amount <= 0:
-            raise ValidationError({"bounty_amount": ["Enter the fixed bounty amount"]})
+            raise ValidationError({"bounty_amount": [BOUNTY_AMOUNT_MESSAGE]})
         return {"bounty_type": bounty_type, "bounty_pct": None, "bounty_amount": bounty_amount}
     if bounty_type == BountyType.PCT:
         # A whole number only: 18.5 gets the same sentence as 40, and 18.0 is stored as 18.
@@ -48,11 +52,9 @@ def clean_bounty(
             or bounty_pct != int(bounty_pct)
             or not BOUNTY_PCT_MIN <= bounty_pct <= BOUNTY_PCT_MAX
         ):
-            raise ValidationError(
-                {"bounty_pct": [f"Bounty must be between {BOUNTY_PCT_MIN} and {BOUNTY_PCT_MAX}%"]}
-            )
+            raise ValidationError({"bounty_pct": [BOUNTY_PCT_MESSAGE]})
         return {"bounty_type": bounty_type, "bounty_pct": int(bounty_pct), "bounty_amount": None}
-    raise ValidationError({"bounty_type": ["Pick a bounty type."]})
+    raise ValidationError({"bounty_type": [BOUNTY_TYPE_MESSAGE]})
 
 
 # The bounty as a headhunter reads it. Declared by hand, not taken from the model, so the OpenAPI

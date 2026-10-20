@@ -44,13 +44,24 @@ def rename_team(team: Team, name: str) -> Team:
     return team
 
 
+@transaction.atomic
 def delete_team(team: Team) -> None:
-    if CompanyMembership.objects.filter(team=team).exists():
+    """Delete a team nobody and no job is in. A team already gone is left at that.
+
+    The team row is locked until commit, so two deletes or a rename of it wait their turn. Moving
+    a member or a job into the team takes no lock on it: its foreign key is checked when it
+    commits. One that has not committed by the checks below is not seen; the database then
+    refuses its commit, as the team is gone, so nothing is left pointing at no team.
+    """
+    locked = Team.objects.select_for_update().filter(pk=team.pk).first()
+    if locked is None:
+        return
+    if CompanyMembership.objects.filter(team=locked).exists():
         raise MemberRuleError("Move everyone out of this team first.")
     # Default manager on purpose: closed and soft-deleted jobs still point at the team.
-    if Job.objects.filter(team=team).exists():
+    if Job.objects.filter(team=locked).exists():
         raise MemberRuleError("This team still has jobs. Rename it instead.")
-    team.delete()
+    locked.delete()
 
 
 def resolve_team(

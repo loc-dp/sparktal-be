@@ -5,6 +5,7 @@ from django.contrib.auth.base_user import AbstractBaseUser
 from django.contrib.auth.models import PermissionsMixin
 from django.db import models
 from django.db.models import Q
+from django.db.models.functions import Lower
 from django.utils import timezone
 
 from apps.accounts.managers import UserManager
@@ -44,6 +45,9 @@ class User(AbstractBaseUser, PermissionsMixin):
                 condition=Q(locked_at__isnull=True) | Q(is_active=False),
                 name="accounts_user_locked_is_inactive",
             ),
+            # `unique=True` is case-sensitive, and only the manager lowercases. Two addresses
+            # that differ only in case are one account, whoever writes the row.
+            models.UniqueConstraint(Lower("email"), name="accounts_user_email_ci_unique"),
         )
 
     def __str__(self) -> str:

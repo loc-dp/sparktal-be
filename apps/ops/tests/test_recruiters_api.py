@@ -316,7 +316,9 @@ def test_reject_emails_the_reason(
 
 
 @pytest.mark.parametrize(
-    "body", [{"note": ""}, {"note": "   "}, {}], ids=["empty", "blank", "none"]
+    "body",
+    [{"note": ""}, {"note": "   "}, {}, {"note": None}],
+    ids=["empty", "blank", "none", "null"],
 )
 def test_reject_needs_note(
     staff_client: APIClient,

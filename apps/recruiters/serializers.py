@@ -3,7 +3,7 @@ from typing import Any
 
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models.functions import Lower
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema_field
@@ -82,18 +82,28 @@ class SignupSerializer(serializers.Serializer[RecruiterProfile]):
     @transaction.atomic
     def create(self, validated_data: dict[str, Any]) -> RecruiterProfile:
         now = timezone.now()
-        user = User.objects.create_user(
-            email=validated_data["email"],
-            password=validated_data["password"],
-            full_name=validated_data["full_name"],
-            kind=UserKind.RECRUITER,
-        )
-        return RecruiterProfile.objects.create(
-            user=user,
-            nickname=validated_data["nickname"],
-            agreed_terms_at=now,
-            submitted_at=now,
-        )
+        try:
+            # A savepoint: losing the race below must leave this transaction usable.
+            with transaction.atomic():
+                user = User.objects.create_user(
+                    email=validated_data["email"],
+                    password=validated_data["password"],
+                    full_name=validated_data["full_name"],
+                    kind=UserKind.RECRUITER,
+                )
+        except IntegrityError as exc:  # another signup took the address after `validate_email`
+            raise serializers.ValidationError({"email": [EMAIL_TAKEN]}) from exc
+        try:
+            # The same for the nickname; the account above goes with this transaction.
+            with transaction.atomic():
+                return RecruiterProfile.objects.create(
+                    user=user,
+                    nickname=validated_data["nickname"],
+                    agreed_terms_at=now,
+                    submitted_at=now,
+                )
+        except IntegrityError as exc:  # another signup took it after `validate_nickname`
+            raise serializers.ValidationError({"nickname": [NICKNAME_TAKEN]}) from exc
 
 
 class RecruiterProfileSerializer(serializers.ModelSerializer[RecruiterProfile]):

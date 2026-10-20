@@ -1,12 +1,14 @@
 import pytest
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
 from apps.companies.members import MemberRuleError
-from apps.companies.models import Company, CompanyRole, Team
+from apps.companies.models import Company, CompanyMembership, CompanyRole, Team
 from apps.companies.teams import TEAM_ROLES, create_team, delete_team, rename_team, resolve_team
 from apps.companies.tests.factories import CompanyFactory, CompanyMembershipFactory, TeamFactory
-from apps.jobs.models import JobStatus
+from apps.jobs.models import Job, JobStatus
 from apps.jobs.tests.factories import JobFactory
 
 pytestmark = pytest.mark.django_db
@@ -64,6 +66,36 @@ def test_delete_team_blocked_while_it_has_any_job(company: Company) -> None:
 def test_delete_empty_team(company: Company) -> None:
     team = TeamFactory(company=company)
     delete_team(team)
+    assert not Team.objects.filter(pk=team.pk).exists()
+
+
+def test_delete_team_locks_the_team_before_it_checks(company: Company) -> None:
+    team = TeamFactory(company=company)
+
+    with CaptureQueriesContext(connection) as queries:
+        delete_team(team)
+
+    def first(table: str, *, locking: bool = False) -> int:
+        return next(
+            i
+            for i, query in enumerate(queries.captured_queries)
+            if query["sql"].startswith("SELECT")
+            and f'FROM "{table}"' in query["sql"]
+            and ("FOR UPDATE" in query["sql"]) == locking
+        )
+
+    lock = first(Team._meta.db_table, locking=True)
+    assert lock < first(CompanyMembership._meta.db_table)
+    assert lock < first(Job._meta.db_table)
+    assert not Team.objects.filter(pk=team.pk).exists()
+
+
+def test_delete_team_of_a_team_already_gone_does_nothing(company: Company) -> None:
+    team = TeamFactory(company=company)
+    Team.objects.filter(pk=team.pk).delete()
+
+    delete_team(team)
+
     assert not Team.objects.filter(pk=team.pk).exists()
 
 

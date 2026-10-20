@@ -8,8 +8,9 @@ from collections.abc import Sequence
 from typing import Any
 from uuid import UUID
 
+from django.contrib.postgres.expressions import ArraySubquery
 from django.db import transaction
-from django.db.models import Prefetch, QuerySet
+from django.db.models import OuterRef, Prefetch, QuerySet
 from django.http import Http404
 
 from apps.accounts.models import User
@@ -22,7 +23,7 @@ from apps.jobs.distribution import (
     set_bounty,
     set_marketplace,
 )
-from apps.jobs.models import PRIVATE_STATUSES, Job, JobInvite, JobStatus
+from apps.jobs.models import PRIVATE_STATUSES, Job, JobAssignment, JobInvite, JobStatus
 from apps.ops.queries import annotate_ops_jobs
 from apps.recruiters.models import RecruiterProfile
 
@@ -40,7 +41,18 @@ def ops_jobs() -> QuerySet[Job]:
 def ops_job_detail_queryset() -> QuerySet[Job]:
     """What `OpsJobDetailSerializer` reads; the one way to fetch a job to return it."""
     invites = JobInvite.objects.select_related("recruiter__user").order_by("-created_at", "id")
-    return ops_jobs().select_related("office").prefetch_related(Prefetch("invites", invites))
+    # In the job's own query: an array of the recruiters on it who have not left.
+    working = JobAssignment.objects.filter(job=OuterRef("pk"), left_at__isnull=True)
+    return (
+        ops_jobs()
+        .select_related("office")
+        .annotate(
+            working_recruiter_ids=ArraySubquery(
+                working.order_by("joined_at", "id").values("recruiter_id")
+            )
+        )
+        .prefetch_related(Prefetch("invites", invites))
+    )
 
 
 @transaction.atomic

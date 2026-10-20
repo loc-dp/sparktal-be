@@ -6,6 +6,7 @@ from django.db import transaction
 from rest_framework.exceptions import ValidationError
 from rest_framework.test import APIClient
 
+from apps.accounts.managers import UserManager
 from apps.accounts.models import User, UserKind
 from apps.accounts.tests.factories import UserFactory
 from apps.companies.members import EMAIL_TAKEN, set_locked
@@ -65,6 +66,25 @@ def test_an_inactive_user_still_holds_the_email() -> None:
         provision()
 
     assert exc.value.detail == {"admin_email": [EMAIL_TAKEN]}
+
+
+@pytest.mark.parametrize(
+    "winner", ["admin@nordhaven.vn", "Admin@Nordhaven.VN"], ids=["same-case", "mixed-case"]
+)
+def test_losing_the_race_for_the_admin_email_is_email_taken(
+    monkeypatch: pytest.MonkeyPatch, winner: str
+) -> None:
+    UserFactory(email=winner)
+    users = User.objects.count()
+    # The address was free when provisioning looked, and taken when it made the account.
+    monkeypatch.setattr(UserManager, "filter", lambda self, *args, **kwargs: self.none())
+
+    with pytest.raises(ValidationError) as exc:
+        provision()
+
+    assert exc.value.detail == {"admin_email": [EMAIL_TAKEN]}
+    assert User.objects.count() == users
+    assert not Company.objects.filter(name="Nordhaven").exists()
 
 
 @pytest.mark.parametrize("name", ["", "    ", "x" * 121])

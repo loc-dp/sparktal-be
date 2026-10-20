@@ -74,6 +74,7 @@ DETAIL_KEYS = {
     "allowances",
     "note_for_recruiters",
     "recruiters_working",
+    "working_recruiter_ids",
     "invites",
 }
 INVITE_KEYS = {"id", "recruiter", "status", "decline_reason", "created_at", "responded_at"}
@@ -428,7 +429,7 @@ def test_detail_of_an_unknown_job_is_not_found(staff_client: APIClient) -> None:
     assert staff_client.get(f"{JOBS}/{uuid4()}").status_code == 404
 
 
-def test_detail_queries_do_not_grow_with_the_invites(
+def test_detail_queries_do_not_grow_with_the_invites_or_the_recruiters(
     staff_client: APIClient, django_assert_max_num_queries: Any
 ) -> None:
     job = live_job(team=TeamFactory())
@@ -436,9 +437,65 @@ def test_detail_queries_do_not_grow_with_the_invites(
         JobInviteFactory(job=job)
         JobAssignmentFactory(job=job)
 
-    # Session, user, the job, its invites with their recruiters; none of them per invite.
+    # Session, user, the job with who works on it, its invites with their recruiters; none of
+    # them per invite or per recruiter.
     with django_assert_max_num_queries(4):
-        assert len(staff_client.get(detail_url(job)).json()["invites"]) == 8
+        body = staff_client.get(detail_url(job)).json()
+    assert len(body["invites"]) == 8
+    assert len(body["working_recruiter_ids"]) == 8
+
+
+def test_detail_lists_the_recruiters_working_on_the_job_now(staff_client: APIClient) -> None:
+    job = live_job()
+    now = timezone.now()
+    invited_working = make_recruiter()
+    JobInviteFactory(
+        job=job, recruiter=invited_working, status=InviteStatus.ACCEPTED, responded_at=now
+    )
+    JobAssignmentFactory(job=job, recruiter=invited_working)
+    invited_left = make_recruiter()
+    JobInviteFactory(
+        job=job, recruiter=invited_left, status=InviteStatus.ACCEPTED, responded_at=now
+    )
+    JobAssignmentFactory(job=job, recruiter=invited_left, left_at=now)
+    joiner_working = make_recruiter()
+    JobAssignmentFactory(job=job, recruiter=joiner_working)
+    JobAssignmentFactory(job=job, left_at=now)  # a marketplace joiner who left
+    JobAssignmentFactory(job=live_job())  # works on another job
+    JobInviteFactory(job=job, status=InviteStatus.PENDING)  # not working yet
+
+    body = staff_client.get(detail_url(job)).json()
+
+    # The picker offers again an invitee who accepted and then left (ruling P3-R14).
+    assert sorted(body["working_recruiter_ids"]) == sorted(ids([invited_working, joiner_working]))
+    assert body["recruiters_working"] == 2
+
+
+def test_detail_of_a_job_nobody_works_on_lists_no_recruiters(staff_client: APIClient) -> None:
+    job = queued_job(cast(Company, CompanyFactory()), posted_ago_days=1, team=None)
+
+    assert staff_client.get(detail_url(job)).json()["working_recruiter_ids"] == []
+
+
+def test_channels_invite_again_a_recruiter_who_accepted_and_left(
+    staff_client: APIClient, django_capture_on_commit_callbacks: Commit, mailoutbox: list[Any]
+) -> None:
+    job = live_job()
+    left = make_recruiter()
+    invite = JobInviteFactory(
+        job=job, recruiter=left, status=InviteStatus.ACCEPTED, responded_at=timezone.now()
+    )
+    JobAssignmentFactory(job=job, recruiter=left, left_at=timezone.now())
+    assert str(left.pk) not in staff_client.get(detail_url(job)).json()["working_recruiter_ids"]
+
+    with django_capture_on_commit_callbacks(execute=True):
+        response = patch_channels(staff_client, job, {"invite_recruiter_ids": [str(left.pk)]})
+
+    assert response.status_code == 200
+    invite.refresh_from_db()
+    assert invite.status == InviteStatus.PENDING
+    assert len(mailoutbox) == 1
+    assert response.json()["working_recruiter_ids"] == []
 
 
 # Distribute --------------------------------------------------------------------------------

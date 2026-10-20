@@ -1,14 +1,23 @@
 import smtplib
 from collections.abc import Callable
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from django.core import mail
 from rest_framework.test import APIClient
 
 from apps.accounts.invites import InviteError
+from apps.accounts.managers import UserManager
 from apps.accounts.models import User, UserKind
-from apps.companies.members import TEAM_REQUIRED, MemberRuleError, remove_member
+from apps.accounts.tests.factories import UserFactory
+from apps.companies.members import (
+    EMAIL_TAKEN,
+    LAST_ADMIN,
+    TEAM_REQUIRED,
+    MemberRuleError,
+    remove_member,
+    set_locked,
+)
 from apps.companies.models import Company, CompanyMembership, CompanyRole, Team
 from apps.companies.tests.factories import CompanyMembershipFactory, TeamFactory
 
@@ -121,6 +130,28 @@ def test_recruiter_email_is_rejected(
     assert mail.outbox == []
     assert User.objects.count() == users
     assert CompanyMembership.objects.count() == memberships
+
+
+@pytest.mark.parametrize(
+    "winner", ["new.hire@velapay.vn", "New.Hire@VelaPay.vn"], ids=["same-case", "mixed-case"]
+)
+def test_losing_the_race_for_a_new_address_is_a_400_not_a_500(
+    client_for: ClientFor, company_admin: User, monkeypatch: pytest.MonkeyPatch, winner: str
+) -> None:
+    # Another invite made the account after this one looked for it. The factory stores the
+    # address as written, so the mixed-case row differs from ours only in case.
+    UserFactory(email=winner, kind=UserKind.COMPANY)
+    monkeypatch.setattr(UserManager, "select_for_update", lambda self: self.none())
+    users, memberships = User.objects.count(), CompanyMembership.objects.count()
+
+    response = invite(client_for(company_admin))
+
+    assert response.status_code == 400
+    assert response.json() == {"email": [EMAIL_TAKEN]}
+    assert mail.outbox == []
+    assert User.objects.count() == users
+    assert CompanyMembership.objects.count() == memberships
+    assert not Team.objects.filter(name="Growth").exists()
 
 
 @pytest.mark.parametrize(
@@ -446,6 +477,32 @@ def test_a_company_never_ends_up_without_an_admin(
     )
     assert hm_client.delete(member_url(company_hm)).status_code == 400
     assert CompanyMembership.objects.filter(role=CompanyRole.ADMIN).count() == 1
+
+
+def test_beside_a_locked_admin_the_last_unlocked_one_cannot_step_down(
+    client_for: ClientFor, company_admin: User, company: Company
+) -> None:
+    locked = cast(
+        CompanyMembership, CompanyMembershipFactory(company=company, role=CompanyRole.ADMIN)
+    )
+    set_locked(locked, locked=True)
+    client = client_for(company_admin)
+
+    demoted = client.patch(
+        member_url(company_admin),
+        {"role": "hiring_manager", "new_team_name": "Platform"},
+        format="json",
+    )
+
+    # A locked admin cannot manage the company, so they do not count as the admin left behind.
+    assert demoted.status_code == 400
+    assert demoted.json() == {"detail": LAST_ADMIN}
+    company_admin.membership.refresh_from_db()
+    assert company_admin.membership.role == CompanyRole.ADMIN
+    assert not Team.objects.filter(name="Platform").exists()
+    # Removing the locked admin leaves the admin the company can use.
+    assert client.delete(f"{URL}/{locked.pk}").status_code == 204
+    assert not CompanyMembership.objects.filter(pk=locked.pk).exists()
 
 
 def test_resend_invite_only_for_pending_members(

@@ -148,13 +148,18 @@ class OpsRecruiterSerializer(serializers.ModelSerializer[RecruiterProfile]):
 class OpsRecruiterRejectSerializer(serializers.Serializer[dict[str, Any]]):
     """Why Sparktal turns a recruiter down. They read it in the email."""
 
-    # Not `required`: a missing note and a blank one get the same sentence from `reject_recruiter`.
+    # Not `required`, and null is let through: a missing, blank or null note all get the same
+    # sentence from `reject_recruiter`.
     note = serializers.CharField(
         required=False,
         allow_blank=True,
+        allow_null=True,
         default="",
-        help_text="The reason the recruiter is told. A blank or missing note is a 400.",
+        help_text="The reason the recruiter is told. A blank, null or missing note is a 400.",
     )
+
+    def validate_note(self, value: str | None) -> str:
+        return value or ""
 
 
 class OpsInviteSerializer(serializers.ModelSerializer[JobInvite]):
@@ -177,6 +182,8 @@ class OpsJobDetailSerializer(serializers.ModelSerializer[Job]):
     team_name = serializers.CharField(source="team.name", read_only=True, allow_null=True)
     location_label = serializers.CharField(read_only=True)
     recruiters_working = serializers.IntegerField(read_only=True)
+    # Who works on the job now, so the invite picker can tell them from an invitee who left.
+    working_recruiter_ids = serializers.ListField(child=serializers.UUIDField(), read_only=True)
     invites = OpsInviteSerializer(many=True, read_only=True)
 
     class Meta:
@@ -208,6 +215,7 @@ class OpsJobDetailSerializer(serializers.ModelSerializer[Job]):
             *BRIEF_FIELDS,
             "note_for_recruiters",
             "recruiters_working",
+            "working_recruiter_ids",
             "invites",
         )
         read_only_fields = fields

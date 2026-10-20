@@ -6029,6 +6029,12 @@ components:
         recruiters_working:
           type: integer
           readOnly: true
+        working_recruiter_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+          readOnly: true
         invites:
           type: array
           items:
@@ -6074,6 +6080,7 @@ components:
       - why_we_need_you
       - work_model
       - working_hours
+      - working_recruiter_ids
     OpsJobListItem:
       type: object
       description: A job as Sparktal staff list it.
@@ -6267,9 +6274,10 @@ components:
       properties:
         note:
           type: string
+          nullable: true
           default: ''
-          description: The reason the recruiter is told. A blank or missing note is
-            a 400.
+          description: The reason the recruiter is told. A blank, null or missing
+            note is a 400.
     PaginatedApplicationListList:
       type: object
       required:

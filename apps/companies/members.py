@@ -1,6 +1,6 @@
 from functools import partial
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
 from django.utils import timezone
 from rest_framework.exceptions import APIException, ValidationError
@@ -23,8 +23,26 @@ class MemberRuleError(APIException):
     default_code = "member_rule"
 
 
-def admin_count(company: Company) -> int:
-    return CompanyMembership.objects.filter(company=company, role=CompanyRole.ADMIN).count()
+def is_last_admin(membership: CompanyMembership) -> bool:
+    """Whether the company would be left with no admin it can use without this admin seat.
+
+    An admin Sparktal locked cannot manage the company, so they are no successor to an unlocked
+    admin. A locked admin going leaves the usable admins as they were, so any other admin seat is
+    enough then. Sparktal locking the last admin is not guarded: that is its own decision.
+
+    Run it in the transaction that then changes the seat. It locks the company's admin seats
+    until commit, always in pk order and before anything else is locked, so two admins stepping
+    down at once wait their turn instead of both passing, and cannot deadlock on each other.
+    """
+    admin_seats = CompanyMembership.objects.filter(
+        company_id=membership.company_id, role=CompanyRole.ADMIN
+    )
+    list(admin_seats.select_for_update().order_by("pk").values_list("pk", flat=True))
+    # Read after the wait: a seat another admin's change just committed is seen as it is now.
+    others = admin_seats.exclude(pk=membership.pk)
+    if membership.user.locked_at is None:
+        others = others.filter(user__locked_at__isnull=True)
+    return not others.exists()
 
 
 TEAM_REQUIRED = "Pick a team for a hiring manager or talent acquisition member."
@@ -73,9 +91,16 @@ def invite_member(
     # companies inviting the same removed member at once must not both seat them.
     existing = User.objects.select_for_update().filter(email__iexact=normalized).first()
     if existing is None:
-        user = User.objects.create_user(
-            email=normalized, password=None, full_name=full_name, kind=UserKind.COMPANY
-        )
+        try:
+            # A savepoint: losing the race below must leave the caller's transaction usable.
+            with transaction.atomic():
+                user = User.objects.create_user(
+                    email=normalized, password=None, full_name=full_name, kind=UserKind.COMPANY
+                )
+        except IntegrityError as exc:
+            # Another invite made the account after we looked. It is brand new, not locked, so
+            # `locked_detail` does not apply.
+            raise ValidationError({"email": [EMAIL_TAKEN]}) from exc
     elif (
         existing.kind == UserKind.COMPANY
         and not existing.is_active
@@ -111,7 +136,7 @@ def update_member(
     if (
         old_role == CompanyRole.ADMIN
         and new_role != CompanyRole.ADMIN
-        and admin_count(membership.company) <= 1
+        and is_last_admin(membership)
     ):
         raise MemberRuleError(LAST_ADMIN)
 
@@ -160,7 +185,7 @@ def withdraw_pending_proposals(user: User) -> None:
 def remove_member(membership: CompanyMembership, *, actor: User) -> None:
     if membership.user_id == actor.pk:
         raise MemberRuleError("You can't remove yourself. Ask another admin to do it.")
-    if membership.role == CompanyRole.ADMIN and admin_count(membership.company) <= 1:
+    if membership.role == CompanyRole.ADMIN and is_last_admin(membership):
         raise MemberRuleError(LAST_ADMIN)
     user = membership.user
     withdraw_pending_proposals(user)

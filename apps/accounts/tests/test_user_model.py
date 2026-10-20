@@ -2,7 +2,8 @@ import uuid
 
 import pytest
 from django.contrib.auth import get_user_model
-from django.db import IntegrityError
+from django.core.exceptions import ValidationError
+from django.db import IntegrityError, transaction
 
 from apps.accounts.models import User, UserKind
 
@@ -40,6 +41,17 @@ def test_email_is_unique() -> None:
 
     with pytest.raises(IntegrityError):
         User.objects.create_user(email="dup@example.com", full_name="Two")
+
+
+def test_email_is_unique_whatever_its_case() -> None:
+    # `objects.create` does not lowercase, as a seeder or a shell writing the row would not.
+    User.objects.create(email="linh@velapay.vn", full_name="One")
+
+    with pytest.raises(IntegrityError), transaction.atomic():
+        User.objects.create(email="Linh@VelaPay.vn", full_name="Two")
+    with pytest.raises(ValidationError):
+        User(email="LINH@velapay.vn", full_name="Three").validate_constraints()
+    assert User.objects.filter(email__iexact="linh@velapay.vn").count() == 1
 
 
 def test_create_superuser_is_staff_kind() -> None:

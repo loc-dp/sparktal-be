@@ -5,7 +5,9 @@ from django.db import connection
 from django.test.utils import CaptureQueriesContext
 from rest_framework.exceptions import ValidationError
 
-from apps.accounts.models import User
+from apps.accounts.managers import UserManager
+from apps.accounts.models import User, UserKind
+from apps.accounts.tests.factories import UserFactory
 from apps.companies.members import (
     ACCOUNT_LOCKED,
     EMAIL_TAKEN,
@@ -247,3 +249,114 @@ def test_updating_member_withdraws_proposals_only_on_team_or_role_change(
     request.refresh_from_db()
     expected = ChangeStatus.PENDING if change == "none" else ChangeStatus.WITHDRAWN
     assert request.status == expected
+
+
+# Two invites of one new address at once ------------------------------------------------------
+
+
+def lose_the_race_for(email: str, monkeypatch: pytest.MonkeyPatch) -> User:
+    """Another invite made the account for `email` after this one looked: the lookup misses it."""
+    winner = cast(User, UserFactory(email=email, kind=UserKind.COMPANY, full_name="Winner"))
+    monkeypatch.setattr(UserManager, "select_for_update", lambda self: self.none())
+    return winner
+
+
+@pytest.mark.parametrize("locked_detail", [EMAIL_TAKEN, ACCOUNT_LOCKED], ids=["company", "ops"])
+def test_losing_the_race_for_a_new_address_is_email_taken(
+    company: Company, monkeypatch: pytest.MonkeyPatch, locked_detail: str
+) -> None:
+    winner = lose_the_race_for("new@velapay.vn", monkeypatch)
+    users, seats = User.objects.count(), CompanyMembership.objects.count()
+
+    with pytest.raises(ValidationError) as exc:
+        invite(company, role="admin", locked_detail=locked_detail)
+
+    # The address went to a brand-new account, not a locked one, whoever asks.
+    assert exc.value.detail == {"email": [EMAIL_TAKEN]}
+    assert User.objects.count() == users
+    assert CompanyMembership.objects.count() == seats
+    winner.refresh_from_db()
+    assert winner.full_name == "Winner"
+
+
+# The last admin, when Sparktal locked one --------------------------------------------------
+
+
+def admin_seat(company: Company, *, locked: bool = False) -> CompanyMembership:
+    seat = cast(
+        CompanyMembership, CompanyMembershipFactory(company=company, role=CompanyRole.ADMIN)
+    )
+    if locked:
+        set_locked(seat, locked=True)
+    return seat
+
+
+def sparktal_staff() -> User:
+    return cast(User, UserFactory(kind=UserKind.STAFF, is_staff=True))
+
+
+def test_the_last_unlocked_admin_cannot_go_beside_a_locked_one(company: Company) -> None:
+    admin = admin_seat(company)
+    admin_seat(company, locked=True)
+
+    with pytest.raises(MemberRuleError) as demoted:
+        update_member(admin, role=CompanyRole.HIRING_MANAGER, team=TeamFactory(company=company))
+    with pytest.raises(MemberRuleError) as removed:
+        remove_member(admin, actor=sparktal_staff())
+
+    assert demoted.value.detail == LAST_ADMIN
+    assert removed.value.detail == LAST_ADMIN
+    admin.refresh_from_db()
+    assert admin.role == CompanyRole.ADMIN
+
+
+@pytest.mark.parametrize("other_locked", [False, True], ids=["beside-unlocked", "beside-locked"])
+@pytest.mark.parametrize("action", ["demote", "remove"])
+def test_a_locked_admin_can_go_while_another_admin_seat_remains(
+    company: Company, action: str, other_locked: bool
+) -> None:
+    admin_seat(company, locked=other_locked)
+    locked = admin_seat(company, locked=True)
+
+    if action == "demote":
+        update_member(locked, role=CompanyRole.HIRING_MANAGER, team=TeamFactory(company=company))
+        locked.refresh_from_db()
+        assert locked.role == CompanyRole.HIRING_MANAGER
+    else:
+        remove_member(locked, actor=sparktal_staff())
+        assert not CompanyMembership.objects.filter(pk=locked.pk).exists()
+
+
+@pytest.mark.parametrize("locked", [False, True], ids=["unlocked", "locked"])
+def test_the_only_admin_still_cannot_be_removed_or_demoted(company: Company, locked: bool) -> None:
+    only = admin_seat(company, locked=locked)
+    CompanyMembershipFactory(company=company, role=CompanyRole.HIRING_MANAGER)
+
+    with pytest.raises(MemberRuleError) as removed:
+        remove_member(only, actor=sparktal_staff())
+    with pytest.raises(MemberRuleError) as demoted:
+        update_member(only, role=CompanyRole.HIRING_MANAGER, team=TeamFactory(company=company))
+
+    assert removed.value.detail == LAST_ADMIN
+    assert demoted.value.detail == LAST_ADMIN
+    assert CompanyMembership.objects.get(pk=only.pk).role == CompanyRole.ADMIN
+
+
+@pytest.mark.parametrize("action", ["demote", "remove"])
+def test_the_last_admin_guard_locks_the_admin_seats_first(company: Company, action: str) -> None:
+    admin = admin_seat(company)
+    admin_seat(company)
+
+    with CaptureQueriesContext(connection) as queries:
+        if action == "demote":
+            update_member(admin, role=CompanyRole.HIRING_MANAGER, team=TeamFactory(company=company))
+        else:
+            remove_member(admin, actor=sparktal_staff())
+
+    # Two admins stepping down at once wait their turn, in one order, instead of both passing.
+    table = CompanyMembership._meta.db_table
+    sql = [q["sql"] for q in queries.captured_queries]
+    lock = next(i for i, q in enumerate(sql) if f'FROM "{table}"' in q and "FOR UPDATE" in q)
+    assert "ORDER BY" in sql[lock]
+    write = f'UPDATE "{table}"' if action == "demote" else f'DELETE FROM "{table}"'
+    assert lock < next(i for i, q in enumerate(sql) if q.startswith(write))

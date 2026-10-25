@@ -17,6 +17,8 @@ from apps.hiring.models import (
     Feedback,
     Interview,
     InterviewFormat,
+    Placement,
+    PlacementOutcome,
     Verdict,
 )
 
@@ -135,6 +137,14 @@ DECIDED_APPROVALS = [
     ),
 ]
 
+GUARANTEE_DAYS = 60
+# candidate, days since the start date, outcome ("" = the hire is still running)
+PLACEMENTS = [
+    ("Phan Nhật Minh", 75, ""),  # past the guarantee: Sparktal owes NorthStar Talent
+    ("Đinh Quỳnh Anh", 20, ""),  # inside the guarantee
+    ("Cao Minh Khôi", 10, PlacementOutcome.NO_SHOW),
+]
+
 
 @register_seeder(order=80)
 def seed(ctx: SeedContext) -> None:
@@ -220,3 +230,25 @@ def seed(ctx: SeedContext) -> None:
             application__isnull=True,
             body__contains=application.candidate.full_name,
         ).update(application=application)
+
+    # Rows are written directly, so no outcome email goes out.
+    placed_on = timezone.localdate()
+    for name, days_since_start, outcome in PLACEMENTS:
+        start = placed_on - timedelta(days=days_since_start)
+        Placement.objects.update_or_create(
+            application=by_name[name],
+            defaults={
+                "start_date": start,
+                "guarantee_days": GUARANTEE_DAYS,
+                "outcome": outcome,
+                "ended_on": start if outcome else None,
+                "outcome_note": "",
+                "reported_by": users[TA] if outcome else None,
+                "reported_at": now - timedelta(days=days_since_start) if outcome else None,
+                # A re-seed returns a placement Ops marked paid to "due".
+                "paid_amount": None,
+                "paid_at": None,
+                "payout_note": "",
+                "paid_by": None,
+            },
+        )

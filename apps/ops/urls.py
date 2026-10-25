@@ -14,6 +14,8 @@ from apps.ops.api import (
     OpsMemberResendInviteView,
     OpsMemberUnlockView,
     OpsOverviewView,
+    OpsPlacementListView,
+    OpsPlacementMarkPaidView,
     OpsRecruiterApproveView,
     OpsRecruiterListView,
     OpsRecruiterRejectView,
@@ -57,4 +59,10 @@ urlpatterns = [
     ),
     path(f"{COMPANY}/teams", OpsTeamListCreateView.as_view(), name="ops-company-teams"),
     path(f"{COMPANY}/teams/<uuid:id>", OpsTeamDetailView.as_view(), name="ops-company-team"),
+    path("ops/placements", OpsPlacementListView.as_view(), name="ops-placements"),
+    path(
+        "ops/placements/<uuid:pk>/mark-paid",
+        OpsPlacementMarkPaidView.as_view(),
+        name="ops-placement-mark-paid",
+    ),
 ]

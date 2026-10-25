@@ -5,6 +5,7 @@ from django.utils import timezone
 from factory.django import DjangoModelFactory
 
 from apps.accounts.tests.factories import UserFactory
+from apps.candidates.models import Stage
 from apps.candidates.tests.factories import ApplicationFactory
 from apps.hiring.models import (
     ApprovalRequest,
@@ -13,6 +14,7 @@ from apps.hiring.models import (
     Feedback,
     Interview,
     InterviewFormat,
+    Placement,
     Verdict,
 )
 
@@ -57,3 +59,14 @@ class ApprovalRequestFactory(DjangoModelFactory[ApprovalRequest]):
     approver = factory.SubFactory(UserFactory)
     stage = factory.LazyAttribute(lambda request: request.application.stage)
     status = ApprovalStatus.PENDING
+
+
+class PlacementFactory(DjangoModelFactory[Placement]):
+    class Meta:
+        model = Placement
+
+    application = factory.SubFactory(ApplicationFactory, stage=Stage.ONBOARDED)
+    start_date = factory.LazyFunction(timezone.localdate)
+    guarantee_days = factory.LazyAttribute(
+        lambda placement: placement.application.job.guarantee_days
+    )

@@ -3,16 +3,25 @@
 A few endpoints also serve the recruiter who submitted the candidate.
 """
 
+import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any, cast
 
+from django.db.models import QuerySet
 from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import extend_schema, extend_schema_view
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from rest_framework import status
-from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
+from rest_framework.exceptions import (
+    APIException,
+    NotFound,
+    PermissionDenied,
+    ValidationError,
+)
+from rest_framework.generics import ListAPIView
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -21,8 +30,10 @@ from apps.accounts.models import User
 from apps.candidates.models import Application
 from apps.chat.api import MESSAGE_PAGE_PARAMETERS, message_page
 from apps.chat.serializers import MessagePageSerializer, MessageSerializer
+from apps.companies.access import membership_of
 from apps.core.documents import extract_text
 from apps.core.http import content_disposition
+from apps.core.pagination import DefaultPagination
 from apps.hiring.access import (
     DETAIL_HINTS,
     company_application_or_404,
@@ -31,7 +42,24 @@ from apps.hiring.access import (
 )
 from apps.hiring.cv import CvKind, cv_kind
 from apps.hiring.discussion import post_message
-from apps.hiring.models import ApprovalRequest, ApprovalStatus, CandidateNote, Feedback, Interview
+from apps.hiring.models import (
+    ApprovalRequest,
+    ApprovalStatus,
+    CandidateNote,
+    Feedback,
+    Interview,
+    Placement,
+)
+from apps.hiring.placements import (
+    ENDED,
+    PayoutStatus,
+    PlacementConflict,
+    PlacementStatus,
+    change_start_date,
+    filter_by_status,
+    placement_state,
+    report_outcome,
+)
 from apps.hiring.serializers import (
     NOT_YOUR_NOTE,
     ONLY_APPROVER,
@@ -41,12 +69,17 @@ from apps.hiring.serializers import (
     ApprovalDecisionSerializer,
     ArchiveSerializer,
     CandidateNoteSerializer,
+    CompanyPlacementSerializer,
     CvTextSerializer,
     DiscussionMessageCreateSerializer,
     FeedbackSerializer,
     FeedbackWriteSerializer,
+    HireSerializer,
     InterviewCreateSerializer,
     NoteCreateSerializer,
+    PlacementReportSerializer,
+    PlacementStartDateSerializer,
+    RecruiterPlacementListSerializer,
     TeammateSerializer,
     WaitingApprovalSerializer,
 )
@@ -61,7 +94,8 @@ from apps.hiring.workflow import (
     request_approval,
     schedule_interview,
 )
-from apps.jobs.access import can_view_job
+from apps.jobs.access import can_view_job, jobs_visible_to
+from apps.recruiters.access import IsApprovedRecruiter, approved_recruiter
 
 
 def acting_user(request: Request) -> User:
@@ -72,7 +106,7 @@ def detail_response(
     request: Request, application: Application, *, code: int = status.HTTP_200_OK
 ) -> Response:
     fresh = (
-        Application.objects.select_related(*DETAIL_HINTS)
+        Application.objects.select_related(*DETAIL_HINTS, "placement")
         .prefetch_related("interviews")
         .get(pk=application.pk)
     )
@@ -101,7 +135,7 @@ class Conflict(APIException):
 def conflicts_as_409() -> Iterator[None]:
     try:
         yield
-    except StageConflict as error:
+    except (StageConflict, PlacementConflict) as error:
         raise Conflict(str(error)) from error
 
 
@@ -141,10 +175,15 @@ class OfferView(StageCommandView):
         make_offer(application)
 
 
-@command_schema("applications_hire_create")
+@command_schema("applications_hire_create", HireSerializer)
 class HireView(StageCommandView):
     def run(self, request: Request, application: Application) -> None:
-        mark_hired(application)
+        payload = HireSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        try:
+            mark_hired(application, payload.validated_data["start_date"])
+        except PlacementConflict as error:
+            raise ValidationError({"start_date": [str(error)]}) from error
 
 
 @command_schema("applications_archive_create", ArchiveSerializer)
@@ -443,3 +482,156 @@ class CvTextView(APIView):
         except (FileNotFoundError, OSError) as error:
             raise Http404 from error
         return Response(CvTextSerializer({"text": extracted}).data)
+
+
+PLACEMENT_RELATED = (
+    "application__candidate",
+    "application__job__company",
+    "application__recruiter",
+)
+
+
+def placement_or_404(user: User, pk: Any) -> Placement:
+    """404, not 403, so nobody can probe placements outside the jobs they see."""
+    placement = get_object_or_404(Placement.objects.select_related(*PLACEMENT_RELATED), pk=pk)
+    if not can_view_job(user, placement.application.job):
+        raise Http404
+    return placement
+
+
+def placement_status_filter(params: Any) -> str | None:
+    wanted = params.get("status")
+    if wanted and wanted != ENDED and wanted not in PlacementStatus.values:
+        raise ValidationError({"status": [f"Unknown status '{wanted}'."]})
+    return cast("str | None", wanted or None)
+
+
+@extend_schema_view(
+    get=extend_schema(
+        tags=["hiring"],
+        operation_id="company_placements_list",
+        parameters=[
+            OpenApiParameter(
+                "status",
+                OpenApiTypes.STR,
+                enum=[*PlacementStatus.values, ENDED],
+                description="`ended` is a no-show or a leave.",
+            ),
+            OpenApiParameter("job", OpenApiTypes.UUID),
+        ],
+    )
+)
+class CompanyPlacementListView(ListAPIView[Placement]):
+    """Everyone the company hired on the jobs the member sees, newest start date first."""
+
+    serializer_class = CompanyPlacementSerializer
+    pagination_class = DefaultPagination
+
+    def get_queryset(self) -> QuerySet[Placement]:
+        user = acting_user(self.request)
+        if membership_of(user) is None:
+            raise NotFound("You are not a member of a company.")
+        placements = Placement.objects.filter(
+            application__job__in=jobs_visible_to(user)
+        ).select_related(*PLACEMENT_RELATED)
+        params = self.request.query_params
+        wanted = placement_status_filter(params)
+        if wanted:
+            placements = filter_by_status(placements, wanted, timezone.localdate())
+        job = params.get("job")
+        if job:
+            try:
+                placements = placements.filter(application__job_id=uuid.UUID(job))
+            except ValueError as error:
+                raise ValidationError({"job": ["Not a valid job id."]}) from error
+        return placements.order_by("-start_date", "-id")
+
+
+@extend_schema_view(
+    patch=extend_schema(
+        tags=["hiring"],
+        operation_id="placements_partial_update",
+        request=PlacementStartDateSerializer,
+        responses=CompanyPlacementSerializer,
+    )
+)
+class PlacementDetailView(APIView):
+    def patch(self, request: Request, pk: Any) -> Response:
+        placement = placement_or_404(acting_user(request), pk)
+        payload = PlacementStartDateSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        with conflicts_as_409():
+            changed = change_start_date(
+                placement, payload.validated_data["start_date"], timezone.localdate()
+            )
+        return placement_response(request, changed)
+
+
+@extend_schema_view(
+    post=extend_schema(
+        tags=["hiring"],
+        operation_id="placements_report_create",
+        request=PlacementReportSerializer,
+        responses=CompanyPlacementSerializer,
+    )
+)
+class PlacementReportView(APIView):
+    """The candidate never came, or left during the guarantee."""
+
+    def post(self, request: Request, pk: Any) -> Response:
+        user = acting_user(request)
+        placement = placement_or_404(user, pk)
+        payload = PlacementReportSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        with conflicts_as_409():
+            reported = report_outcome(
+                placement,
+                user,
+                payload.validated_data["outcome"],
+                payload.validated_data["ended_on"],
+                payload.validated_data["note"],
+                timezone.localdate(),
+            )
+        return placement_response(request, reported)
+
+
+def placement_response(request: Request, placement: Placement) -> Response:
+    fresh = Placement.objects.select_related(*PLACEMENT_RELATED).get(pk=placement.pk)
+    return Response(CompanyPlacementSerializer(fresh, context={"request": request}).data)
+
+
+@extend_schema_view(
+    get=extend_schema(
+        tags=["recruiters"],
+        operation_id="recruiters_me_placements_list",
+        responses=RecruiterPlacementListSerializer,
+    )
+)
+class RecruiterPlacementListView(APIView):
+    """The recruiter's hires with what they earn, and the totals for the Earnings header."""
+
+    permission_classes = (IsApprovedRecruiter,)
+
+    def get(self, request: Request) -> Response:
+        profile = approved_recruiter(request.user)
+        assert profile is not None, "IsApprovedRecruiter must run before this view"
+        placements = list(
+            Placement.objects.filter(application__recruiter=profile)
+            .select_related(*PLACEMENT_RELATED)
+            .order_by("-start_date", "-id")
+        )
+        today = timezone.localdate()
+        states = [placement_state(placement, today) for placement in placements]
+        summary = {
+            "paid_total": sum(int(p.paid_amount) for p in placements if p.paid_amount is not None),
+            "due_count": sum(state.payout_status == PayoutStatus.DUE for state in states),
+            "in_guarantee_count": sum(
+                state.status == PlacementStatus.IN_GUARANTEE for state in states
+            ),
+            "starting_count": sum(state.status == PlacementStatus.STARTING for state in states),
+        }
+        body = RecruiterPlacementListSerializer(
+            {"summary": summary, "results": placements},
+            context={"request": request, "today": today},
+        )
+        return Response(body.data)

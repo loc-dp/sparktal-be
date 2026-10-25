@@ -230,6 +230,7 @@ class HomeJobRowSerializer(serializers.Serializer[dict[str, Any]]):
     days_open = serializers.IntegerField()
     cv_count = serializers.IntegerField()
     new_count = serializers.IntegerField()
+    unanswered_questions = serializers.IntegerField()
 
 
 class HomeActionSerializer(serializers.Serializer[dict[str, Any]]):

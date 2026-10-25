@@ -62,12 +62,19 @@ def set_bounty(
     bounty_type: str | None,
     bounty_pct: int | None = None,
     bounty_amount: Decimal | None = None,
+    guarantee_days: int | None = None,
 ) -> Job:
-    """Set the bounty; it applies at once to every recruiter on the job (no per-CV snapshot)."""
+    """Set the bounty; it applies at once to every recruiter on the job (no per-CV snapshot).
+
+    `guarantee_days`, when given, is set with it. It only reaches placements made afterwards:
+    each one copies the days when the candidate is hired.
+    """
     locked = _locked(job)
     if locked.status in PRIVATE_STATUSES or locked.deleted_at is not None:
         raise DistributionError(NOT_POSTED)
     values = clean_bounty(bounty_type, bounty_pct, bounty_amount)
+    if guarantee_days is not None:
+        values["guarantee_days"] = guarantee_days
     for name, value in values.items():
         setattr(locked, name, value)
     locked.save(update_fields=[*values, "updated_at"])

@@ -1,0 +1,13 @@
+{% extends "email/base.html" %}
+{% block title %}{{ recruiter_name }} asked a question about {{ job_title }}{% endblock %}
+{% block preheader %}{{ recruiter_name }} asked: {{ question|truncatechars:90 }}{% endblock %}
+{% block eyebrow %}Question{% endblock %}
+{% block headline %}{{ recruiter_name }} asked a question.{% endblock %}
+{% block lead %}About {{ job_title }}. Answer it from the job page; other recruiters on the job see your answer too.{% endblock %}
+{% block action %}{% include "email/_button.html" with url=job_url label="Answer the question" %}{% endblock %}
+{% block details %}
+<p style="margin:0;color:#52525B;white-space:pre-line;">{{ question }}</p>
+{% endblock %}
+{% block footnote %}
+<p style="margin:24px 0 0 0;padding-top:20px;border-top:1px solid #E4E4E7;font-size:12px;line-height:1.6;color:#6B6B76;">The button not working? Paste this address into your browser:<br><a href="{{ job_url }}" style="color:#52525B;word-break:break-all;">{{ job_url }}</a></p>
+{% endblock %}

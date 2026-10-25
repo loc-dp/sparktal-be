@@ -1,0 +1,9 @@
+{% extends "email/base.txt" %}{% block content %}
+{% if no_show %}{{ candidate_name }} did not start at {{ company_name }} ("{{ job_title }}").{% else %}{{ candidate_name }} left {{ company_name }} ("{{ job_title }}") on {{ ended_on|date:"j M Y" }}, during the guarantee period.{% endif %}
+{% if note %}
+Note from {{ company_name }}:
+{{ note }}
+{% endif %}
+This placement will not be paid out. See your earnings:
+{{ earnings_url }}
+{% endblock %}

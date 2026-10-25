@@ -310,3 +310,27 @@ def test_seed_jobs_carry_the_date_the_company_posted_them() -> None:
         .exclude(posted_at__isnull=True)
         .exists()
     )
+
+
+def test_seed_adds_questions_from_northstar_and_sends_no_mail() -> None:
+    from apps.jobs.models import JobQuestion
+
+    call_command("seed_demo", "--force")
+    call_command("seed_demo", "--force")
+
+    backend = JobQuestion.objects.filter(job__title="Senior Backend Engineer")
+    assert backend.count() == 3
+    assert backend.exclude(answer="").count() == 2
+    assert backend.filter(answer="").count() == 1
+    analyst = JobQuestion.objects.get(job__title="Data Analyst")
+    assert analyst.answer == ""
+    assert JobQuestion.objects.count() == 4
+    assert set(JobQuestion.objects.values_list("asked_by__nickname", flat=True)) == {
+        "NorthStar Talent"
+    }
+    answered = backend.exclude(answer="")
+    for q in answered:
+        assert q.answered_by is not None
+        assert q.answered_at is not None
+        assert q.answered_at > q.created_at
+    assert mail.outbox == []

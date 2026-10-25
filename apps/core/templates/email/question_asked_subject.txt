@@ -1,0 +1,1 @@
+{{ recruiter_name }} asked a question about {{ job_title }}

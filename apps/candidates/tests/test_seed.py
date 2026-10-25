@@ -45,8 +45,8 @@ def test_seed_is_idempotent() -> None:
     call_command("seed_demo", "--force")
 
     assert Application.objects.filter(job__title="Senior Backend Engineer").count() == 12
-    assert Application.objects.count() == 16
-    assert Candidate.objects.count() == 22
+    assert Application.objects.count() == 18
+    assert Candidate.objects.count() == 24
     assert Application.objects.filter(is_duplicate=True).count() == 1
 
 
@@ -76,7 +76,7 @@ def test_every_pool_candidate_has_identity_hashes() -> None:
 def test_seeding_twice_does_not_duplicate_the_pool() -> None:
     call_command("seed_demo", "--force")
     call_command("seed_demo", "--force")
-    assert Candidate.objects.count() == 22
+    assert Candidate.objects.count() == 24
 
 
 def test_the_duplicate_pair_is_real() -> None:

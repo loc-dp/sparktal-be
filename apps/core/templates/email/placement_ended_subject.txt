@@ -1,0 +1,1 @@
+{% if no_show %}{{ candidate_name }} did not start{% else %}{{ candidate_name }} left{% endif %} · {{ job_title }}

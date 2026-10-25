@@ -9,6 +9,7 @@ from apps.candidates.models import Application, Stage
 from apps.candidates.tests.factories import ApplicationFactory, CandidateFactory
 from apps.companies.tests.factories import TeamFactory
 from apps.jobs.models import Job
+from apps.jobs.tests.conftest import team_world  # noqa: F401  (shared with the placement tests)
 from apps.recruiters.models import RecruiterProfile
 
 

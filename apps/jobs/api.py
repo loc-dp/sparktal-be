@@ -4,6 +4,7 @@ from typing import Any
 from django.db import transaction
 from django.db.models import Count, OuterRef, Q, QuerySet, Subquery
 from django.db.models.functions import Coalesce
+from django.http import Http404
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django_filters.rest_framework import DjangoFilterBackend
@@ -29,6 +30,7 @@ from apps.companies.access import company_of
 from apps.jobs.access import (
     NOT_YOURS,
     can_change_job,
+    can_view_job,
     jobs_joined_by,
     jobs_offered_to,
     jobs_visible_to,
@@ -45,7 +47,15 @@ from apps.jobs.lifecycle import (
     withdraw_job,
 )
 from apps.jobs.marketplace import MarketplaceFilterSet, annotate_marketplace, marketplace_queryset
-from apps.jobs.models import ChangeStatus, JdParse, Job, JobAssignment, JobChangeRequest, JobStatus
+from apps.jobs.models import (
+    ChangeStatus,
+    JdParse,
+    Job,
+    JobAssignment,
+    JobChangeRequest,
+    JobQuestion,
+    JobStatus,
+)
 from apps.jobs.proposals import (
     approve_change,
     change_requests_visible_to,
@@ -55,10 +65,22 @@ from apps.jobs.proposals import (
     withdraw_change,
 )
 from apps.jobs.queries import annotate_job_metrics
+from apps.jobs.questions import (
+    QuestionRejected,
+    answer_question,
+    ask_question,
+    hide_question,
+    recruiter_question_jobs,
+    unanswered_counts,
+    visible_to_company,
+    visible_to_recruiter,
+)
 from apps.jobs.serializers import (
+    AnswerCreateSerializer,
     ChangeRequestCreateSerializer,
     ChangeRequestDecisionSerializer,
     ChangeRequestSerializer,
+    CompanyQuestionSerializer,
     JdParseAvailabilitySerializer,
     JdParseCreateSerializer,
     JdParseSerializer,
@@ -71,6 +93,8 @@ from apps.jobs.serializers import (
     MarketplaceJobListItemSerializer,
     MarketplaceJobSerializer,
     PublicJobSerializer,
+    QuestionCreateSerializer,
+    RecruiterQuestionSerializer,
 )
 from apps.jobs.tasks import parse_jd
 from apps.recruiters.access import IsApprovedRecruiter, approved_recruiter
@@ -298,6 +322,7 @@ class JobOverviewView(JobActionView):
                 .order_by("-total")
             ],
             "note_for_recruiters": job.note_for_recruiters,
+            "unanswered_questions": unanswered_counts(Job.objects.filter(pk=job.pk)).get(job.pk, 0),
         }
         return Response(JobOverviewSerializer(payload).data)
 
@@ -587,3 +612,110 @@ class ChangeRequestWithdrawView(ChangeRequestActionView):
         change = self.get_change(pk)
         withdraw_change(change, actor=_actor(self))
         return self.respond(change)
+
+
+@extend_schema_view(
+    get=extend_schema(
+        operation_id="marketplace_jobs_questions_list",
+        tags=["marketplace"],
+        responses=RecruiterQuestionSerializer(many=True),
+    ),
+    post=extend_schema(
+        operation_id="marketplace_jobs_questions_create",
+        tags=["marketplace"],
+        request=QuestionCreateSerializer,
+        responses={201: RecruiterQuestionSerializer},
+    ),
+)
+class MarketplaceQuestionListCreateView(MarketplaceActionView):
+    """The Q&A card as a recruiter sees it: every answer, plus their own questions."""
+
+    def get_job(self, pk: str) -> Job:
+        # A closed or deleted job stays readable to a recruiter who was on it.
+        return get_object_or_404(recruiter_question_jobs(_recruiter(self)), pk=pk)
+
+    def get(self, request: Request, pk: str) -> Response:
+        recruiter = _recruiter(self)
+        questions = visible_to_recruiter(self.get_job(pk), recruiter).order_by("-created_at")
+        return Response(
+            RecruiterQuestionSerializer(questions, many=True, context={"recruiter": recruiter}).data
+        )
+
+    def post(self, request: Request, pk: str) -> Response:
+        recruiter = _recruiter(self)
+        job = self.get_job(pk)
+        form = QuestionCreateSerializer(data=request.data)
+        form.is_valid(raise_exception=True)
+        try:
+            question = ask_question(job, recruiter, form.validated_data["body"])
+        except QuestionRejected as rejected:
+            return Response({"detail": str(rejected)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(
+            RecruiterQuestionSerializer(question, context={"recruiter": recruiter}).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+@extend_schema_view(
+    get=extend_schema(
+        operation_id="jobs_questions_list",
+        tags=["jobs"],
+        responses=CompanyQuestionSerializer(many=True),
+    )
+)
+class JobQuestionListView(APIView):
+    """What recruiters asked about the job, the unanswered first."""
+
+    def get(self, request: Request, pk: str) -> Response:
+        job = get_object_or_404(Job, pk=pk)
+        if not can_view_job(_user(self), job):
+            raise Http404
+        questions = visible_to_company(job).select_related("asked_by", "answered_by")
+        return Response(CompanyQuestionSerializer(questions, many=True).data)
+
+
+def _question_or_404(view: APIView, pk: str, *, lock: bool = False) -> JobQuestion:
+    """A hidden question, or one on a job the user may not view, does not exist.
+
+    Answering and hiding belong to whoever may edit the job; a viewer without that gets 403.
+    """
+    questions = JobQuestion.objects.filter(hidden_at__isnull=True)
+    if lock:
+        # `of=("self",)`: lock the question only, not the job and recruiter it joins.
+        questions = questions.select_for_update(of=("self",))
+    question = get_object_or_404(questions.select_related("job", "asked_by", "answered_by"), pk=pk)
+    if not can_view_job(_user(view), question.job):
+        raise Http404
+    if not can_change_job(_user(view), question.job):
+        raise PermissionDenied(NOT_YOURS)
+    return question
+
+
+@extend_schema_view(
+    post=extend_schema(
+        operation_id="job_questions_answer_create",
+        tags=["jobs"],
+        request=AnswerCreateSerializer,
+        responses=CompanyQuestionSerializer,
+    )
+)
+class JobQuestionAnswerView(APIView):
+    def post(self, request: Request, pk: str) -> Response:
+        # The row lock makes two first answers at once take turns, so only one emails the asker.
+        with transaction.atomic():
+            question = _question_or_404(self, pk, lock=True)
+            form = AnswerCreateSerializer(data=request.data)
+            form.is_valid(raise_exception=True)
+            answer_question(question, _actor(self), form.validated_data["answer"])
+        return Response(CompanyQuestionSerializer(question).data)
+
+
+@extend_schema_view(
+    delete=extend_schema(
+        operation_id="job_questions_destroy", tags=["jobs"], request=None, responses={204: None}
+    )
+)
+class JobQuestionDetailView(APIView):
+    def delete(self, request: Request, pk: str) -> Response:
+        hide_question(_question_or_404(self, pk))
+        return Response(status=status.HTTP_204_NO_CONTENT)

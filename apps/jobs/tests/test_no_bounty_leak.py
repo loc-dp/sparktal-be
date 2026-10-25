@@ -14,12 +14,13 @@ import yaml
 from rest_framework.test import APIClient
 
 from apps.accounts.models import User
-from apps.candidates.models import Application
+from apps.candidates.models import Application, Stage
 from apps.candidates.tests.factories import ApplicationFactory
+from apps.hiring.tests.factories import PlacementFactory
 from apps.jobs.models import ChangeKind, Job, JobStatus
 from apps.jobs.proposals import propose_change
 from apps.jobs.tests.conftest import TeamWorld
-from apps.jobs.tests.factories import JobFactory
+from apps.jobs.tests.factories import JobFactory, JobQuestionFactory
 
 pytestmark = pytest.mark.django_db
 
@@ -29,6 +30,7 @@ COMPANY_GETS = [
     "/api/v1/jobs",
     "/api/v1/jobs/{job}",
     "/api/v1/jobs/{job}/overview",
+    "/api/v1/jobs/{job}/questions",
     "/api/v1/jobs/counts",
     "/api/v1/company/home",
     "/api/v1/public/jobs/{token}",
@@ -36,6 +38,7 @@ COMPANY_GETS = [
     "/api/v1/company/change-requests",
     "/api/v1/jobs/{job}/applications",
     "/api/v1/applications/{application}",
+    "/api/v1/company/placements",
     "/api/v1/company/talent-pool",
     "/api/v1/chat/channels",
 ]
@@ -50,6 +53,17 @@ COMPANY_COMPONENTS = [
     "CompanyHome",
     "ChangeRequest",
     "PublicJob",
+    "CompanyQuestion",
+    "AnswerCreateRequest",
+    "CompanyPlacement",
+    "ApplicationDetail",
+    "PaginatedCompanyPlacementList",
+    "PlacementJob",
+    "PlacementStatusEnum",
+    "PlacementOutcomeEnum",
+    "PlacementReportRequest",
+    "PatchedPlacementStartDateRequest",
+    "HireRequest",
 ]
 
 
@@ -89,8 +103,10 @@ def posted(team_world: TeamWorld) -> Job:
 
 @pytest.fixture
 def seeded(team_world: TeamWorld, posted: Job) -> dict[str, str]:
-    """The job has its bounty set, one application and one proposal."""
-    application = cast(Application, ApplicationFactory(job=posted))
+    """The job has its bounty set, one application, one proposal and one question."""
+    application = cast(Application, ApplicationFactory(job=posted, stage=Stage.ONBOARDED))
+    PlacementFactory(application=application)
+    JobQuestionFactory(job=posted)
     propose_change(
         posted, actor=team_world.ta_draft, kind=ChangeKind.EDIT, changes={"title": "Payments Lead"}
     )
@@ -109,6 +125,52 @@ def test_company_endpoint_has_no_bounty_key(
 
     assert response.status_code == 200, url
     assert bounty_keys(response.json()) == []
+
+
+PAYOUT_WORDS = ("bounty", "payout", "paid")
+
+
+def payout_keys(node: Any, path: str = "$") -> list[str]:
+    """Where in `node` a dict key mentions the bounty, a payout or a payment."""
+    found: list[str] = []
+    if isinstance(node, dict):
+        for key, value in node.items():
+            here = f"{path}.{key}"
+            if any(word in str(key).lower() for word in PAYOUT_WORDS):
+                found.append(here)
+            found += payout_keys(value, here)
+    elif isinstance(node, list):
+        for index, value in enumerate(node):
+            found += payout_keys(value, f"{path}[{index}]")
+    return found
+
+
+@pytest.mark.parametrize(
+    "url",
+    ["/api/v1/company/placements", "/api/v1/applications/{application}", "/api/v1/jobs/{job}"],
+)
+def test_company_payloads_have_no_payout_fields(
+    url: str, team_world: TeamWorld, seeded: dict[str, str], client_for: ClientFor
+) -> None:
+    response = client_for(team_world.admin).get(url.format(**seeded))
+
+    assert response.status_code == 200, url
+    body = response.json()
+    assert payout_keys(body) == []
+    if "placements" in url:
+        assert body["count"] == 1  # the walk saw a placement, not an empty page
+    if "applications" in url:
+        assert body["placement"] is not None
+
+
+def test_the_payout_walk_finds_what_it_should() -> None:
+    leaked = {"results": [{"payout_status": "due", "x": {"paid_amount": 1}}], "Bounty": 1}
+
+    assert payout_keys(leaked) == [
+        "$.results[0].payout_status",
+        "$.results[0].x.paid_amount",
+        "$.Bounty",
+    ]
 
 
 def test_the_walk_finds_a_bounty_key() -> None:

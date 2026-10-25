@@ -125,9 +125,10 @@ def test_offer_then_hire(application: Any) -> None:
     make_offer(at_stage(application, Stage.INTERVIEW))
     application.refresh_from_db()
     assert application.stage == Stage.OFFER
-    mark_hired(application)
+    mark_hired(application, timezone.localdate() + timedelta(days=14))
     application.refresh_from_db()
     assert application.stage == Stage.ONBOARDED
+    assert application.placement.start_date == timezone.localdate() + timedelta(days=14)
 
 
 def test_offer_from_screen_is_a_conflict(application: Any) -> None:

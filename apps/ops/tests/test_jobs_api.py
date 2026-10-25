@@ -48,6 +48,7 @@ DETAIL_KEYS = {
     "bounty_type",
     "bounty_pct",
     "bounty_amount",
+    "guarantee_days",
     "why_we_need_you",
     "roles",
     "qualifications",

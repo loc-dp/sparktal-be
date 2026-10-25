@@ -1,22 +1,27 @@
 from collections.abc import Sequence
+from datetime import date
 from typing import Any
 from uuid import UUID
 
+from django.utils import timezone
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from apps.companies.models import Company
+from apps.hiring.models import Placement
+from apps.hiring.serializers import RecruiterPlacementSerializer
 from apps.jobs.bounty import (
     BOUNTY_AMOUNT_MESSAGE,
     BOUNTY_PCT_MESSAGE,
     BOUNTY_TYPE_MESSAGE,
     clean_bounty,
 )
-from apps.jobs.models import BountyType, Job, JobInvite
+from apps.jobs.models import GUARANTEE_DAYS_MAX, BountyType, Job, JobInvite
 from apps.jobs.serializers import BRIEF_FIELDS
 from apps.recruiters.models import RecruiterProfile, RecruiterStatus
 
 UNKNOWN_RECRUITER = "Unknown recruiter."
+PAID_IN_THE_FUTURE = "The payment date cannot be in the future."
 # `Job.bounty_amount` is numeric(15, 0): whole dong, up to this many digits.
 BOUNTY_AMOUNT_DIGITS = 15
 BOUNTY_AMOUNT_SIZE_MESSAGE = f"Enter a whole amount of up to {BOUNTY_AMOUNT_DIGITS} digits."
@@ -201,6 +206,7 @@ class OpsJobDetailSerializer(serializers.ModelSerializer[Job]):
             "bounty_type",
             "bounty_pct",
             "bounty_amount",
+            "guarantee_days",
             "why_we_need_you",
             "roles",
             "qualifications",
@@ -272,6 +278,10 @@ class OpsBountySerializer(serializers.Serializer[dict[str, Any]]):
             "max_whole_digits": BOUNTY_AMOUNT_SIZE_MESSAGE,
         },
     )
+    # How long a hire must last before the recruiter is paid; left out, the job keeps its own.
+    guarantee_days = serializers.IntegerField(
+        required=False, min_value=1, max_value=GUARANTEE_DAYS_MAX
+    )
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         return {
@@ -317,3 +327,37 @@ class OpsOverviewSerializer(serializers.Serializer[dict[str, Any]]):
     cvs_submitted = serializers.IntegerField()
     hires = serializers.IntegerField()
     queue = OpsJobListItemSerializer(many=True)
+
+
+class OpsPlacementRecruiterSerializer(serializers.ModelSerializer[RecruiterProfile]):
+    class Meta:
+        model = RecruiterProfile
+        fields = ("id", "nickname")
+        read_only_fields = fields
+
+
+class OpsPlacementSerializer(RecruiterPlacementSerializer):
+    """A hire as Sparktal staff read it: what the recruiter sees, and who paid whom."""
+
+    company = OpsCompanyRefSerializer(source="application.job.company", read_only=True)
+    recruiter = OpsPlacementRecruiterSerializer(source="application.recruiter", read_only=True)
+
+    class Meta(RecruiterPlacementSerializer.Meta):
+        model = Placement
+        fields = (*RecruiterPlacementSerializer.Meta.fields, "company", "recruiter", "payout_note")
+        read_only_fields = fields
+
+
+class OpsMarkPaidSerializer(serializers.Serializer[dict[str, Any]]):
+    """What Sparktal paid the recruiter, and when."""
+
+    paid_amount = serializers.DecimalField(
+        max_digits=BOUNTY_AMOUNT_DIGITS, decimal_places=0, min_value=1
+    )
+    paid_at = serializers.DateField()
+    note = serializers.CharField(allow_blank=True, required=False, default="", max_length=1000)
+
+    def validate_paid_at(self, value: date) -> date:
+        if value > timezone.localdate():
+            raise serializers.ValidationError(PAID_IN_THE_FUTURE)
+        return value

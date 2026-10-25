@@ -1,0 +1,9 @@
+{% extends "email/base.txt" %}{% block content %}
+Sparktal paid you {{ amount }} VND on {{ paid_at|date:"j M Y" }} for placing {{ candidate_name }} at {{ company_name }} ("{{ job_title }}").
+{% if note %}
+Note:
+{{ note }}
+{% endif %}
+See your earnings:
+{{ earnings_url }}
+{% endblock %}

@@ -220,7 +220,9 @@ class RecruiterSubmissionDetailView(RetrieveAPIView[Application]):
     queryset = Application.objects.none()
 
     def get_queryset(self) -> QuerySet[Application]:
-        return my_submissions(self.request).prefetch_related("interviews")
+        return (
+            my_submissions(self.request).select_related("placement").prefetch_related("interviews")
+        )
 
 
 @extend_schema_view(

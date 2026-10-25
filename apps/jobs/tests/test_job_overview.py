@@ -135,3 +135,20 @@ def test_note_for_recruiters_is_saved_through_patch(
     assert response.status_code == 200
     job_with_pipeline.refresh_from_db()
     assert job_with_pipeline.note_for_recruiters.startswith("Send Go engineers")
+
+
+def test_overview_counts_unanswered(
+    client_for: ClientFor, company_ta: User, job_with_pipeline: Any
+) -> None:
+    from apps.jobs.tests.factories import JobQuestionFactory
+
+    url = f"/api/v1/jobs/{job_with_pipeline.id}/overview"
+    assert client_for(company_ta).get(url).json()["unanswered_questions"] == 0
+
+    JobQuestionFactory(job=job_with_pipeline)
+    JobQuestionFactory(job=job_with_pipeline)
+    JobQuestionFactory(job=job_with_pipeline, answered_at=timezone.now(), answer="Yes")
+    JobQuestionFactory(job=job_with_pipeline, hidden_at=timezone.now())
+    JobQuestionFactory()  # another job's
+
+    assert client_for(company_ta).get(url).json()["unanswered_questions"] == 2

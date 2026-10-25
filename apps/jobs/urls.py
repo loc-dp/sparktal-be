@@ -15,6 +15,9 @@ from apps.jobs.api import (
     JobListCreateView,
     JobOverviewView,
     JobPostView,
+    JobQuestionAnswerView,
+    JobQuestionDetailView,
+    JobQuestionListView,
     JobReopenView,
     JobSubmitView,
     JobWithdrawView,
@@ -22,6 +25,7 @@ from apps.jobs.api import (
     MarketplaceJobListView,
     MarketplaceJoinView,
     MarketplaceLeaveView,
+    MarketplaceQuestionListCreateView,
     PublicJobView,
 )
 
@@ -67,6 +71,13 @@ urlpatterns = [
         name="change-request-withdraw",
     ),
     path("jobs/<uuid:pk>/overview", JobOverviewView.as_view(), name="job-overview"),
+    path("jobs/<uuid:pk>/questions", JobQuestionListView.as_view(), name="job-questions"),
+    path(
+        "job-questions/<uuid:pk>/answer",
+        JobQuestionAnswerView.as_view(),
+        name="job-question-answer",
+    ),
+    path("job-questions/<uuid:pk>", JobQuestionDetailView.as_view(), name="job-question-detail"),
     path("public/jobs/<str:share_token>", PublicJobView.as_view(), name="public-job"),
     path("marketplace/jobs", MarketplaceJobListView.as_view(), name="marketplace-jobs"),
     path(
@@ -83,5 +94,10 @@ urlpatterns = [
         "marketplace/jobs/<uuid:pk>/leave",
         MarketplaceLeaveView.as_view(),
         name="marketplace-job-leave",
+    ),
+    path(
+        "marketplace/jobs/<uuid:pk>/questions",
+        MarketplaceQuestionListCreateView.as_view(),
+        name="marketplace-job-questions",
     ),
 ]

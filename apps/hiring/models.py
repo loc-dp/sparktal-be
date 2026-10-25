@@ -134,3 +134,40 @@ class ApprovalRequest(models.Model):
 
     def __str__(self) -> str:
         return f"{self.status} · {self.application_id}"
+
+
+class PlacementOutcome(models.TextChoices):
+    NO_SHOW = "no_show", "No-show"
+    LEFT = "left", "Left during guarantee"
+
+
+class Placement(models.Model):
+    """What happens after a hire: the start date, the guarantee clock and the payout."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    application = models.OneToOneField(
+        Application, on_delete=models.CASCADE, related_name="placement"
+    )
+    start_date = models.DateField()
+    # Copied from the job at hire time, so later edits to the job never move a running clock.
+    guarantee_days = models.PositiveSmallIntegerField()
+
+    outcome = models.CharField(max_length=8, choices=PlacementOutcome.choices, blank=True)
+    ended_on = models.DateField(null=True, blank=True)
+    outcome_note = models.TextField(blank=True)
+    reported_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    reported_at = models.DateTimeField(null=True, blank=True)
+
+    paid_amount = models.DecimalField(max_digits=15, decimal_places=0, null=True, blank=True)
+    paid_at = models.DateField(null=True, blank=True)
+    payout_note = models.TextField(blank=True)
+    paid_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self) -> str:
+        return f"{self.start_date} · {self.application_id}"

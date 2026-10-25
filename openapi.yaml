@@ -221,6 +221,18 @@ paths:
         required: true
       tags:
       - hiring
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HireRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/HireRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/HireRequest'
+        required: true
       security:
       - cookieAuth: []
       responses:
@@ -1182,6 +1194,52 @@ paths:
       responses:
         '204':
           description: No response body
+  /api/v1/company/placements:
+    get:
+      operationId: company_placements_list
+      description: Everyone the company hired on the jobs the member sees, newest
+        start date first.
+      parameters:
+      - in: query
+        name: job
+        schema:
+          type: string
+          format: uuid
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - in: query
+        name: status
+        schema:
+          type: string
+          enum:
+          - ended
+          - in_guarantee
+          - left
+          - no_show
+          - passed
+          - starting
+        description: '`ended` is a no-show or a leave.'
+      tags:
+      - hiring
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedCompanyPlacementList'
+          description: ''
   /api/v1/company/talent-pool:
     get:
       operationId: company_talent_pool_list
@@ -1521,6 +1579,56 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/JdParseAvailability'
+          description: ''
+  /api/v1/job-questions/{id}:
+    delete:
+      operationId: job_questions_destroy
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - jobs
+      security:
+      - cookieAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/job-questions/{id}/answer:
+    post:
+      operationId: job_questions_answer_create
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - jobs
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AnswerCreateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AnswerCreateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AnswerCreateRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompanyQuestion'
           description: ''
   /api/v1/jobs:
     get:
@@ -1970,6 +2078,30 @@ paths:
               schema:
                 $ref: '#/components/schemas/Job'
           description: ''
+  /api/v1/jobs/{id}/questions:
+    get:
+      operationId: jobs_questions_list
+      description: What recruiters asked about the job, the unanswered first.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - jobs
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CompanyQuestion'
+          description: ''
   /api/v1/jobs/{id}/reopen:
     post:
       operationId: jobs_reopen_create
@@ -2210,6 +2342,65 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/LeaveResult'
+          description: ''
+  /api/v1/marketplace/jobs/{id}/questions:
+    get:
+      operationId: marketplace_jobs_questions_list
+      description: 'The Q&A card as a recruiter sees it: every answer, plus their
+        own questions.'
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - marketplace
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RecruiterQuestion'
+          description: ''
+    post:
+      operationId: marketplace_jobs_questions_create
+      description: 'The Q&A card as a recruiter sees it: every answer, plus their
+        own questions.'
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - marketplace
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QuestionCreateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/QuestionCreateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/QuestionCreateRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecruiterQuestion'
           description: ''
   /api/v1/me:
     get:
@@ -2826,6 +3017,92 @@ paths:
               schema:
                 $ref: '#/components/schemas/OpsOverview'
           description: ''
+  /api/v1/ops/placements:
+    get:
+      operationId: ops_placements_list
+      description: 'Every hire on the platform, newest start date first: the payouts
+        Sparktal owes and made.'
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - in: query
+        name: payout_status
+        schema:
+          type: string
+          enum:
+          - due
+          - not_due
+          - paid
+          - void
+        description: |-
+          Where the payout stands; `due` is what Sparktal still has to pay.
+
+          * `not_due` - Not due yet
+          * `due` - Due
+          * `paid` - Paid
+          * `void` - Void
+      - in: query
+        name: search
+        schema:
+          type: string
+        description: Part of the candidate's name, the job title, the company or the
+          recruiter.
+      tags:
+      - ops
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedOpsPlacementList'
+          description: ''
+  /api/v1/ops/placements/{id}/mark-paid:
+    post:
+      operationId: ops_placements_mark_paid_create
+      description: Record that Sparktal paid the recruiter. Only a due placement can
+        be paid.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - ops
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OpsMarkPaidRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/OpsMarkPaidRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/OpsMarkPaidRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OpsPlacement'
+          description: ''
   /api/v1/ops/recruiters:
     get:
       operationId: ops_recruiters_list
@@ -2931,6 +3208,72 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/OpsRecruiter'
+          description: ''
+  /api/v1/placements/{id}:
+    patch:
+      operationId: placements_partial_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - hiring
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedPlacementStartDateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedPlacementStartDateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedPlacementStartDateRequest'
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompanyPlacement'
+          description: ''
+  /api/v1/placements/{id}/report:
+    post:
+      operationId: placements_report_create
+      description: The candidate never came, or left during the guarantee.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - hiring
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlacementReportRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PlacementReportRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PlacementReportRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompanyPlacement'
           description: ''
   /api/v1/public/jobs/{share_token}:
     get:
@@ -3096,6 +3439,22 @@ paths:
               schema:
                 $ref: '#/components/schemas/RecruiterOverview'
           description: ''
+  /api/v1/recruiters/me/placements:
+    get:
+      operationId: recruiters_me_placements_list
+      description: The recruiter's hires with what they earn, and the totals for the
+        Earnings header.
+      tags:
+      - recruiters
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecruiterPlacementList'
+          description: ''
   /api/v1/recruiters/me/submissions:
     get:
       operationId: recruiters_submissions_list
@@ -3234,6 +3593,15 @@ paths:
           description: ''
 components:
   schemas:
+    AnswerCreateRequest:
+      type: object
+      properties:
+        answer:
+          type: string
+          minLength: 1
+          maxLength: 2000
+      required:
+      - answer
     ApplicationActionEnum:
       enum:
       - move_forward
@@ -3350,6 +3718,11 @@ components:
           items:
             $ref: '#/components/schemas/ApplicationActionEnum'
           readOnly: true
+        placement:
+          allOf:
+          - $ref: '#/components/schemas/CompanyPlacement'
+          nullable: true
+          readOnly: true
       required:
       - actions
       - candidate
@@ -3366,6 +3739,7 @@ components:
       - motivation
       - other_notes
       - pending_approval
+      - placement
       - reason_for_leaving
       - recruiter
       - rejected_reason
@@ -3993,6 +4367,86 @@ components:
       - active_jobs
       - jobs
       - pipeline
+    CompanyPlacement:
+      type: object
+      description: 'A hire as the company reads it: the dates and the outcome, never
+        what the recruiter earns.'
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        application_id:
+          type: string
+          format: uuid
+          readOnly: true
+        candidate_name:
+          type: string
+          readOnly: true
+        job:
+          allOf:
+          - $ref: '#/components/schemas/PlacementJob'
+          readOnly: true
+        recruiter_nickname:
+          type: string
+          readOnly: true
+        start_date:
+          type: string
+          format: date
+          readOnly: true
+        guarantee_days:
+          type: integer
+          readOnly: true
+        guarantee_ends_on:
+          type: string
+          format: date
+          readOnly: true
+        days_left:
+          type: integer
+          readOnly: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/PlacementStatusEnum'
+          readOnly: true
+        outcome:
+          readOnly: true
+          oneOf:
+          - $ref: '#/components/schemas/PlacementOutcomeEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+        ended_on:
+          type: string
+          format: date
+          readOnly: true
+          nullable: true
+        outcome_note:
+          type: string
+          readOnly: true
+        can_change_start_date:
+          type: boolean
+          readOnly: true
+        can_report_no_show:
+          type: boolean
+          readOnly: true
+        can_report_left:
+          type: boolean
+          readOnly: true
+      required:
+      - application_id
+      - can_change_start_date
+      - can_report_left
+      - can_report_no_show
+      - candidate_name
+      - days_left
+      - ended_on
+      - guarantee_days
+      - guarantee_ends_on
+      - id
+      - job
+      - outcome
+      - outcome_note
+      - recruiter_nickname
+      - start_date
+      - status
     CompanyPoolApplication:
       type: object
       properties:
@@ -4080,6 +4534,43 @@ components:
       - location
       - skills
       - years_experience
+    CompanyQuestion:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        body:
+          type: string
+          readOnly: true
+        answer:
+          type: string
+          readOnly: true
+        answered_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        recruiter_nickname:
+          type: string
+          readOnly: true
+        answered_by_name:
+          type: string
+          nullable: true
+          readOnly: true
+      required:
+      - answer
+      - answered_at
+      - answered_by_name
+      - body
+      - created_at
+      - id
+      - recruiter_nickname
     CompanyTypeEnum:
       enum:
       - fdi
@@ -4371,6 +4862,14 @@ components:
           type: string
       required:
       - status
+    HireRequest:
+      type: object
+      properties:
+        start_date:
+          type: string
+          format: date
+      required:
+      - start_date
     HomeAction:
       type: object
       properties:
@@ -4423,6 +4922,8 @@ components:
           type: integer
         new_count:
           type: integer
+        unanswered_questions:
+          type: integer
       required:
       - current_stage
       - cv_count
@@ -4430,6 +4931,7 @@ components:
       - id
       - new_count
       - title
+      - unanswered_questions
     HomePipeline:
       type: object
       properties:
@@ -4732,6 +5234,9 @@ components:
           format: date-time
           readOnly: true
           nullable: true
+        guarantee_days:
+          type: integer
+          readOnly: true
         can_edit:
           type: boolean
           readOnly: true
@@ -4743,6 +5248,7 @@ components:
       - can_edit
       - closed_at
       - created_at
+      - guarantee_days
       - id
       - location_label
       - permissions
@@ -4875,12 +5381,15 @@ components:
             $ref: '#/components/schemas/RecruiterOnJob'
         note_for_recruiters:
           type: string
+        unanswered_questions:
+          type: integer
       required:
       - kpis
       - new_applicants
       - note_for_recruiters
       - recruiters
       - rejection_log
+      - unanswered_questions
     JobPermissions:
       type: object
       description: What the signed-in member may do to this job (spec §4).
@@ -5239,6 +5748,9 @@ components:
           description: One allowance or reward per line.
         note_for_recruiters:
           type: string
+        guarantee_days:
+          type: integer
+          readOnly: true
         channel_id:
           type: string
           format: uuid
@@ -5256,6 +5768,7 @@ components:
       - channel_id
       - company
       - created_at
+      - guarantee_days
       - id
       - invite
       - joined
@@ -5721,6 +6234,10 @@ components:
           format: decimal
           pattern: ^-?\d{0,15}(?:\.\d{0,0})?$
           nullable: true
+        guarantee_days:
+          type: integer
+          maximum: 365
+          minimum: 1
       required:
       - bounty_type
     OpsCompany:
@@ -5810,6 +6327,10 @@ components:
           format: decimal
           pattern: ^-?\d{0,15}(?:\.\d{0,0})?$
           nullable: true
+        guarantee_days:
+          type: integer
+          maximum: 365
+          minimum: 1
         on_marketplace:
           type: boolean
         recruiter_ids:
@@ -5926,6 +6447,9 @@ components:
           pattern: ^-?\d{0,15}(?:\.\d{0,0})?$
           readOnly: true
           nullable: true
+        guarantee_days:
+          type: integer
+          readOnly: true
         why_we_need_you:
           type: string
           readOnly: true
@@ -6049,6 +6573,7 @@ components:
       - company
       - core_competencies
       - function
+      - guarantee_days
       - has_internal_candidate
       - id
       - interview_process_details
@@ -6154,6 +6679,24 @@ components:
       - status
       - team_name
       - title
+    OpsMarkPaidRequest:
+      type: object
+      description: What Sparktal paid the recruiter, and when.
+      properties:
+        paid_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,15}(?:\.\d{0,0})?$
+        paid_at:
+          type: string
+          format: date
+        note:
+          type: string
+          default: ''
+          maxLength: 1000
+      required:
+      - paid_amount
+      - paid_at
     OpsOverview:
       type: object
       properties:
@@ -6181,6 +6724,154 @@ components:
       - pending_recruiters
       - queue
       - queued_jobs
+    OpsPlacement:
+      type: object
+      description: 'A hire as Sparktal staff read it: what the recruiter sees, and
+        who paid whom.'
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        application_id:
+          type: string
+          format: uuid
+          readOnly: true
+        candidate_name:
+          type: string
+          readOnly: true
+        job:
+          allOf:
+          - $ref: '#/components/schemas/PlacementJob'
+          readOnly: true
+        recruiter_nickname:
+          type: string
+          readOnly: true
+        start_date:
+          type: string
+          format: date
+          readOnly: true
+        guarantee_days:
+          type: integer
+          readOnly: true
+        guarantee_ends_on:
+          type: string
+          format: date
+          readOnly: true
+        days_left:
+          type: integer
+          readOnly: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/PlacementStatusEnum'
+          readOnly: true
+        outcome:
+          readOnly: true
+          oneOf:
+          - $ref: '#/components/schemas/PlacementOutcomeEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+        ended_on:
+          type: string
+          format: date
+          readOnly: true
+          nullable: true
+        outcome_note:
+          type: string
+          readOnly: true
+        can_change_start_date:
+          type: boolean
+          readOnly: true
+        can_report_no_show:
+          type: boolean
+          readOnly: true
+        can_report_left:
+          type: boolean
+          readOnly: true
+        company_name:
+          type: string
+          readOnly: true
+        bounty_type:
+          readOnly: true
+          nullable: true
+          oneOf:
+          - $ref: '#/components/schemas/BountyTypeEnum'
+          - $ref: '#/components/schemas/NullEnum'
+        bounty_pct:
+          type: integer
+          readOnly: true
+          nullable: true
+        bounty_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,15}(?:\.\d{0,0})?$
+          readOnly: true
+          nullable: true
+        payout_status:
+          allOf:
+          - $ref: '#/components/schemas/PayoutStatusEnum'
+          readOnly: true
+        paid_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,15}(?:\.\d{0,0})?$
+          readOnly: true
+          nullable: true
+        paid_at:
+          type: string
+          format: date
+          readOnly: true
+          nullable: true
+        company:
+          allOf:
+          - $ref: '#/components/schemas/OpsCompanyRef'
+          readOnly: true
+        recruiter:
+          allOf:
+          - $ref: '#/components/schemas/OpsPlacementRecruiter'
+          readOnly: true
+        payout_note:
+          type: string
+          readOnly: true
+      required:
+      - application_id
+      - bounty_amount
+      - bounty_pct
+      - bounty_type
+      - can_change_start_date
+      - can_report_left
+      - can_report_no_show
+      - candidate_name
+      - company
+      - company_name
+      - days_left
+      - ended_on
+      - guarantee_days
+      - guarantee_ends_on
+      - id
+      - job
+      - outcome
+      - outcome_note
+      - paid_amount
+      - paid_at
+      - payout_note
+      - payout_status
+      - recruiter
+      - recruiter_nickname
+      - start_date
+      - status
+    OpsPlacementRecruiter:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        nickname:
+          type: string
+          readOnly: true
+      required:
+      - id
+      - nickname
     OpsRecruiter:
       type: object
       description: A recruiter as Sparktal staff review them.
@@ -6347,6 +7038,29 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ChangeRequest'
+    PaginatedCompanyPlacementList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/CompanyPlacement'
     PaginatedCompanyPoolEntryList:
       type: object
       required:
@@ -6462,6 +7176,29 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/OpsJobListItem'
+    PaginatedOpsPlacementList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/OpsPlacement'
     PaginatedOpsRecruiterList:
       type: object
       required:
@@ -6768,6 +7505,12 @@ components:
           items:
             type: string
             format: uuid
+    PatchedPlacementStartDateRequest:
+      type: object
+      properties:
+        start_date:
+          type: string
+          format: date
     PatchedRecruiterProfileRequest:
       type: object
       properties:
@@ -6813,6 +7556,18 @@ components:
       description: |-
         * `gross` - Gross
         * `net` - Net
+    PayoutStatusEnum:
+      enum:
+      - not_due
+      - due
+      - paid
+      - void
+      type: string
+      description: |-
+        * `not_due` - Not due yet
+        * `due` - Due
+        * `paid` - Paid
+        * `void` - Void
     PendingApproval:
       type: object
       properties:
@@ -6862,6 +7617,61 @@ components:
       required:
       - full_name
       - id
+    PlacementJob:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        title:
+          type: string
+          readOnly: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/JobStatusEnum'
+          readOnly: true
+      required:
+      - id
+      - status
+      - title
+    PlacementOutcomeEnum:
+      enum:
+      - no_show
+      - left
+      type: string
+      description: |-
+        * `no_show` - No-show
+        * `left` - Left during guarantee
+    PlacementReportRequest:
+      type: object
+      properties:
+        outcome:
+          $ref: '#/components/schemas/PlacementOutcomeEnum'
+        ended_on:
+          type: string
+          format: date
+          nullable: true
+        note:
+          type: string
+          default: ''
+          maxLength: 1000
+      required:
+      - outcome
+    PlacementStatusEnum:
+      enum:
+      - starting
+      - in_guarantee
+      - passed
+      - no_show
+      - left
+      type: string
+      description: |-
+        * `starting` - Starting soon
+        * `in_guarantee` - In guarantee
+        * `passed` - Passed guarantee
+        * `no_show` - No-show
+        * `left` - Left during guarantee
     PoolJob:
       type: object
       properties:
@@ -6960,6 +7770,15 @@ components:
       - id
       - location_label
       - title
+    QuestionCreateRequest:
+      type: object
+      properties:
+        body:
+          type: string
+          minLength: 1
+          maxLength: 1000
+      required:
+      - body
     ReadRequest:
       type: object
       properties:
@@ -7065,6 +7884,8 @@ components:
           format: date-time
           readOnly: true
           nullable: true
+        note_for_recruiters:
+          type: string
       required:
       - active_count
       - bounty_amount
@@ -7124,6 +7945,162 @@ components:
       - offer
       - pending_invites
       - waiting_jobs
+    RecruiterPlacement:
+      type: object
+      description: 'The same hire as the recruiter who made it reads it: with the
+        bounty and the payout.'
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        application_id:
+          type: string
+          format: uuid
+          readOnly: true
+        candidate_name:
+          type: string
+          readOnly: true
+        job:
+          allOf:
+          - $ref: '#/components/schemas/PlacementJob'
+          readOnly: true
+        recruiter_nickname:
+          type: string
+          readOnly: true
+        start_date:
+          type: string
+          format: date
+          readOnly: true
+        guarantee_days:
+          type: integer
+          readOnly: true
+        guarantee_ends_on:
+          type: string
+          format: date
+          readOnly: true
+        days_left:
+          type: integer
+          readOnly: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/PlacementStatusEnum'
+          readOnly: true
+        outcome:
+          readOnly: true
+          oneOf:
+          - $ref: '#/components/schemas/PlacementOutcomeEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+        ended_on:
+          type: string
+          format: date
+          readOnly: true
+          nullable: true
+        outcome_note:
+          type: string
+          readOnly: true
+        can_change_start_date:
+          type: boolean
+          readOnly: true
+        can_report_no_show:
+          type: boolean
+          readOnly: true
+        can_report_left:
+          type: boolean
+          readOnly: true
+        company_name:
+          type: string
+          readOnly: true
+        bounty_type:
+          readOnly: true
+          nullable: true
+          oneOf:
+          - $ref: '#/components/schemas/BountyTypeEnum'
+          - $ref: '#/components/schemas/NullEnum'
+        bounty_pct:
+          type: integer
+          readOnly: true
+          nullable: true
+        bounty_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,15}(?:\.\d{0,0})?$
+          readOnly: true
+          nullable: true
+        payout_status:
+          allOf:
+          - $ref: '#/components/schemas/PayoutStatusEnum'
+          readOnly: true
+        paid_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,15}(?:\.\d{0,0})?$
+          readOnly: true
+          nullable: true
+        paid_at:
+          type: string
+          format: date
+          readOnly: true
+          nullable: true
+      required:
+      - application_id
+      - bounty_amount
+      - bounty_pct
+      - bounty_type
+      - can_change_start_date
+      - can_report_left
+      - can_report_no_show
+      - candidate_name
+      - company_name
+      - days_left
+      - ended_on
+      - guarantee_days
+      - guarantee_ends_on
+      - id
+      - job
+      - outcome
+      - outcome_note
+      - paid_amount
+      - paid_at
+      - payout_status
+      - recruiter_nickname
+      - start_date
+      - status
+    RecruiterPlacementList:
+      type: object
+      properties:
+        summary:
+          allOf:
+          - $ref: '#/components/schemas/RecruiterPlacementSummary'
+          readOnly: true
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/RecruiterPlacement'
+          readOnly: true
+      required:
+      - results
+      - summary
+    RecruiterPlacementSummary:
+      type: object
+      properties:
+        paid_total:
+          type: integer
+          readOnly: true
+        due_count:
+          type: integer
+          readOnly: true
+        in_guarantee_count:
+          type: integer
+          readOnly: true
+        starting_count:
+          type: integer
+          readOnly: true
+      required:
+      - due_count
+      - in_guarantee_count
+      - paid_total
+      - starting_count
     RecruiterProfile:
       type: object
       properties:
@@ -7199,6 +8176,40 @@ components:
         * `pending` - Pending review
         * `approved` - Approved
         * `rejected` - Rejected
+    RecruiterQuestion:
+      type: object
+      description: 'No asker identity: another recruiter''s answered question reads
+        the same as your own.'
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        body:
+          type: string
+          readOnly: true
+        answer:
+          type: string
+          readOnly: true
+        answered_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        mine:
+          type: boolean
+          readOnly: true
+      required:
+      - answer
+      - answered_at
+      - body
+      - created_at
+      - id
+      - mine
     RecruiterSubmission:
       type: object
       properties:
@@ -7559,6 +8570,11 @@ components:
           items:
             $ref: '#/components/schemas/StageEntry'
           readOnly: true
+        placement:
+          allOf:
+          - $ref: '#/components/schemas/RecruiterPlacement'
+          nullable: true
+          readOnly: true
       required:
       - candidate
       - consultant_note
@@ -7572,6 +8588,7 @@ components:
       - job
       - motivation
       - other_notes
+      - placement
       - reason_for_leaving
       - rejected_reason
       - stage

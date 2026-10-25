@@ -6,6 +6,7 @@ from apps.hiring.api import (
     ApprovalRequestCreateView,
     ApproversView,
     ArchiveView,
+    CompanyPlacementListView,
     CvInlineView,
     CvTextView,
     DiscussionView,
@@ -17,6 +18,9 @@ from apps.hiring.api import (
     NoteDetailView,
     NotesView,
     OfferView,
+    PlacementDetailView,
+    PlacementReportView,
+    RecruiterPlacementListView,
     WaitingApprovalsView,
 )
 
@@ -62,4 +66,12 @@ urlpatterns = [
     path("applications/<uuid:pk>/messages", DiscussionView.as_view(), name="application-messages"),
     path("applications/<uuid:pk>/cv/inline", CvInlineView.as_view(), name="application-cv-inline"),
     path("applications/<uuid:pk>/cv/text", CvTextView.as_view(), name="application-cv-text"),
+    path("company/placements", CompanyPlacementListView.as_view(), name="company-placements"),
+    path("placements/<uuid:pk>", PlacementDetailView.as_view(), name="placement-detail"),
+    path("placements/<uuid:pk>/report", PlacementReportView.as_view(), name="placement-report"),
+    path(
+        "recruiters/me/placements",
+        RecruiterPlacementListView.as_view(),
+        name="recruiter-placements",
+    ),
 ]

@@ -1,0 +1,14 @@
+{% extends "email/base.html" %}
+{% block title %}Your question about {{ job_title }} has an answer{% endblock %}
+{% block preheader %}{{ company_name }} answered: {{ answer|truncatechars:90 }}{% endblock %}
+{% block eyebrow %}Answer{% endblock %}
+{% block headline %}Your question has an answer.{% endblock %}
+{% block lead %}{{ company_name }} answered your question about {{ job_title }}.{% endblock %}
+{% block action %}{% include "email/_button.html" with url=job_url label="See the answer" %}{% endblock %}
+{% block details %}
+<p style="margin:0 0 12px 0;color:#52525B;white-space:pre-line;">You asked: {{ question }}</p>
+<p style="margin:0;color:#0B0B0F;white-space:pre-line;">{{ answer }}</p>
+{% endblock %}
+{% block footnote %}
+<p style="margin:24px 0 0 0;padding-top:20px;border-top:1px solid #E4E4E7;font-size:12px;line-height:1.6;color:#6B6B76;">The button not working? Paste this address into your browser:<br><a href="{{ job_url }}" style="color:#52525B;word-break:break-all;">{{ job_url }}</a></p>
+{% endblock %}

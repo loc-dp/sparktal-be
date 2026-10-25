@@ -4,6 +4,7 @@ from django.db.models import Count, IntegerField, OuterRef, QuerySet, Subquery, 
 from django.db.models.functions import Coalesce
 
 from apps.companies.models import Company, CompanyMembership, Team
+from apps.hiring.models import Placement
 from apps.jobs.models import InviteStatus, Job, JobAssignment, JobInvite, JobStatus
 from apps.recruiters.models import RecruiterProfile
 
@@ -61,3 +62,10 @@ def annotate_ops_recruiters(queryset: QuerySet[RecruiterProfile]) -> QuerySet[Re
         job__deleted_at__isnull=True,
     )
     return queryset.select_related("user").annotate(active_job_count=_count(working, "recruiter"))
+
+
+def ops_placements() -> QuerySet[Placement]:
+    """Every placement, with what `OpsPlacementSerializer` reads."""
+    return Placement.objects.select_related(
+        "application__candidate", "application__job__company", "application__recruiter"
+    )

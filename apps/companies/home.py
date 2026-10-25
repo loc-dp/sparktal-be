@@ -9,6 +9,7 @@ from apps.jobs.access import job_permissions, jobs_visible_to
 from apps.jobs.models import ChangeKind, ChangeStatus, Job, JobChangeRequest, JobStatus
 from apps.jobs.proposals import change_requests_visible_to, is_admin
 from apps.jobs.queries import annotate_job_metrics
+from apps.jobs.questions import unanswered_counts
 
 MAX_ACTIONS = 5
 PIPELINE_STAGES = [*STAGE_ORDER, Stage.REJECTED]
@@ -46,6 +47,8 @@ def active_jobs(user: User) -> list[dict[str, Any]]:
     queryset = annotate_job_metrics(jobs_visible_to(user).filter(status=JobStatus.ACTIVE)).order_by(
         F("new_count").desc(), F("cv_count").desc(), "title"
     )
+    # Counted from the plain visible set: `queryset` carries the metric annotations.
+    unanswered = unanswered_counts(jobs_visible_to(user).filter(status=JobStatus.ACTIVE))
     return [
         {
             "id": str(job.pk),
@@ -54,6 +57,7 @@ def active_jobs(user: User) -> list[dict[str, Any]]:
             "days_open": getattr(job, "days_open", 0) or 0,
             "cv_count": getattr(job, "cv_count", 0) or 0,
             "new_count": getattr(job, "new_count", 0) or 0,
+            "unanswered_questions": unanswered.get(job.pk, 0),
         }
         for job in queryset
     ]

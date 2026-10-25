@@ -1,7 +1,10 @@
 """Payloads for the candidate detail screen."""
 
-from typing import Any
+from collections.abc import Mapping
+from datetime import date
+from typing import Any, cast
 
+from django.utils import timezone
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
@@ -25,10 +28,20 @@ from apps.hiring.models import (
     Feedback,
     Interview,
     InterviewFormat,
+    Placement,
+    PlacementOutcome,
     Verdict,
+)
+from apps.hiring.placements import (
+    OUTCOME_NOTE_MAX_LENGTH,
+    PayoutStatus,
+    PlacementState,
+    PlacementStatus,
+    placement_state,
 )
 from apps.hiring.workflow import Action, available_actions, last_decline, pending_approval
 from apps.jobs.access import can_view_job
+from apps.jobs.models import BountyType, JobStatus
 
 
 def requester_name(approval: ApprovalRequest) -> str:
@@ -119,6 +132,179 @@ def history_of(application: Application) -> Any:
     return StageEntrySerializer(stage_history(application), many=True).data
 
 
+class PlacementJobSerializer(serializers.Serializer[object]):
+    id = serializers.UUIDField(read_only=True)
+    title = serializers.CharField(read_only=True)
+    status = serializers.ChoiceField(choices=JobStatus.choices, read_only=True)
+
+
+class CompanyPlacementSerializer(serializers.ModelSerializer[Placement]):
+    """A hire as the company reads it: the dates and the outcome, never what the recruiter earns."""
+
+    application_id = serializers.UUIDField(read_only=True)
+    candidate_name = serializers.CharField(source="application.candidate.full_name", read_only=True)
+    job = PlacementJobSerializer(source="application.job", read_only=True)
+    recruiter_nickname = serializers.CharField(
+        source="application.recruiter.nickname", read_only=True
+    )
+    guarantee_ends_on = serializers.SerializerMethodField()
+    days_left = serializers.SerializerMethodField()
+    status = serializers.SerializerMethodField()
+    outcome = serializers.ChoiceField(
+        choices=PlacementOutcome.choices, allow_blank=True, read_only=True
+    )
+    can_change_start_date = serializers.SerializerMethodField()
+    can_report_no_show = serializers.SerializerMethodField()
+    can_report_left = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Placement
+        fields: tuple[str, ...] = (
+            "id",
+            "application_id",
+            "candidate_name",
+            "job",
+            "recruiter_nickname",
+            "start_date",
+            "guarantee_days",
+            "guarantee_ends_on",
+            "days_left",
+            "status",
+            "outcome",
+            "ended_on",
+            "outcome_note",
+            "can_change_start_date",
+            "can_report_no_show",
+            "can_report_left",
+        )
+        read_only_fields: tuple[str, ...] = fields
+
+    def today(self) -> date:
+        return cast(date, self.context.get("today") or timezone.localdate())
+
+    def state(self, placement: Placement) -> PlacementState:
+        # One serializer reads a whole list, so each row's clock is worked out once.
+        cache: dict[Any, PlacementState] = self.__dict__.setdefault("_states", {})
+        if placement.pk not in cache:
+            cache[placement.pk] = placement_state(placement, self.today())
+        return cache[placement.pk]
+
+    def get_guarantee_ends_on(self, placement: Placement) -> date:
+        return self.state(placement).guarantee_ends_on
+
+    def get_days_left(self, placement: Placement) -> int:
+        return self.state(placement).days_left
+
+    @extend_schema_field(serializers.ChoiceField(choices=PlacementStatus.choices))
+    def get_status(self, placement: Placement) -> str:
+        return str(self.state(placement).status)
+
+    def get_can_change_start_date(self, placement: Placement) -> bool:
+        return self.state(placement).status == PlacementStatus.STARTING
+
+    def get_can_report_no_show(self, placement: Placement) -> bool:
+        return not placement.outcome and self.today() <= placement.start_date
+
+    def get_can_report_left(self, placement: Placement) -> bool:
+        return self.state(placement).status == PlacementStatus.IN_GUARANTEE
+
+
+class RecruiterPlacementSerializer(CompanyPlacementSerializer):
+    """The same hire as the recruiter who made it reads it: with the bounty and the payout."""
+
+    company_name = serializers.CharField(source="application.job.company.name", read_only=True)
+    bounty_type = serializers.ChoiceField(
+        choices=BountyType.choices,
+        source="application.job.bounty_type",
+        read_only=True,
+        allow_null=True,
+    )
+    bounty_pct = serializers.IntegerField(
+        source="application.job.bounty_pct", read_only=True, allow_null=True
+    )
+    bounty_amount = serializers.DecimalField(
+        max_digits=15,
+        decimal_places=0,
+        source="application.job.bounty_amount",
+        read_only=True,
+        allow_null=True,
+    )
+    payout_status = serializers.SerializerMethodField()
+    paid_amount = serializers.DecimalField(
+        max_digits=15, decimal_places=0, read_only=True, allow_null=True
+    )
+
+    class Meta(CompanyPlacementSerializer.Meta):
+        fields = (
+            *CompanyPlacementSerializer.Meta.fields,
+            "company_name",
+            "bounty_type",
+            "bounty_pct",
+            "bounty_amount",
+            "payout_status",
+            "paid_amount",
+            "paid_at",
+        )
+        read_only_fields = fields
+
+    @extend_schema_field(serializers.ChoiceField(choices=PayoutStatus.choices))
+    def get_payout_status(self, placement: Placement) -> str:
+        return str(self.state(placement).payout_status)
+
+
+def placement_block(
+    serializer: type[CompanyPlacementSerializer],
+    application: Application,
+    context: Mapping[str, Any],
+) -> Any:
+    """`application`'s placement through `serializer`, or None for a hire not made yet."""
+    placement = getattr(application, "placement", None)
+    if placement is None:
+        return None
+    # The application is already in hand: no query to find it again.
+    placement.application = application
+    return serializer(placement, context=context).data
+
+
+class PlacementStartDateSerializer(serializers.Serializer[object]):
+    start_date = serializers.DateField()
+
+
+NEEDS_LEFT_DATE = "Say the last day they worked."
+NEEDS_LEFT_NOTE = "Say what happened."
+
+
+class PlacementReportSerializer(serializers.Serializer[object]):
+    outcome = serializers.ChoiceField(choices=PlacementOutcome.choices)
+    ended_on = serializers.DateField(required=False, allow_null=True, default=None)
+    note = serializers.CharField(
+        max_length=OUTCOME_NOTE_MAX_LENGTH, allow_blank=True, required=False, default=""
+    )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if attrs["outcome"] == PlacementOutcome.LEFT:
+            errors: dict[str, list[str]] = {}
+            if attrs["ended_on"] is None:
+                errors["ended_on"] = [NEEDS_LEFT_DATE]
+            if not attrs["note"].strip():
+                errors["note"] = [NEEDS_LEFT_NOTE]
+            if errors:
+                raise serializers.ValidationError(errors)
+        return attrs
+
+
+class RecruiterPlacementSummarySerializer(serializers.Serializer[object]):
+    paid_total = serializers.IntegerField(read_only=True)
+    due_count = serializers.IntegerField(read_only=True)
+    in_guarantee_count = serializers.IntegerField(read_only=True)
+    starting_count = serializers.IntegerField(read_only=True)
+
+
+class RecruiterPlacementListSerializer(serializers.Serializer[object]):
+    summary = RecruiterPlacementSummarySerializer(read_only=True)
+    results = RecruiterPlacementSerializer(many=True, read_only=True)
+
+
 class ApplicationDetailSerializer(serializers.ModelSerializer[Application]):
     job = DetailJobSerializer(read_only=True)
     candidate = CandidateFactsSerializer(read_only=True)
@@ -130,6 +316,7 @@ class ApplicationDetailSerializer(serializers.ModelSerializer[Application]):
     last_decline = serializers.SerializerMethodField()
     history = serializers.SerializerMethodField()
     actions = serializers.SerializerMethodField()
+    placement = serializers.SerializerMethodField()
 
     class Meta:
         model = Application
@@ -155,6 +342,7 @@ class ApplicationDetailSerializer(serializers.ModelSerializer[Application]):
             "last_decline",
             "history",
             "actions",
+            "placement",
         )
         read_only_fields = fields
 
@@ -195,6 +383,10 @@ class ApplicationDetailSerializer(serializers.ModelSerializer[Application]):
     def get_actions(self, application: Application) -> list[str]:
         return [str(action) for action in available_actions(application)]
 
+    @extend_schema_field(CompanyPlacementSerializer(allow_null=True))
+    def get_placement(self, application: Application) -> Any:
+        return placement_block(CompanyPlacementSerializer, application, self.context)
+
 
 ARCHIVE_NEEDS_REASON = "Say why you are archiving this candidate."
 ENDS_BEFORE_START = "The interview must end after it starts."
@@ -205,6 +397,10 @@ class ArchiveSerializer(serializers.Serializer[object]):
         max_length=REASON_MAX_LENGTH,
         error_messages={"blank": ARCHIVE_NEEDS_REASON, "required": ARCHIVE_NEEDS_REASON},
     )
+
+
+class HireSerializer(serializers.Serializer[object]):
+    start_date = serializers.DateField()
 
 
 class InterviewCreateSerializer(serializers.Serializer[object]):
@@ -369,6 +565,7 @@ class SubmissionDetailSerializer(RecruiterSubmissionDetailSerializer):
     cv_kind = serializers.SerializerMethodField()
     interviews = InterviewSerializer(many=True, read_only=True)
     history = serializers.SerializerMethodField()
+    placement = serializers.SerializerMethodField()
 
     class Meta(RecruiterSubmissionDetailSerializer.Meta):
         fields = (
@@ -377,6 +574,7 @@ class SubmissionDetailSerializer(RecruiterSubmissionDetailSerializer):
             "cv_kind",
             "interviews",
             "history",
+            "placement",
         )
         read_only_fields = fields
 
@@ -387,3 +585,7 @@ class SubmissionDetailSerializer(RecruiterSubmissionDetailSerializer):
     @extend_schema_field(StageEntrySerializer(many=True))
     def get_history(self, application: Application) -> Any:
         return history_of(application)
+
+    @extend_schema_field(RecruiterPlacementSerializer(allow_null=True))
+    def get_placement(self, application: Application) -> Any:
+        return placement_block(RecruiterPlacementSerializer, application, self.context)

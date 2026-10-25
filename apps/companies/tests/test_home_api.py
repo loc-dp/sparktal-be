@@ -1,6 +1,7 @@
 from collections.abc import Callable
 
 import pytest
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from apps.accounts.models import User
@@ -8,7 +9,7 @@ from apps.candidates.models import Stage
 from apps.candidates.tests.factories import ApplicationFactory, CandidateFactory
 from apps.companies.models import Company
 from apps.jobs.models import Job, JobStatus
-from apps.jobs.tests.factories import JobFactory
+from apps.jobs.tests.factories import JobFactory, JobQuestionFactory
 from apps.recruiters.models import RecruiterProfile
 
 pytestmark = pytest.mark.django_db
@@ -186,3 +187,21 @@ def test_a_publishing_ta_is_asked_to_post_their_own_submitted_job(
 
     assert action["detail"] == "Waiting for you to post"
     assert action["href"] == f"/jobs/{job.pk}/edit"
+
+
+def test_home_active_jobs_carry_unanswered_questions(
+    client_for: Callable[[User], APIClient], company: Company, company_admin: User
+) -> None:
+    asked = JobFactory(company=company, title="Has questions")
+    quiet = JobFactory(company=company, title="Quiet")
+    JobQuestionFactory(job=asked)
+    JobQuestionFactory(job=asked)
+    JobQuestionFactory(job=asked, answered_at=timezone.now(), answer="Yes")
+    JobQuestionFactory(job=asked, hidden_at=timezone.now())
+
+    rows = client_for(company_admin).get(HOME).json()["active_jobs"]
+
+    assert {row["id"]: row["unanswered_questions"] for row in rows} == {
+        str(asked.pk): 2,
+        str(quiet.pk): 0,
+    }

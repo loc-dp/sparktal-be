@@ -2,9 +2,12 @@ from typing import Any
 
 from django.db.models import F, Q, QuerySet
 from django.http import QueryDict
+from django.utils import timezone
 from django_filters import rest_framework as filters
 
 from apps.companies.models import Company
+from apps.hiring.models import Placement
+from apps.hiring.placements import PayoutStatus, filter_by_payout
 from apps.jobs.models import Job, JobStatus
 from apps.recruiters.models import RecruiterProfile, RecruiterStatus
 
@@ -97,3 +100,39 @@ class OpsRecruiterFilterSet(filters.FilterSet):
         if self.form.cleaned_data["status"] == RecruiterStatus.PENDING:
             return queryset.order_by(F("submitted_at").asc(nulls_last=True), "nickname", "id")
         return queryset.order_by("nickname", "id")
+
+
+class OpsPlacementFilterSet(filters.FilterSet):
+    """`?payout_status=` and `?search=` on the candidate, the job, the company or the recruiter."""
+
+    payout_status = filters.ChoiceFilter(
+        choices=PayoutStatus.choices,
+        method="filter_payout_status",
+        help_text="Where the payout stands; `due` is what Sparktal still has to pay.",
+    )
+    search = filters.CharFilter(
+        method="filter_search",
+        help_text="Part of the candidate's name, the job title, the company or the recruiter.",
+    )
+
+    class Meta:
+        model = Placement
+        fields = ("payout_status", "search")
+
+    def filter_payout_status(
+        self, queryset: QuerySet[Placement], name: str, value: str
+    ) -> QuerySet[Placement]:
+        return filter_by_payout(queryset, value, timezone.localdate()) if value else queryset
+
+    def filter_search(
+        self, queryset: QuerySet[Placement], name: str, value: str
+    ) -> QuerySet[Placement]:
+        term = (value or "").strip()
+        if not term:
+            return queryset
+        return queryset.filter(
+            Q(application__candidate__full_name__icontains=term)
+            | Q(application__job__title__icontains=term)
+            | Q(application__job__company__name__icontains=term)
+            | Q(application__recruiter__nickname__icontains=term)
+        )

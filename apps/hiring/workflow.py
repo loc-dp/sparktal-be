@@ -4,7 +4,7 @@ Views ask `available_actions` for the buttons and call the commands; a command t
 longer fits the stage (someone else moved the candidate first) raises StageConflict.
 """
 
-from datetime import datetime
+from datetime import date, datetime
 from uuid import UUID
 
 from django.db import IntegrityError, models, transaction
@@ -15,6 +15,7 @@ from apps.accounts.models import User
 from apps.candidates.models import Application, Stage
 from apps.hiring.discussion import post_system_message
 from apps.hiring.models import ApprovalRequest, ApprovalStatus, Interview, InterviewFormat
+from apps.hiring.placements import create_placement
 from apps.jobs.access import can_view_job
 
 STAGE_MOVED = (
@@ -136,10 +137,12 @@ def make_offer(application: Application) -> None:
         _move(current, Stage.OFFER)
 
 
-def mark_hired(application: Application) -> None:
+def mark_hired(application: Application, start_date: date) -> None:
     with transaction.atomic():
         current = _locked(application.pk)
         _require(current, Action.HIRE)
+        # Before the move, so a start date out of range leaves the stage where it was.
+        create_placement(current, start_date, timezone.localdate())
         _move(current, Stage.ONBOARDED)
 
 

@@ -34,6 +34,22 @@ OTHER: list[tuple[str, str, str, str, str, int]] = [
     ("Data Analyst", "Trần Đức Long", "BI Engineer · MoMo", "Atlas Hunters", Stage.NEW, 3),
     ("Product Designer", "Lý Hoàng Yến", "Designer · MoMo", "Bluefin Search", Stage.SCREEN, 8),
     ("QA Engineer", "Phan Nhật Minh", "QA Lead · VNG", "NorthStar Talent", Stage.ONBOARDED, 90),
+    (
+        "Compliance Manager",
+        "Đinh Quỳnh Anh",
+        "Compliance Officer · Timo",
+        "NorthStar Talent",
+        Stage.ONBOARDED,
+        45,
+    ),
+    (
+        "Product Designer",
+        "Cao Minh Khôi",
+        "Product Designer · Be Group",
+        "Bluefin Search",
+        Stage.ONBOARDED,
+        30,
+    ),
 ]
 
 REJECTION_REASON = (
@@ -137,7 +153,7 @@ CANDIDATE_ASSESSMENTS: dict[str, dict[str, str]] = {
     "Phan Nhật Minh": {
         "reason_for_leaving": "Seeking product company with modern Playwright automation after leading testing at VNG.",
         "motivation": "Passionate about full-coverage CI/CD test automation for payment checkout pipelines.",
-        "other_notes": "Successfully onboarded at 28.000.000 ₫ gross/month. Guarantee period active.",
+        "other_notes": "Successfully onboarded at 28.000.000 ₫ gross/month. Guarantee period passed.",
         "consultant_note": "Top-tier QA automation engineer. Delivered comprehensive test framework within first month.",
     },
 }

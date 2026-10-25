@@ -121,14 +121,20 @@ def test_admin_status_is_read_only(staff_client: Client, company: Company) -> No
     form = response.context["adminform"].form
     for name in ("status", "posted_at", "published_at", "deleted_at"):
         assert name not in form.fields
-    for name in ("bounty_type", "bounty_pct", "bounty_amount", "on_marketplace"):
+    for name in ("bounty_type", "bounty_pct", "bounty_amount", "on_marketplace", "guarantee_days"):
         assert name in form.fields
 
 
-ADMIN_EDITABLE = {"bounty_type", "bounty_pct", "bounty_amount", "on_marketplace"}
+ADMIN_EDITABLE = {
+    "bounty_type",
+    "bounty_pct",
+    "bounty_amount",
+    "on_marketplace",
+    "guarantee_days",
+}
 
 
-def test_admin_edits_only_the_bounty_and_the_channel_of_an_existing_job(
+def test_admin_edits_only_the_bounty_the_guarantee_and_the_channel_of_an_existing_job(
     staff_client: Client, company: Company, company_ta: User
 ) -> None:
     # Spec decision 15: Django Admin keeps the bounty as a fallback; ops sees the JD read-only.
@@ -177,6 +183,25 @@ def test_a_stale_admin_form_does_not_revert_what_the_company_changed(
     job.refresh_from_db()
     assert (job.title, job.why_we_need_you) == ("Staff Platform Engineer", "New brief.")
     assert (job.bounty_type, job.bounty_pct, job.bounty_amount) == ("pct", 20, None)
+
+
+def test_admin_edits_the_guarantee_days_and_rejects_out_of_range(
+    staff_client: Client, company: Company, company_ta: User
+) -> None:
+    job = JobFactory(company=company, created_by=company_ta)
+    url, data = job_change_form(staff_client, job, guarantee_days="90")
+
+    assert staff_client.post(url, data).status_code == 302
+
+    job.refresh_from_db()
+    assert job.guarantee_days == 90
+    for bad in ("0", "366"):
+        url, data = job_change_form(staff_client, job, guarantee_days=bad)
+        response = staff_client.post(url, data)
+        assert response.status_code == 200  # the form comes back with its error
+        assert "guarantee_days" in response.context["adminform"].form.errors
+    job.refresh_from_db()
+    assert job.guarantee_days == 90
 
 
 def test_a_posted_title_never_changes_the_job(

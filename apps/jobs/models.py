@@ -84,6 +84,10 @@ class BountyType(models.TextChoices):
     FIXED = "fixed", "Fixed amount"
 
 
+GUARANTEE_DAYS_DEFAULT = 60
+GUARANTEE_DAYS_MAX = 365
+
+
 def new_share_token() -> str:
     return secrets.token_urlsafe(16)
 
@@ -142,6 +146,11 @@ class Job(models.Model):
     )
     bounty_pct = models.PositiveSmallIntegerField(null=True, blank=True)
     bounty_amount = models.DecimalField(max_digits=15, decimal_places=0, null=True, blank=True)
+    # Sparktal's to set (ops): how long a hire must last before the recruiter is paid.
+    guarantee_days = models.PositiveSmallIntegerField(
+        default=GUARANTEE_DAYS_DEFAULT,
+        validators=[MinValueValidator(1), MaxValueValidator(GUARANTEE_DAYS_MAX)],
+    )
 
     skills = ArrayField(models.CharField(max_length=40), default=list, blank=True)
     status = models.CharField(max_length=16, choices=JobStatus.choices, default=JobStatus.DRAFT)
@@ -226,6 +235,30 @@ class JobChangeRequest(models.Model):
 
     def __str__(self) -> str:
         return f"{self.kind} · {self.job.title} · {self.status}"
+
+
+class JobQuestion(models.Model):
+    """A recruiter's question to the company about a job, and the company's answer."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    job = models.ForeignKey(Job, on_delete=models.CASCADE, related_name="questions")
+    asked_by = models.ForeignKey(
+        "recruiters.RecruiterProfile", on_delete=models.CASCADE, related_name="job_questions"
+    )
+    body = models.TextField()
+    answer = models.TextField(blank=True)
+    answered_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    answered_at = models.DateTimeField(null=True, blank=True)
+    hidden_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("-created_at",)
+
+    def __str__(self) -> str:
+        return f"{self.asked_by.nickname} · {self.job.title}"
 
 
 class JobAssignment(models.Model):

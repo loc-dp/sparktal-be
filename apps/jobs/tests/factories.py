@@ -17,6 +17,7 @@ from apps.jobs.models import (
     Job,
     JobAssignment,
     JobInvite,
+    JobQuestion,
     JobStatus,
     PayBasis,
     WorkModel,
@@ -94,3 +95,12 @@ class JdParseFactory(DjangoModelFactory[JdParse]):
     file = factory.LazyFunction(
         lambda: ContentFile(make_pdf("Senior Accountant\nResponsibilities"), name="jd.pdf")
     )
+
+
+class JobQuestionFactory(DjangoModelFactory[JobQuestion]):
+    class Meta:
+        model = JobQuestion
+
+    job = factory.SubFactory(JobFactory)
+    asked_by = factory.SubFactory(RecruiterProfileFactory)
+    body = "Is the salary range negotiable for a candidate with 8 years of experience?"

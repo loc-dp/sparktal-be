@@ -1,0 +1,8 @@
+{% extends "email/base.txt" %}{% block content %}
+{{ recruiter_name }} asked a question about "{{ job_title }}":
+
+{{ question }}
+
+Answer it from the job page:
+{{ job_url }}
+{% endblock %}

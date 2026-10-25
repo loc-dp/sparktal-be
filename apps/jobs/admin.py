@@ -18,12 +18,14 @@ from apps.jobs.models import (
     JobAssignment,
     JobChangeRequest,
     JobInvite,
+    JobQuestion,
 )
 
 BOUNTY_FIELDS = ("bounty_type", "bounty_pct", "bounty_amount")
 # All Django Admin edits on an existing job (spec decision 15: the bounty, as a fallback; ops
-# sees the JD read-only). Everything else the company wrote stays as the company left it.
-EDITABLE_ON_CHANGE = (*BOUNTY_FIELDS, "on_marketplace")
+# sees the JD read-only), and the guarantee days, which ops sets too. Everything else the company
+# wrote stays as the company left it.
+EDITABLE_ON_CHANGE = (*BOUNTY_FIELDS, "on_marketplace", "guarantee_days")
 
 
 class JobAdminForm(forms.ModelForm):  # type: ignore[type-arg]
@@ -177,6 +179,25 @@ class JobInviteAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
 
     # Delete stays at its default on purpose: Django checks it on every related object, so
     # refusing it here would block deleting a job that has invites.
+
+
+@admin.register(JobQuestion)
+class JobQuestionAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
+    list_display = ("job", "asked_by", "answered_at", "hidden_at", "created_at")
+    list_filter = ("job__company",)
+    search_fields = ("job__title", "asked_by__nickname", "body")
+    list_select_related = ("job", "asked_by")
+
+    def get_readonly_fields(
+        self, request: HttpRequest, obj: JobQuestion | None = None
+    ) -> list[str]:
+        return [field.name for field in self.model._meta.fields]
+
+    def has_add_permission(self, request: HttpRequest) -> bool:
+        return False
+
+    def has_change_permission(self, request: HttpRequest, obj: JobQuestion | None = None) -> bool:
+        return False
 
 
 @admin.register(JdParse)

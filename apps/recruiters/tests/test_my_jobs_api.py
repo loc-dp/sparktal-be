@@ -43,6 +43,17 @@ def test_my_jobs_only_lists_active_assignments_and_keeps_closed_jobs(
     assert next(row for row in rows if row["title"] == "QA Engineer")["status"] == "closed"
 
 
+def test_my_jobs_carries_the_note_for_recruiters(
+    client_for: Callable[[User], APIClient],
+    recruiter_user: User,
+    recruiter_profile: RecruiterProfile,
+) -> None:
+    job = JobFactory(note_for_recruiters="No candidates from MoMo, please.")
+    JobAssignmentFactory(job=job, recruiter=recruiter_profile)
+    rows = client_for(recruiter_user).get("/api/v1/recruiters/me/jobs").json()["results"]
+    assert rows[0]["note_for_recruiters"] == "No candidates from MoMo, please."
+
+
 def test_overview_counts_recruiter_stages_and_waiting_jobs(
     client_for: Callable[[User], APIClient],
     recruiter_user: User,

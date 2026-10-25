@@ -33,10 +33,13 @@ from apps.jobs.models import (
     JobChangeRequest,
     JobFunction,
     JobInvite,
+    JobQuestion,
     JobStatus,
     WorkModel,
 )
 from apps.jobs.notifications import notify_ops_job_edited
+from apps.jobs.questions import ANSWER_MAX_LENGTH, QUESTION_MAX_LENGTH
+from apps.recruiters.models import RecruiterProfile
 
 MAX_SKILLS = 20
 
@@ -176,6 +179,7 @@ class JobSerializer(serializers.ModelSerializer[Job]):
             "created_at",
             "published_at",
             "closed_at",
+            "guarantee_days",
             "can_edit",
             "permissions",
         )
@@ -186,6 +190,7 @@ class JobSerializer(serializers.ModelSerializer[Job]):
             "created_at",
             "published_at",
             "closed_at",
+            "guarantee_days",
             "location_label",
             "can_edit",
             "permissions",
@@ -495,6 +500,7 @@ class JobOverviewSerializer(serializers.Serializer[dict[str, object]]):
     rejection_log = RejectionSerializer(many=True)
     recruiters = RecruiterOnJobSerializer(many=True)
     note_for_recruiters = serializers.CharField(allow_blank=True)
+    unanswered_questions = serializers.IntegerField()
 
 
 class MarketplaceJobListItemSerializer(BountyReadFields, serializers.ModelSerializer[Job]):
@@ -560,9 +566,11 @@ class MarketplaceJobSerializer(MarketplaceJobListItemSerializer):
             "benefits",
             *BRIEF_FIELDS,
             "note_for_recruiters",
+            "guarantee_days",
             "channel_id",
             "invite",
         )
+        read_only_fields = ("guarantee_days",)
 
     @extend_schema_field(MarketplaceInviteSerializer(allow_null=True))
     def get_invite(self, job: Job) -> dict[str, Any] | None:
@@ -693,3 +701,48 @@ class ChangeRequestCreateSerializer(serializers.Serializer[Any]):
 class ChangeRequestDecisionSerializer(serializers.Serializer[Any]):
     # Required by `reject_change`, which answers with the sentence the form shows.
     note = serializers.CharField(required=False, allow_blank=True, default="")
+
+
+class QuestionCreateSerializer(serializers.Serializer[Any]):
+    body = serializers.CharField(max_length=QUESTION_MAX_LENGTH)
+
+
+class AnswerCreateSerializer(serializers.Serializer[Any]):
+    answer = serializers.CharField(max_length=ANSWER_MAX_LENGTH)
+
+
+class RecruiterQuestionSerializer(serializers.ModelSerializer[JobQuestion]):
+    """No asker identity: another recruiter's answered question reads the same as your own."""
+
+    mine = serializers.SerializerMethodField()
+
+    class Meta:
+        model = JobQuestion
+        fields = ("id", "body", "answer", "answered_at", "created_at", "mine")
+        read_only_fields = fields
+
+    def get_mine(self, obj: JobQuestion) -> bool:
+        recruiter: RecruiterProfile = self.context["recruiter"]
+        return bool(obj.asked_by_id == recruiter.pk)
+
+
+class CompanyQuestionSerializer(serializers.ModelSerializer[JobQuestion]):
+    recruiter_nickname = serializers.CharField(source="asked_by.nickname", read_only=True)
+    answered_by_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = JobQuestion
+        fields = (
+            "id",
+            "body",
+            "answer",
+            "answered_at",
+            "created_at",
+            "recruiter_nickname",
+            "answered_by_name",
+        )
+        read_only_fields = fields
+
+    def get_answered_by_name(self, obj: JobQuestion) -> str | None:
+        user = obj.answered_by
+        return (user.full_name or user.email) if user is not None else None

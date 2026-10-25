@@ -181,6 +181,7 @@ class RecruiterJobSerializer(JoinedBountyReadFields, serializers.ModelSerializer
             "submitted_count",
             "active_count",
             "last_activity_at",
+            "note_for_recruiters",
         )
 
     @extend_schema_field(serializers.DictField(child=serializers.CharField()))

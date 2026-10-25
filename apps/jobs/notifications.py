@@ -10,7 +10,16 @@ from django.utils.text import capfirst
 from apps.accounts.models import User
 from apps.companies.models import CompanyMembership, CompanyRole
 from apps.core.emails import build_email
-from apps.jobs.models import BountyType, ChangeKind, ChangeStatus, Job, JobChangeRequest, JobInvite
+from apps.jobs.access import can_change_job
+from apps.jobs.models import (
+    BountyType,
+    ChangeKind,
+    ChangeStatus,
+    Job,
+    JobChangeRequest,
+    JobInvite,
+    JobQuestion,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -174,5 +183,60 @@ def notify_recruiter_invited(invite: JobInvite) -> None:
         message = build_email("email/recruiter_invited", recruiter.user.email, context)
     except Exception:
         logger.exception("Could not prepare the invite email for %s", invite.pk)
+        return
+    send_safely(message)
+
+
+def notify_question_asked(question: JobQuestion) -> None:
+    """Tell the company's active admins, and the creator if they may edit the job, of a question.
+
+    Only people who can answer hear about it; a creator without edit rights cannot.
+    """
+    try:
+        job = question.job
+        recipients = {
+            membership.user.pk: membership.user
+            for membership in CompanyMembership.objects.filter(
+                company_id=job.company_id, role=CompanyRole.ADMIN, user__is_active=True
+            ).select_related("user")
+        }
+        creator = job.created_by
+        if creator is not None and creator.is_active and can_change_job(creator, job):
+            recipients[creator.pk] = creator
+        context = {
+            "job_title": job.title,
+            "recruiter_name": question.asked_by.nickname,
+            "question": question.body,
+            "job_url": f"{settings.FRONTEND_URL}/jobs/{job.pk}#questions",
+        }
+    except Exception:
+        logger.exception("Could not prepare the question asked email for %s", question.pk)
+        return
+    for user in recipients.values():
+        try:
+            message = build_email("email/question_asked", user.email, context)
+        except Exception:
+            logger.exception("Could not build the question asked email for %s", user)
+            continue
+        send_safely(message)
+
+
+def notify_question_answered(question: JobQuestion) -> None:
+    """Tell the recruiter who asked that the company answered."""
+    try:
+        job = question.job
+        asker = question.asked_by.user
+        if not asker.is_active:
+            return
+        context = {
+            "job_title": job.title,
+            "company_name": job.company.name,
+            "question": question.body,
+            "answer": question.answer,
+            "job_url": f"{settings.FRONTEND_URL}/r/jobs/{job.pk}",
+        }
+        message = build_email("email/question_answered", asker.email, context)
+    except Exception:
+        logger.exception("Could not prepare the question answered email for %s", question.pk)
         return
     send_safely(message)

@@ -22,6 +22,7 @@ from apps.jobs.models import (
     JobAssignment,
     JobChangeRequest,
     JobInvite,
+    JobQuestion,
     JobStatus,
     Language,
     PayBasis,
@@ -474,3 +475,63 @@ def seed_invites(ctx: SeedContext) -> None:
 @register_resetter(order=46)
 def reset_invites() -> None:
     JobInvite.objects.filter(job__company__name="Vela Pay").delete()
+
+
+# Q&A between NorthStar Talent and Vela Pay: job title, question, answer ("" = waiting), days ago.
+QUESTIONS: list[tuple[str, str, str, int]] = [
+    (
+        "Senior Backend Engineer",
+        "Is the 45-60M range negotiable for someone with 9 years of Go experience?",
+        "Yes. For a candidate at that level we can go up to 62M gross if the ledger design round "
+        "goes well.",
+        12,
+    ),
+    (
+        "Senior Backend Engineer",
+        "Do you accept candidates who are on a 60-day notice period?",
+        "We can wait up to 45 days. Beyond that we would need a buyout agreement.",
+        9,
+    ),
+    (
+        "Senior Backend Engineer",
+        "Is the team open to a fully remote engineer based in Da Nang?",
+        "",
+        2,
+    ),
+    (
+        "Data Analyst",
+        "Is hands-on dbt experience required, or is strong SQL with a willingness to learn enough?",
+        "",
+        3,
+    ),
+]
+QUESTIONER = "NorthStar Talent"
+ANSWERER = "maianh.tran@velapay.vn"
+
+
+@register_seeder(order=47)
+def seed_questions(ctx: SeedContext) -> None:
+    """Rebuilt from scratch, straight through the ORM: demo data emails nobody."""
+    jobs: dict[str, Job] = ctx.refs.get("jobs") or {
+        job.title: job for job in Job.objects.filter(company__name="Vela Pay")
+    }
+    recruiter = ctx.refs["recruiters"][QUESTIONER]
+    answerer = ctx.refs.get("users", {}).get(ANSWERER) or User.objects.get(email=ANSWERER)
+    JobQuestion.objects.filter(job__company__name="Vela Pay").delete()
+    now = timezone.now()
+    for title, body, answer, days_ago in QUESTIONS:
+        asked = now - timedelta(days=days_ago)
+        question = JobQuestion.objects.create(
+            job=jobs[title],
+            asked_by=recruiter,
+            body=body,
+            answer=answer,
+            answered_by=answerer if answer else None,
+            answered_at=asked + timedelta(hours=5) if answer else None,
+        )
+        JobQuestion.objects.filter(pk=question.pk).update(created_at=asked)
+
+
+@register_resetter(order=47)
+def reset_questions() -> None:
+    JobQuestion.objects.filter(job__company__name="Vela Pay").delete()

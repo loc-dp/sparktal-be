@@ -1,6 +1,8 @@
+from datetime import timedelta
 from typing import Any
 
 import pytest
+from django.utils import timezone
 
 from apps.candidates.models import Stage
 from apps.hiring.tests.conftest import at_stage
@@ -91,7 +93,8 @@ def test_set_interview_from_new_is_409(ta_client: Any, application: Any) -> None
 def test_offer_then_hire(ta_client: Any, application: Any) -> None:
     at_stage(application, Stage.INTERVIEW)
     assert post(ta_client, application, "offer").json()["stage"] == "offer"
-    body = post(ta_client, application, "hire").json()
+    start_date = (timezone.localdate() + timedelta(days=14)).isoformat()
+    body = post(ta_client, application, "hire", {"start_date": start_date}).json()
     assert (body["stage"], body["actions"]) == ("onboarded", [])
 
 

@@ -4,6 +4,7 @@ from uuid import UUID
 from django.db import transaction
 from django.db.models import QuerySet
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework.generics import ListAPIView, ListCreateAPIView, RetrieveAPIView
@@ -32,9 +33,17 @@ from apps.companies.serializers import (
     TeamWriteSerializer,
 )
 from apps.core.pagination import DefaultPagination
+from apps.hiring.api import Conflict
+from apps.hiring.models import Placement
+from apps.hiring.placements import PlacementConflict, mark_paid
 from apps.jobs.distribution import set_bounty
 from apps.jobs.models import Job
-from apps.ops.filters import OpsCompanyFilterSet, OpsJobFilterSet, OpsRecruiterFilterSet
+from apps.ops.filters import (
+    OpsCompanyFilterSet,
+    OpsJobFilterSet,
+    OpsPlacementFilterSet,
+    OpsRecruiterFilterSet,
+)
 from apps.ops.jobs import (
     distribute_with_bounty,
     ops_job_detail_queryset,
@@ -44,7 +53,7 @@ from apps.ops.jobs import (
 )
 from apps.ops.overview import ops_overview
 from apps.ops.permissions import IsSparktalStaff
-from apps.ops.queries import annotate_ops_companies, annotate_ops_recruiters
+from apps.ops.queries import annotate_ops_companies, annotate_ops_recruiters, ops_placements
 from apps.ops.serializers import (
     OpsBountySerializer,
     OpsChannelsSerializer,
@@ -53,7 +62,9 @@ from apps.ops.serializers import (
     OpsDistributeSerializer,
     OpsJobDetailSerializer,
     OpsJobListItemSerializer,
+    OpsMarkPaidSerializer,
     OpsOverviewSerializer,
+    OpsPlacementSerializer,
     OpsRecruiterRejectSerializer,
     OpsRecruiterSerializer,
 )
@@ -61,6 +72,12 @@ from apps.recruiters.models import RecruiterProfile
 from apps.recruiters.review import approve_recruiter, reject_recruiter
 
 BOUNTY_FIELDS = ("bounty_type", "bounty_pct", "bounty_amount")
+# What the bounty form sets: the bounty, and the guarantee days when it names them.
+BOUNTY_FORM_FIELDS = (*BOUNTY_FIELDS, "guarantee_days")
+
+
+def bounty_form(validated: dict[str, Any]) -> dict[str, Any]:
+    return {name: validated[name] for name in BOUNTY_FORM_FIELDS if name in validated}
 
 
 @extend_schema_view(
@@ -131,7 +148,7 @@ class OpsJobBountyView(OpsJobActionView):
         job = self.job(id)
         bounty = OpsBountySerializer(data=request.data)
         bounty.is_valid(raise_exception=True)
-        set_bounty(job, **{name: bounty.validated_data[name] for name in BOUNTY_FIELDS})
+        set_bounty(job, **bounty_form(bounty.validated_data))
         return self.detail(id)
 
 
@@ -156,7 +173,7 @@ class OpsJobDistributeView(OpsJobActionView):
         distribute_with_bounty(
             id,
             actor=self.staff(),
-            bounty={name: form.validated_data[name] for name in BOUNTY_FIELDS},
+            bounty=bounty_form(form.validated_data),
             on_marketplace=form.validated_data["on_marketplace"],
             recruiters=form.validated_data["recruiters"],
         )
@@ -478,3 +495,49 @@ class OpsRecruiterRejectView(OpsRecruiterReviewView):
         form.is_valid(raise_exception=True)
         reject_recruiter(recruiter, by=self.staff(), note=form.validated_data["note"])
         return self.row(id)
+
+
+@extend_schema_view(get=extend_schema(tags=["ops"], operation_id="ops_placements_list"))
+class OpsPlacementListView(ListAPIView[Placement]):
+    """Every hire on the platform, newest start date first: the payouts Sparktal owes and made."""
+
+    permission_classes = (IsSparktalStaff,)
+    serializer_class = OpsPlacementSerializer
+    pagination_class = DefaultPagination
+    filter_backends = (DjangoFilterBackend,)
+    filterset_class = OpsPlacementFilterSet
+
+    def get_queryset(self) -> QuerySet[Placement]:
+        return ops_placements().order_by("-start_date", "-id")
+
+
+@extend_schema_view(
+    post=extend_schema(
+        tags=["ops"],
+        operation_id="ops_placements_mark_paid_create",
+        description="Record that Sparktal paid the recruiter. Only a due placement can be paid.",
+        request=OpsMarkPaidSerializer,
+        responses=OpsPlacementSerializer,
+    )
+)
+class OpsPlacementMarkPaidView(APIView):
+    permission_classes = (IsSparktalStaff,)
+
+    def post(self, request: Request, pk: UUID) -> Response:
+        staff = request.user
+        assert isinstance(staff, User), "IsSparktalStaff must run before this view"
+        placement = get_object_or_404(ops_placements(), pk=pk)
+        form = OpsMarkPaidSerializer(data=request.data)
+        form.is_valid(raise_exception=True)
+        try:
+            mark_paid(
+                placement,
+                staff,
+                form.validated_data["paid_amount"],
+                form.validated_data["paid_at"],
+                form.validated_data["note"],
+                timezone.localdate(),
+            )
+        except PlacementConflict as error:
+            raise Conflict(str(error)) from error
+        return Response(OpsPlacementSerializer(get_object_or_404(ops_placements(), pk=pk)).data)

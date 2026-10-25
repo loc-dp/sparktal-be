@@ -1,0 +1,1 @@
+You have been paid for {{ candidate_name }} · {{ job_title }}

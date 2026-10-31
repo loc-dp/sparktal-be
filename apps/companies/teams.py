@@ -3,6 +3,7 @@ from uuid import UUID
 from django.db import IntegrityError, transaction
 from rest_framework.exceptions import ValidationError
 
+from apps.companies.access import lock_company
 from apps.companies.members import MemberRuleError
 from apps.companies.models import Company, CompanyMembership, CompanyRole, Team
 from apps.jobs.models import Job
@@ -48,11 +49,10 @@ def rename_team(team: Team, name: str) -> Team:
 def delete_team(team: Team) -> None:
     """Delete a team nobody and no job is in. A team already gone is left at that.
 
-    The team row is locked until commit, so two deletes or a rename of it wait their turn. Moving
-    a member or a job into the team takes no lock on it: its foreign key is checked when it
-    commits. One that has not committed by the checks below is not seen; the database then
-    refuses its commit, as the team is gone, so nothing is left pointing at no team.
+    Company writes use the same company lock before reading team membership, so a writer either
+    commits before these checks or sees the team is gone and returns a field error.
     """
+    lock_company(team.company_id)
     locked = Team.objects.select_for_update().filter(pk=team.pk).first()
     if locked is None:
         return

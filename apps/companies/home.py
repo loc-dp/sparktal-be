@@ -100,6 +100,8 @@ def actions(user: User) -> list[dict[str, Any]]:
     changes = [
         {
             "kind": "change_request",
+            "proposal_kind": proposal.kind,
+            "proposed_by": proposal.requested_by.full_name or proposal.requested_by.email,
             "title": PROPOSAL_TITLES[ChangeKind(proposal.kind)].format(
                 name=proposal.requested_by.full_name or proposal.requested_by.email
             ),

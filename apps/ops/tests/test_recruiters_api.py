@@ -282,6 +282,7 @@ def test_approve_twice_is_400(
 
     assert again.status_code == 400
     assert again.json()["detail"] == ALREADY_APPROVED
+    assert again.json()["code"] == "recruiter_already_approved"
     recruiter.refresh_from_db()
     assert recruiter.reviewed_at == reviewed_at
     # Told once, not twice.
@@ -351,6 +352,7 @@ def test_reject_twice_is_400(
 
     assert again.status_code == 400
     assert again.json()["detail"] == ALREADY_REJECTED
+    assert again.json()["code"] == "recruiter_already_rejected"
     recruiter.refresh_from_db()
     assert recruiter.review_note == "Not a fit."
     assert len(mailoutbox) == 1

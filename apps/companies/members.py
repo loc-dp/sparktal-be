@@ -8,7 +8,7 @@ from rest_framework.exceptions import APIException, ValidationError
 from apps.accounts.models import User, UserKind
 from apps.accounts.sessions import end_sessions
 from apps.chat.events import close_sockets
-from apps.companies.access import membership_of
+from apps.companies.access import lock_company, membership_of
 from apps.companies.models import Company, CompanyMembership, CompanyRole, Team
 from apps.jobs.models import PRIVATE_STATUSES, ChangeStatus, Job, JobChangeRequest
 
@@ -78,12 +78,16 @@ def invite_member(
     Sparktal locked. A company must not learn of a Sparktal lock, so the default calls the
     address taken; Sparktal's own portal passes `ACCOUNT_LOCKED`.
     """
+    lock_company(company.pk)
     if role == CompanyRole.ADMIN:
         team, can_publish = None, False
     else:
         if team is None:
             raise ValidationError({"team": [TEAM_REQUIRED]})
-        if team.company_id != company.pk:
+        if (
+            team.company_id != company.pk
+            or not Team.objects.filter(pk=team.pk, company=company).exists()
+        ):
             raise ValidationError({"team": [TEAM_FOREIGN]})
         can_publish = can_publish and role == CompanyRole.TALENT_ACQUISITION
     normalized = User.objects.normalize_email(email)
@@ -131,6 +135,8 @@ def update_member(
     team: Team | None | _Unset = UNSET,  # noqa: RUF036
     can_publish: bool | None = None,
 ) -> CompanyMembership:
+    lock_company(membership.company_id)
+    membership.refresh_from_db()
     old_role, old_team_id = membership.role, membership.team_id
     new_role = old_role if role is None else role
     if (
@@ -147,7 +153,10 @@ def update_member(
         new_team = membership.team if isinstance(team, _Unset) else team
         if new_team is None:
             raise ValidationError({"team": [TEAM_REQUIRED]})
-        if new_team.company_id != membership.company_id:
+        if (
+            new_team.company_id != membership.company_id
+            or not Team.objects.filter(pk=new_team.pk, company_id=membership.company_id).exists()
+        ):
             raise ValidationError({"team": [TEAM_FOREIGN]})
 
     if new_role != CompanyRole.TALENT_ACQUISITION:
@@ -183,6 +192,8 @@ def withdraw_pending_proposals(user: User) -> None:
 
 @transaction.atomic
 def remove_member(membership: CompanyMembership, *, actor: User) -> None:
+    lock_company(membership.company_id)
+    membership.refresh_from_db()
     if membership.user_id == actor.pk:
         raise MemberRuleError("You can't remove yourself. Ask another admin to do it.")
     if membership.role == CompanyRole.ADMIN and is_last_admin(membership):
@@ -206,6 +217,8 @@ def set_locked(membership: CompanyMembership, *, locked: bool) -> CompanyMembers
     sign in again; a session that was open when they were locked does not come back. The last
     admin may be locked too: Sparktal may suspend a whole company.
     """
+    lock_company(membership.company_id)
+    membership.refresh_from_db()
     user = membership.user
     if locked:
         user.locked_at = user.locked_at or timezone.now()

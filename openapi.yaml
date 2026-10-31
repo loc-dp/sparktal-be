@@ -4873,6 +4873,10 @@ components:
     HomeAction:
       type: object
       properties:
+        proposal_kind:
+          type: string
+        proposed_by:
+          type: string
         kind:
           type: string
         title:

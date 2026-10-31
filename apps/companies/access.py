@@ -1,3 +1,5 @@
+from uuid import UUID
+
 from apps.accounts.models import User
 from apps.companies.models import Company, CompanyMembership
 
@@ -13,3 +15,8 @@ def membership_of(user: User | None) -> CompanyMembership | None:
 def company_of(user: User | None) -> Company | None:
     membership = membership_of(user)
     return membership.company if membership else None
+
+
+def lock_company(company_id: UUID) -> None:
+    """Serialize membership, account-lock and team/job writes within an atomic block."""
+    Company.objects.select_for_update().get(pk=company_id)

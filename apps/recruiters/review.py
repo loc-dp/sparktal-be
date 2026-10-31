@@ -38,7 +38,9 @@ def approve_recruiter(profile: RecruiterProfile, *, by: User) -> RecruiterProfil
     is saved. Returns the profile as saved."""
     locked = _locked(profile)
     if locked.status == RecruiterStatus.APPROVED:
-        raise ReviewError("This recruiter is already approved.")
+        raise ReviewError(
+            {"detail": "This recruiter is already approved.", "code": "recruiter_already_approved"}
+        )
     locked.approve(by)
     transaction.on_commit(lambda: send_review_result(locked))
     return locked
@@ -52,7 +54,9 @@ def reject_recruiter(profile: RecruiterProfile, *, by: User, note: str) -> Recru
         raise ValidationError({"note": [NEEDS_NOTE]})
     locked = _locked(profile)
     if locked.status == RecruiterStatus.REJECTED:
-        raise ReviewError("This recruiter is already rejected.")
+        raise ReviewError(
+            {"detail": "This recruiter is already rejected.", "code": "recruiter_already_rejected"}
+        )
     locked.reject(by, note)
     transaction.on_commit(lambda: send_review_result(locked))
     return locked

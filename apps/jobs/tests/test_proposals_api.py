@@ -161,6 +161,8 @@ def test_home_shows_change_request_action_to_admin_only(
     assert len(mine) == 1
     assert mine[0]["href"] == f"/jobs/{request.job_id}"
     assert mine[0]["title"] == "Ta Draft proposed closing this job"
+    assert mine[0]["proposal_kind"] == ChangeKind.CLOSE
+    assert mine[0]["proposed_by"] == "Ta Draft"
     assert mine[0]["detail"] == request.job.title
     ta_actions = client_for(team_world.ta_draft).get("/api/v1/company/home").json()["actions"]
     assert not [a for a in ta_actions if a["kind"] == "change_request"]

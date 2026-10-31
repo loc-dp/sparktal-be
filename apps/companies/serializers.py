@@ -234,6 +234,8 @@ class HomeJobRowSerializer(serializers.Serializer[dict[str, Any]]):
 
 
 class HomeActionSerializer(serializers.Serializer[dict[str, Any]]):
+    proposal_kind = serializers.CharField(required=False)
+    proposed_by = serializers.CharField(required=False)
     kind = serializers.CharField()
     title = serializers.CharField()
     detail = serializers.CharField()

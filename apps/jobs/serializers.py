@@ -11,7 +11,7 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.relations import PKOnlyObject
 
 from apps.candidates.stages import STAGE_ORDER
-from apps.companies.access import company_of, membership_of
+from apps.companies.access import company_of, lock_company, membership_of
 from apps.companies.models import CompanyRole, Office, Team
 from apps.core.documents import validate_document
 from apps.jobs.access import NOT_YOURS, JobPermissions, job_permissions
@@ -321,6 +321,12 @@ class JobSerializer(serializers.ModelSerializer[Job]):
             "function", guess_function(validated_data["title"], validated_data.get("skills", []))
         )
         with transaction.atomic():
+            lock_company(membership.company_id)
+            if (
+                team is not None
+                and not Team.objects.filter(pk=team.pk, company_id=membership.company_id).exists()
+            ):
+                raise serializers.ValidationError({"team": ["Pick a team from your company."]})
             job = Job.objects.create(
                 company_id=membership.company_id,
                 team=team,
@@ -333,6 +339,13 @@ class JobSerializer(serializers.ModelSerializer[Job]):
     def update(self, instance: Job, validated_data: dict[str, Any]) -> Job:
         actor = self.context["request"].user
         with transaction.atomic():
+            lock_company(instance.company_id)
+            team = validated_data.get("team")
+            if (
+                team is not None
+                and not Team.objects.filter(pk=team.pk, company_id=instance.company_id).exists()
+            ):
+                raise serializers.ValidationError({"team": ["Pick a team from your company."]})
             # `instance` was read without a lock: a delete, close or post may have landed since.
             job = Job.objects.select_for_update().filter(pk=instance.pk).first()
             if job is None or not job_permissions(actor, job).edit:

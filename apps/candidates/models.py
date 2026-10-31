@@ -171,6 +171,10 @@ class CvParse(models.Model):
     llm_model = models.CharField(max_length=64, blank=True)
     input_tokens = models.PositiveIntegerField(default=0)
     output_tokens = models.PositiveIntegerField(default=0)
+    # sha256 of the upload, so the same recruiter re-uploading the same file reuses its read.
+    file_sha256 = models.CharField(max_length=64, blank=True)
+    # Copied from an earlier parse of the same file: no file stored, no Claude call made.
+    reused = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     started_at = models.DateTimeField(null=True, blank=True)
     finished_at = models.DateTimeField(null=True, blank=True)

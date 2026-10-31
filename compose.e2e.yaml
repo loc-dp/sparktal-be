@@ -1,0 +1,23 @@
+# Overrides for running the app's Playwright suite against this stack:
+#
+#   docker compose -f compose.yaml -f compose.e2e.yaml up -d api worker beat
+#
+# - The app may run on 3100 when 3000 is taken, so the API accepts both origins.
+# - Claude is switched off: CV and JD parsing fall back to the regex readers, so a run
+#   never pays for a parse. The .env key is still read, but container env wins
+#   (read_env runs with overwrite=False).
+#
+# Go back to the plain dev stack with `docker compose up -d api worker beat`.
+
+services:
+  api:
+    environment:
+      FRONTEND_ORIGINS: http://localhost:3000,http://localhost:3100
+      ANTHROPIC_API_KEY: ""
+      CV_PARSE_MODEL: ""
+      JD_PARSE_MODEL: ""
+  worker:
+    environment:
+      ANTHROPIC_API_KEY: ""
+      CV_PARSE_MODEL: ""
+      JD_PARSE_MODEL: ""

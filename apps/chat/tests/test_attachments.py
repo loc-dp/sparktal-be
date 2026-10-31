@@ -59,6 +59,7 @@ def test_a_file_over_ten_megabytes_is_rejected() -> None:
     ("name", "payload"),
     [
         ("fake.pdf", b"not pdf"),
+        ("junk-first.pdf", b"MZ\n" + make_pdf("CV")),
         ("fake.docx", b"PK\x03\x04 not docx"),
         ("fake.png", b"\x89PNG\r\n\x1a\n truncated"),
         ("mismatch.png", jpg_bytes()),
@@ -67,6 +68,11 @@ def test_a_file_over_ten_megabytes_is_rejected() -> None:
 def test_content_must_match_the_extension(name: str, payload: bytes) -> None:
     with pytest.raises(ValidationError, match="does not look like"):
         validate_attachment(SimpleUploadedFile(name, payload))
+
+
+def test_a_pdf_with_newlines_before_its_header_passes() -> None:
+    # TopCV and pdf-lib exports start with "\n"; one CV in six in the test set did.
+    validate_attachment(SimpleUploadedFile("CV.pdf", b"\n\n" + make_pdf("CV")))
 
 
 def test_the_file_pointer_is_rewound_for_the_caller() -> None:

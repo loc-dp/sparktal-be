@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from datetime import date
 from typing import Any
 
@@ -26,6 +27,14 @@ JOB_DATE = re.compile(r"(?P<year>\d{4})(?:-(?P<month>\d{1,2}))?")
 EARLIEST_JOB_YEAR = 1950
 # A model sometimes packs two contacts into one value: "a@x.com / b@y.com".
 CONTACT_SEPARATOR = re.compile(r"[,;/|]| or ")
+# pypdf writes an unmapped ligature as NUL, so "tyffany" can come out as "ty\x00any".
+LIGATURE = re.compile(r"ffi|ffl|ff|fi|fl")
+# An alias in brackets beside the name: "Đỗ Thị Quỳnh Châu (Vicky)".
+NAME_ALIAS = re.compile(r"\s*\([^)]*\)")
+# Ways a CV names Vietnamese, compared with spaces removed (broken text layers split words).
+VIETNAMESE_NAMED = ("vietnamese", "tiếngviệt", "tiengviet", "việtngữ", "越南", "越語", "越语")
+# Past this many unmapped glyphs the text layer cannot show a language is missing.
+UNMAPPED_GLYPHS = 20
 
 
 def _text(value: Any, limit: int) -> str:
@@ -35,8 +44,9 @@ def _text(value: Any, limit: int) -> str:
 
 
 def _name(value: Any) -> str:
-    words = _text(value, MAX_NAME_LENGTH).split(" ")
-    # Title-case a shouted name word by word, so "(Vicky)" or "Ph.D." survive;
+    name = NAME_ALIAS.sub("", value) if isinstance(value, str) else value
+    words = _text(name, MAX_NAME_LENGTH).split(" ")
+    # Title-case a shouted name word by word, so "Ph.D." survives;
     # a lone capitalised word ("MBA") is an acronym, not shouting.
     if sum(word.isupper() for word in words) < 2:
         return " ".join(words)
@@ -45,15 +55,17 @@ def _name(value: Any) -> str:
 
 def _email(value: Any, source_text: str) -> str:
     # PDF text layers break lines inside an address ("gmail.co⏎m") and turn unmapped
-    # ligatures into NUL ("ty\x00any"), so ground without whitespace or control characters.
-    source = re.sub(r"[\s\x00-\x1f]+", "", source_text).lower()
+    # ligatures into NUL ("ty\x00any"), so ground without whitespace or control characters,
+    # and also with each ligature written as the NUL the text layer may hold instead.
+    with_nul = re.sub(r"[\s\x01-\x1f]+", "", source_text).lower()
+    source = with_nul.replace("\x00", "")
     for email in CONTACT_SEPARATOR.split(_text(value, 512).lower()):
         email = email.strip()
         try:
             validate_email(email)
         except ValidationError:
             continue
-        if not source_text or email in source:
+        if not source_text or email in source or LIGATURE.sub("\x00", email) in with_nul:
             return email
     return ""
 
@@ -86,6 +98,17 @@ def is_working_age(born: date) -> bool:
     today = timezone.localdate()
     age = today.year - born.year - ((today.month, today.day) < (born.month, born.day))
     return MIN_AGE <= age <= MAX_AGE
+
+
+def _languages(value: Any, source_text: str) -> list[str]:
+    """Languages, without a Vietnamese the CV never names: models add it to any Vietnamese CV."""
+    languages = _tags(value, MAX_LANGUAGE_LENGTH, MAX_LANGUAGES)
+    if not source_text or source_text.count("\x00") > UNMAPPED_GLYPHS:
+        return languages
+    source = "".join(unicodedata.normalize("NFC", source_text).lower().split())
+    if any(name in source for name in VIETNAMESE_NAMED):
+        return languages
+    return [language for language in languages if language.lower() != "vietnamese"]
 
 
 def _location(value: Any) -> str:
@@ -148,6 +171,9 @@ def _period(job: Any, now: int) -> tuple[int, int] | None:
         until = _month(job.get("end"))
         if until is None:
             return None
+        # Some CVs print a range newest first ("2023 – 2021"); read it the right way round.
+        if start is not None and start[0] > until[0]:
+            start, until = until, start
         end = until[0] + 1 if until[1] else until[0]
     if start is None or not start[0] < end <= now + 1:
         return None
@@ -193,7 +219,7 @@ def normalize_fields(raw: dict[str, Any], source_text: str = "") -> dict[str, An
         "dob": _dob(raw.get("dob")),
         "location": _location(raw.get("location")),
         "is_expat": raw.get("is_expat") is True,
-        "languages": _tags(raw.get("languages"), MAX_LANGUAGE_LENGTH, MAX_LANGUAGES),
+        "languages": _languages(raw.get("languages"), source_text),
         "skills": _tags(raw.get("skills"), MAX_SKILL_LENGTH, MAX_SKILLS),
         "years_experience": _years(raw),
         "current_salary": _whole(raw.get("current_salary"), MAX_SALARY),

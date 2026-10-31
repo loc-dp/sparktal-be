@@ -13,6 +13,9 @@ ALLOWED_EXTENSIONS = (".pdf", ".docx", ".png", ".jpg", ".jpeg")
 TYPE_MESSAGE = "Only PDF, DOCX, PNG or JPG files can be attached."
 SIZE_MESSAGE = "Attachments must be 10 MB or smaller."
 PDF_MAGIC = b"%PDF-"
+# Some exporters (TopCV, pdf-lib) write a newline or two before the header; readers accept it.
+PDF_LEADING_WHITESPACE = b" \t\r\n\x0c"
+PDF_HEADER_WINDOW = 1024
 DOCX_ENTRY = "word/document.xml"
 IMAGE_FORMATS = {".png": {"PNG"}, ".jpg": {"JPEG"}, ".jpeg": {"JPEG"}}
 
@@ -23,7 +26,8 @@ def _mismatch(extension: str) -> ValidationError:
 
 
 def _check_pdf(upload: UploadedFile[Any]) -> None:
-    if upload.read(len(PDF_MAGIC)) != PDF_MAGIC:
+    head = upload.read(PDF_HEADER_WINDOW).lstrip(PDF_LEADING_WHITESPACE)
+    if not head.startswith(PDF_MAGIC):
         raise _mismatch(".pdf")
 
 

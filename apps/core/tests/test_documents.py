@@ -9,9 +9,12 @@ from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
 from docx import Document
 from pydantic import BaseModel
+from pypdf import PdfReader, PdfWriter
 
 from apps.core.documents import (
     MAX_DOCUMENT_BYTES,
+    MAX_PDF_PAGES,
+    MAX_SOURCE_CHARS,
     extract_text,
     is_scanned,
     read_with_claude,
@@ -92,6 +95,48 @@ def test_a_pdf_goes_as_a_document_without_leading_junk() -> None:
     assert block is not None
     assert block["type"] == "document"
     assert base64.standard_b64decode(block["source"]["data"]) == b"%PDF-1.4 x"  # type: ignore[typeddict-item]
+
+
+def pages_pdf(count: int) -> bytes:
+    """A PDF of `count` pages, page n showing "Page n"."""
+    writer = PdfWriter()
+    for number in range(1, count + 1):
+        writer.append(PdfReader(io.BytesIO(make_pdf(f"Page {number}"))))
+    out = io.BytesIO()
+    writer.write(out)
+    return out.getvalue()
+
+
+def sent_pdf(block: Any) -> bytes:
+    assert block is not None
+    assert block["type"] == "document"
+    return base64.standard_b64decode(block["source"]["data"])
+
+
+def test_only_the_first_pages_of_a_long_pdf_are_sent() -> None:
+    block = source_block(pages_pdf(MAX_PDF_PAGES + 2), "cv.pdf", "", "cv")
+
+    assert len(PdfReader(io.BytesIO(sent_pdf(block))).pages) == MAX_PDF_PAGES
+
+
+def test_a_short_pdf_is_sent_untouched() -> None:
+    data = pages_pdf(2)
+    assert sent_pdf(source_block(data, "cv.pdf", "", "cv")) == data
+
+
+def test_only_the_first_pages_of_a_long_pdf_are_read() -> None:
+    upload = SimpleUploadedFile("cv.pdf", pages_pdf(MAX_PDF_PAGES + 2))
+
+    text = extract_text(upload)
+
+    assert f"Page {MAX_PDF_PAGES}" in text
+    assert f"Page {MAX_PDF_PAGES + 1}" not in text
+
+
+def test_long_text_is_cut() -> None:
+    block = source_block(b"PK", "cv.docx", "x" * (MAX_SOURCE_CHARS + 500), "cv")
+
+    assert block == {"type": "text", "text": f"<cv>\n{'x' * MAX_SOURCE_CHARS}\n</cv>"}
 
 
 def test_no_text_and_no_pdf_means_nothing_to_send() -> None:

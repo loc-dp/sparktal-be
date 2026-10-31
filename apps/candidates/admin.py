@@ -35,10 +35,11 @@ class CvParseAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
         "llm_model",
         "input_tokens",
         "output_tokens",
+        "reused",
         "created_at",
         "finished_at",
     )
-    list_filter = ("status", "reader", "llm_model")
+    list_filter = ("status", "reader", "llm_model", "reused")
     readonly_fields = (
         "fields",
         "error",

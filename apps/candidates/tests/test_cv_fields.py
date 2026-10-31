@@ -50,7 +50,7 @@ def test_a_clean_result_passes_through() -> None:
             "dob": years_ago(30),
             "location": "hcm",
             "is_expat": False,
-            "languages": ["Vietnamese", "English"],
+            "languages": ["English", "Japanese"],
             "skills": ["Go", "Kafka"],
             "years_experience": 9,
             "current_salary": 45000000,
@@ -64,7 +64,7 @@ def test_a_clean_result_passes_through() -> None:
     assert fields["phone"] == "+84909172846"
     assert fields["dob"] == years_ago(30)
     assert fields["location"] == "hcm"
-    assert fields["languages"] == ["Vietnamese", "English"]
+    assert fields["languages"] == ["English", "Japanese"]
     assert fields["years_experience"] == 9
     assert fields["current_salary"] == 45000000
     assert fields["expected_salary"] == 55000000
@@ -191,6 +191,34 @@ def test_a_control_character_in_the_text_layer_does_not_hide_an_email() -> None:
     )
 
 
+def test_an_email_whose_ligature_the_text_layer_lost_is_kept() -> None:
+    # The PDF shows "tyffany"; the text layer holds NUL where the "ff" glyph was.
+    source = "ty\x00any.nguyen888@gmail.com\n0937610063"
+
+    assert normalize_fields({"email": "tyffany.nguyen888@gmail.com"}, source)["email"] == (
+        "tyffany.nguyen888@gmail.com"
+    )
+    assert normalize_fields({"email": "tiffany.nguyen888@gmail.com"}, source)["email"] == ""
+
+
+def test_vietnamese_is_dropped_when_the_cv_never_names_it() -> None:
+    raw = {"languages": ["Vietnamese", "English"]}
+
+    assert normalize_fields(raw, "Ngoại ngữ: IELTS 7.0")["languages"] == ["English"]
+    assert normalize_fields(raw, "Ngoại ngữ: Ti ếng Vi ệt, IELTS 7.0")["languages"] == [
+        "Vietnamese",
+        "English",
+    ]
+    assert normalize_fields(raw, "語言：越南語、英文")["languages"] == ["Vietnamese", "English"]
+
+
+def test_vietnamese_is_kept_when_the_text_layer_cannot_tell() -> None:
+    raw = {"languages": ["Vietnamese", "English"]}
+
+    assert normalize_fields(raw)["languages"] == ["Vietnamese", "English"]
+    assert normalize_fields(raw, "語言\x00" * 21)["languages"] == ["Vietnamese", "English"]
+
+
 def test_a_long_skill_is_cut_at_a_word_boundary() -> None:
     fields = normalize_fields(
         {
@@ -235,12 +263,18 @@ def test_the_first_valid_contact_is_taken_from_a_list() -> None:
     assert fields["phone"] == "+84909172846"
 
 
-def test_a_shouted_name_keeps_its_nickname_and_degree() -> None:
-    assert normalize_fields({"full_name": "ĐỖ THỊ QUỲNH CHÂU (Vicky)"})["full_name"] == (
-        "Đỗ Thị Quỳnh Châu (Vicky)"
-    )
+def test_a_shouted_name_keeps_its_degree() -> None:
     assert normalize_fields({"full_name": "PHAM NGOC DINH, Ph.D."})["full_name"] == (
         "Pham Ngoc Dinh, Ph.D."
+    )
+
+
+def test_an_alias_in_brackets_is_dropped_from_the_name() -> None:
+    assert normalize_fields({"full_name": "ĐỖ THỊ QUỲNH CHÂU (Vicky)"})["full_name"] == (
+        "Đỗ Thị Quỳnh Châu"
+    )
+    assert normalize_fields({"full_name": "Gilbert (Nhân) Ignatio"})["full_name"] == (
+        "Gilbert Ignatio"
     )
 
 
@@ -292,8 +326,13 @@ def test_a_stated_total_is_used_when_no_job_has_dates() -> None:
     assert normalize_fields({"years_experience": 8})["years_experience"] == 8
 
 
+def test_a_range_printed_newest_first_is_read_the_right_way_round() -> None:
+    # "2023 – 2021, 2018 – 2015" is five years.
+    assert years_from(("2023", "2021"), ("2018", "2015")) == 5
+
+
 def test_impossible_job_dates_are_ignored() -> None:
-    assert years_from(("2020-01", "2015-01"), ("garbage", "present"), stated=3) == 3
+    assert years_from(("garbage", "present"), stated=3) == 3
     assert years_from((months_ago(-24), "present"), stated=3) == 3
     assert years_from(("1890-01", "1900-01"), stated=3) == 3
 

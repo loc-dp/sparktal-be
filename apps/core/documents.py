@@ -7,6 +7,7 @@ each feature keeps its own output schema, prompt and validation gate.
 from __future__ import annotations
 
 import base64
+import io
 import logging
 from dataclasses import dataclass
 from pathlib import Path
@@ -26,6 +27,11 @@ logger = logging.getLogger(__name__)
 MAX_DOCUMENT_BYTES = MAX_ATTACHMENT_BYTES
 ALLOWED_DOCUMENT_EXTENSIONS = (".pdf", ".docx", ".doc")
 DOC_MAGIC = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
+# Only the start of a document is read. Every CV and JD seen so far fits in 10 pages; the cap
+# keeps a 10 MB upload of hundreds of pages from costing hundreds of thousands of tokens.
+MAX_PDF_PAGES = 10
+# The same cap for a document sent as text (about 20k tokens).
+MAX_SOURCE_CHARS = 60_000
 
 
 def validate_document(upload: UploadedFile[Any], type_message: str, size_message: str) -> None:
@@ -50,7 +56,7 @@ def _pdf_text(upload: File[Any]) -> str:
     from pypdf import PdfReader
 
     reader = PdfReader(upload)
-    return "\n".join(page.extract_text() or "" for page in reader.pages)
+    return "\n".join(page.extract_text() or "" for page in reader.pages[:MAX_PDF_PAGES])
 
 
 # A table cell this short is a label ("Tên chức danh / Position Title"), kept on one line.
@@ -203,8 +209,30 @@ PDF_HEADER = b"%PDF-"
 PDF_HEADER_WINDOW = 1024
 
 
+def first_pages(data: bytes, limit: int = MAX_PDF_PAGES) -> bytes:
+    """The PDF cut to its first `limit` pages; as it was when shorter or unreadable here."""
+    from pypdf import PdfReader, PdfWriter
+
+    try:
+        reader = PdfReader(io.BytesIO(data))
+        if len(reader.pages) <= limit:
+            return data
+        writer = PdfWriter()
+        for page in reader.pages[:limit]:
+            writer.add_page(page)
+        cut = io.BytesIO()
+        writer.write(cut)
+    except Exception:
+        logger.warning("Could not cut a PDF to %s pages; sending it whole", limit, exc_info=True)
+        return data
+    return cut.getvalue()
+
+
 def source_block(data: bytes, filename: str, text: str, tag: str) -> ContentBlockParam | None:
-    """A PDF goes to Claude as itself, so layout and scans survive; anything else as text."""
+    """A PDF goes to Claude as itself, so layout and scans survive; anything else as text.
+
+    Either way only the start goes: MAX_PDF_PAGES pages, or MAX_SOURCE_CHARS characters.
+    """
     if Path(filename).suffix.lower() == ".pdf":
         start = data.find(PDF_HEADER, 0, PDF_HEADER_WINDOW)
         if start > 0:
@@ -214,11 +242,11 @@ def source_block(data: bytes, filename: str, text: str, tag: str) -> ContentBloc
             "source": {
                 "type": "base64",
                 "media_type": "application/pdf",
-                "data": base64.standard_b64encode(data).decode("ascii"),
+                "data": base64.standard_b64encode(first_pages(data)).decode("ascii"),
             },
         }
     if text:
-        return {"type": "text", "text": f"<{tag}>\n{text}\n</{tag}>"}
+        return {"type": "text", "text": f"<{tag}>\n{text[:MAX_SOURCE_CHARS]}\n</{tag}>"}
     return None
 
 

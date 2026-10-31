@@ -210,6 +210,8 @@ SPARKTAL_OPS_EMAIL = env.str("SPARKTAL_OPS_EMAIL", default="long.mai@sparktal.co
 ANTHROPIC_API_KEY = env.str("ANTHROPIC_API_KEY", default="")
 CV_PARSE_MODEL = env.str("CV_PARSE_MODEL", default="")
 CV_PARSE_TIMEOUT_SECONDS = env.float("CV_PARSE_TIMEOUT_SECONDS", default=30.0)
+# Parses a recruiter may start in any 24 hours; a re-upload of a file read before is free.
+CV_PARSE_DAILY_LIMIT = env.int("CV_PARSE_DAILY_LIMIT", default=100)
 # Job description autofill on Create new job, with the same key. Without a model it is off.
 JD_PARSE_MODEL = env.str("JD_PARSE_MODEL", default="")
 # A JD is copied out line by line, so the reply is several times longer than a CV's.

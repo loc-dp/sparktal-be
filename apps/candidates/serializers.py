@@ -1,16 +1,27 @@
 from __future__ import annotations
 
-from datetime import date
+import hashlib
+from datetime import date, timedelta
 from typing import Any, ClassVar
 
+from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.files.uploadedfile import UploadedFile
-from rest_framework import serializers
+from django.utils import timezone
+from rest_framework import serializers, status
+from rest_framework.exceptions import APIException
 
 from apps.candidates.cv_fields import MAX_AGE, MIN_AGE, is_working_age
 from apps.candidates.cv_files import validate_cv
-from apps.candidates.models import Application, Candidate, CvParse
+from apps.candidates.models import (
+    Application,
+    Candidate,
+    CvParse,
+    CvParseReader,
+    CvParseStatus,
+)
 from apps.candidates.parsing import MAX_YEARS
+from apps.recruiters.models import RecruiterProfile
 
 
 class ApplicationCandidateSerializer(serializers.Serializer[object]):
@@ -88,6 +99,52 @@ class CvParseSerializer(serializers.ModelSerializer[CvParse]):
         read_only_fields = fields
 
 
+# The quota and the reuse both look back one day; the purge keeps parses exactly that long.
+CV_PARSE_WINDOW = timedelta(hours=24)
+
+
+class CvParseQuotaExceeded(APIException):
+    status_code = status.HTTP_429_TOO_MANY_REQUESTS
+    default_detail = (
+        "You've hit today's CV reading limit. Fill the form in yourself, or try again later."
+    )
+    default_code = "cv_parse_quota"
+
+
+def sha256_of(upload: UploadedFile[Any]) -> str:
+    digest = hashlib.sha256()
+    for chunk in upload.chunks():
+        digest.update(chunk)
+    upload.seek(0)
+    return digest.hexdigest()
+
+
+def earlier_read(owner: RecruiterProfile, file_sha256: str) -> CvParse | None:
+    """This recruiter's last good Claude read of the same file within the window.
+
+    A rules-only read is not reused: it usually means Claude was down, so a new upload
+    deserves a fresh try.
+    """
+    return (
+        CvParse.objects.filter(
+            owner=owner,
+            file_sha256=file_sha256,
+            status=CvParseStatus.DONE,
+            reader=CvParseReader.CLAUDE,
+            created_at__gte=timezone.now() - CV_PARSE_WINDOW,
+        )
+        .order_by("-created_at")
+        .first()
+    )
+
+
+def parses_started(owner: RecruiterProfile) -> int:
+    """Parses that ran a reader in the window; reused ones cost nothing and do not count."""
+    return CvParse.objects.filter(
+        owner=owner, reused=False, created_at__gte=timezone.now() - CV_PARSE_WINDOW
+    ).count()
+
+
 class CvParseCreateSerializer(serializers.Serializer[CvParse]):
     file = serializers.FileField(write_only=True)
 
@@ -99,9 +156,29 @@ class CvParseCreateSerializer(serializers.Serializer[CvParse]):
         return upload
 
     def create(self, validated_data: dict[str, Any]) -> CvParse:
+        """A queued parse, or a finished copy when this file was read before."""
         upload = validated_data["file"]
+        owner = self.context["recruiter"]
+        filename = upload.name or "cv.pdf"
+        file_sha256 = sha256_of(upload)
+        earlier = earlier_read(owner, file_sha256)
+        if earlier is not None:
+            now = timezone.now()
+            return CvParse.objects.create(
+                owner=owner,
+                filename=filename,
+                file_sha256=file_sha256,
+                reused=True,
+                status=CvParseStatus.DONE,
+                fields=earlier.fields,
+                reader=earlier.reader,
+                started_at=now,
+                finished_at=now,
+            )
+        if parses_started(owner) >= settings.CV_PARSE_DAILY_LIMIT:
+            raise CvParseQuotaExceeded
         return CvParse.objects.create(
-            owner=self.context["recruiter"], file=upload, filename=upload.name or "cv.pdf"
+            owner=owner, file=upload, filename=filename, file_sha256=file_sha256
         )
 
 

@@ -30,7 +30,7 @@ from apps.candidates.duplicates import (
     find_duplicate,
     identity_hashes,
 )
-from apps.candidates.models import Application, Candidate, CvParse, Stage
+from apps.candidates.models import Application, Candidate, CvParse, CvParseStatus, Stage
 from apps.candidates.search import parse_boolean
 from apps.candidates.serializers import (
     ApplicationListSerializer,
@@ -335,7 +335,8 @@ class CvParseCreateView(APIView):
         form = CvParseCreateSerializer(data=request.data, context={"recruiter": recruiter})
         form.is_valid(raise_exception=True)
         attempt = form.save()
-        transaction.on_commit(lambda: parse_cv.delay(str(attempt.pk)))
+        if attempt.status == CvParseStatus.QUEUED:
+            transaction.on_commit(lambda: parse_cv.delay(str(attempt.pk)))
         return Response(CvParseSerializer(attempt).data, status=status.HTTP_202_ACCEPTED)
 
 

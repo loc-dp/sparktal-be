@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import timedelta
 from typing import Any
 
 import pytest
 from django.core.cache import cache
 from django.core.files.base import ContentFile
+from django.utils import timezone
 from rest_framework.test import APIClient
 from rest_framework.throttling import ScopedRateThrottle
 
@@ -156,3 +158,35 @@ def test_jd_uploads_are_rate_limited(
 
     assert codes == [202, 202, 429]
     cache.clear()
+
+
+def test_a_company_past_the_daily_limit_gets_429(
+    client_for: ClientFor, company_ta: User, company_admin: User, company: Company, jd_on: Any
+) -> None:
+    jd_on.JD_PARSE_DAILY_LIMIT = 2
+    # The limit is the company's: a colleague's parses count too.
+    JdParseFactory(company=company, uploaded_by=company_ta)
+    JdParseFactory(company=company, uploaded_by=company_admin)
+
+    response = client_for(company_ta).post(PARSES, {"file": jd_upload()}, format="multipart")
+
+    assert response.status_code == 429
+    assert response.json()["detail"] == (
+        "Your company has hit today's job description reading limit. "
+        "Fill the form in yourself, or try again later."
+    )
+    assert JdParse.objects.count() == 2
+
+
+def test_the_daily_limit_skips_day_old_parses_and_other_companies(
+    client_for: ClientFor, company_ta: User, company: Company, jd_on: Any
+) -> None:
+    jd_on.JD_PARSE_DAILY_LIMIT = 2
+    JdParseFactory(company=company, uploaded_by=company_ta)
+    old = JdParseFactory(company=company, uploaded_by=company_ta)
+    JdParse.objects.filter(pk=old.pk).update(created_at=timezone.now() - timedelta(hours=25))
+    JdParseFactory.create_batch(3)
+
+    response = client_for(company_ta).post(PARSES, {"file": jd_upload()}, format="multipart")
+
+    assert response.status_code == 202

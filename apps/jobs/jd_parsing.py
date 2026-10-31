@@ -12,8 +12,9 @@ from pydantic import BaseModel
 from apps.companies.models import location_codes
 from apps.core.documents import ClaudeRead, anthropic_client, read_with_claude, source_block
 
-# Long JDs list 30+ bullets copied word for word; 8000 leaves room for that.
-MAX_OUTPUT_TOKENS = 8000
+# Long JDs list 30+ bullets copied word for word, and Haiku thinks first even at effort low:
+# one long JD came to 7,956 output tokens in the eval. The cap costs nothing unless used.
+MAX_OUTPUT_TOKENS = 16000
 OUTPUT_CONFIG: OutputConfigParam = {"effort": "low"}
 
 

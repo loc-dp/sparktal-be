@@ -1,18 +1,21 @@
 from dataclasses import asdict
+from datetime import timedelta
 from decimal import Decimal
 from typing import Any
 
+from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.files.uploadedfile import UploadedFile
 from django.db import models, transaction
+from django.utils import timezone
 from drf_spectacular.utils import extend_schema_field
-from rest_framework import serializers
-from rest_framework.exceptions import PermissionDenied
+from rest_framework import serializers, status
+from rest_framework.exceptions import APIException, PermissionDenied
 from rest_framework.relations import PKOnlyObject
 
 from apps.candidates.stages import STAGE_ORDER
 from apps.companies.access import company_of, lock_company, membership_of
-from apps.companies.models import CompanyRole, Office, Team
+from apps.companies.models import Company, CompanyRole, Office, Team
 from apps.core.documents import validate_document
 from apps.jobs.access import NOT_YOURS, JobPermissions, job_permissions
 from apps.jobs.bounty import BountyReadFields
@@ -620,6 +623,26 @@ JD_TYPE_MESSAGE = "Only PDF, DOCX or DOC files can be uploaded as a job descript
 JD_SIZE_MESSAGE = "Job description files must be 10 MB or smaller."
 
 
+# The purge keeps parses one day, the same window the quota looks back over.
+JD_PARSE_WINDOW = timedelta(hours=24)
+
+
+class JdParseQuotaExceeded(APIException):
+    status_code = status.HTTP_429_TOO_MANY_REQUESTS
+    default_detail = (
+        "Your company has hit today's job description reading limit. "
+        "Fill the form in yourself, or try again later."
+    )
+    default_code = "jd_parse_quota"
+
+
+def jd_parses_started(company: Company) -> int:
+    """Parses anyone at the company started in the window."""
+    return JdParse.objects.filter(
+        company=company, created_at__gte=timezone.now() - JD_PARSE_WINDOW
+    ).count()
+
+
 class JdParseSerializer(serializers.ModelSerializer[JdParse]):
     class Meta:
         model = JdParse
@@ -639,12 +662,18 @@ class JdParseCreateSerializer(serializers.Serializer[JdParse]):
 
     def create(self, validated_data: dict[str, Any]) -> JdParse:
         upload = validated_data["file"]
-        return JdParse.objects.create(
-            company=self.context["company"],
-            uploaded_by=self.context["user"],
-            file=upload,
-            filename=upload.name or "jd.pdf",
-        )
+        company = self.context["company"]
+        with transaction.atomic():
+            # Lock the company so two uploads at once cannot both slip under the limit.
+            lock_company(company.pk)
+            if jd_parses_started(company) >= settings.JD_PARSE_DAILY_LIMIT:
+                raise JdParseQuotaExceeded
+            return JdParse.objects.create(
+                company=company,
+                uploaded_by=self.context["user"],
+                file=upload,
+                filename=upload.name or "jd.pdf",
+            )
 
 
 class JdParseAvailabilitySerializer(serializers.Serializer[dict[str, bool]]):

@@ -10,6 +10,7 @@ from typing import Any
 
 from django.utils import timezone
 
+from apps.candidates.cv_fields import VIETNAMESE_NAMED
 from apps.companies.models import Location
 from apps.jobs.functions import guess_function
 from apps.jobs.models import (
@@ -54,6 +55,18 @@ BULLET = re.compile(r"^(?:[•●○◦▪▫■□►▸✓✔➢➤\-–—*+�
 # its full stop ("theo qui định. …."), a space before its full stop ("nhân viên .").
 TRAILING = re.compile(r"\s*[;,]+$|(?<=\.)\s+[.…]+$|\s+(?=[.…]+$)")
 SENTENCE_BREAK = re.compile(r"[.!?;:\n]+")
+# Telling the JD's own language: share of words with a Vietnamese letter, or of English
+# function words. On the 30 test JDs, Vietnamese ones score 0.37 or more, English ones 0.01
+# or less with 0.14 or more function words; mixed ones fall in between and add nothing.
+WORD = re.compile(r"[^\W\d_]+")
+VIETNAMESE_LETTERS = frozenset("ăâđêôơưạảấầẩẫậắằẳẵặẹẻẽếềểễệỉịọỏốồổỗộớờởỡợụủứừửữựỳỵỷỹ")
+ENGLISH_FUNCTION_WORDS = frozenset(
+    ("the", "and", "of", "to", "with", "for", "in", "a", "is", "are", "on", "will", "be")
+)
+MIN_LANGUAGE_WORDS = 40
+VIETNAMESE_SHARE = 0.3
+STRAY_VIETNAMESE_SHARE = 0.05
+ENGLISH_SHARE = 0.1
 
 
 @dataclass(frozen=True)
@@ -204,10 +217,38 @@ def _city(city: Any, place: Any, work_model: str, office: str) -> str:
     return _capped(place, MAX_PLACE_LENGTH)
 
 
-def _languages(value: Any) -> list[str]:
-    if not isinstance(value, list):
-        return []
-    return list(dict.fromkeys(code for code in value if code in Language.values))
+def _written_in(source: str) -> str:
+    """The language a JD is written in, by the share of its words: "vi", "en" or "" when
+    mixed, short or another language."""
+    words = WORD.findall(unicodedata.normalize("NFC", source).casefold())
+    if len(words) < MIN_LANGUAGE_WORDS:
+        return ""
+    vietnamese = sum(1 for word in words if VIETNAMESE_LETTERS.intersection(word)) / len(words)
+    if vietnamese >= VIETNAMESE_SHARE:
+        return Language.VIETNAMESE.value
+    english = sum(1 for word in words if word in ENGLISH_FUNCTION_WORDS) / len(words)
+    if vietnamese < STRAY_VIETNAMESE_SHARE and english >= ENGLISH_SHARE:
+        return Language.ENGLISH.value
+    return ""
+
+
+def _names_vietnamese(source: str) -> bool:
+    page = "".join(unicodedata.normalize("NFC", source).casefold().split())
+    return any(name in page for name in VIETNAMESE_NAMED)
+
+
+def _languages(value: Any, source: str) -> list[str]:
+    """The codes Claude gave, plus the language the JD itself is written in.
+
+    The prompt counts a Vietnamese JD as asking for Vietnamese. Haiku often leaves an English
+    JD's language out, and adds Vietnamese to an English JD that never names it; the eval's
+    adjudication counted both as misses.
+    """
+    codes = [code for code in value if code in Language.values] if isinstance(value, list) else []
+    own = _written_in(source)
+    if own == Language.ENGLISH and not _names_vietnamese(source):
+        codes = [code for code in codes if code != Language.VIETNAMESE]
+    return list(dict.fromkeys([*codes, own] if own else codes))
 
 
 def _flag(value: Any) -> bool | None:
@@ -275,7 +316,7 @@ def normalize_jd(raw: dict[str, Any], offices: list[OfficeRef], source: str = ""
         "skills": skills,
         "working_hours": _choice(raw.get("working_hours"), WorkingHours.values),
         "role_type": _choice(raw.get("role_type"), RoleType.values),
-        "languages": _languages(raw.get("languages")),
+        "languages": _languages(raw.get("languages"), source if raw else ""),
         "salary_negotiable": _flag(raw.get("salary_negotiable")),
         "interview_rounds_count": _rounds(raw.get("interview_rounds_count")),
         "target_start_date": _start_date(raw.get("target_start_date")),

@@ -7,6 +7,7 @@ from typing import Any, ClassVar
 from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.files.uploadedfile import UploadedFile
+from django.db import transaction
 from django.utils import timezone
 from rest_framework import serializers, status
 from rest_framework.exceptions import APIException
@@ -175,11 +176,14 @@ class CvParseCreateSerializer(serializers.Serializer[CvParse]):
                 started_at=now,
                 finished_at=now,
             )
-        if parses_started(owner) >= settings.CV_PARSE_DAILY_LIMIT:
-            raise CvParseQuotaExceeded
-        return CvParse.objects.create(
-            owner=owner, file=upload, filename=filename, file_sha256=file_sha256
-        )
+        with transaction.atomic():
+            # Lock the recruiter so two uploads at once cannot both slip under the limit.
+            RecruiterProfile.objects.select_for_update().get(pk=owner.pk)
+            if parses_started(owner) >= settings.CV_PARSE_DAILY_LIMIT:
+                raise CvParseQuotaExceeded
+            return CvParse.objects.create(
+                owner=owner, file=upload, filename=filename, file_sha256=file_sha256
+            )
 
 
 MAX_POOL_SKILLS = 20

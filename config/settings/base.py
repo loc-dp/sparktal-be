@@ -214,6 +214,8 @@ CV_PARSE_TIMEOUT_SECONDS = env.float("CV_PARSE_TIMEOUT_SECONDS", default=30.0)
 CV_PARSE_DAILY_LIMIT = env.int("CV_PARSE_DAILY_LIMIT", default=100)
 # Job description autofill on Create new job, with the same key. Without a model it is off.
 JD_PARSE_MODEL = env.str("JD_PARSE_MODEL", default="")
+# Parses anyone at one company may start in any 24 hours.
+JD_PARSE_DAILY_LIMIT = env.int("JD_PARSE_DAILY_LIMIT", default=50)
 # A JD is copied out line by line, so the reply is several times longer than a CV's.
 JD_PARSE_TIMEOUT_SECONDS = env.float("JD_PARSE_TIMEOUT_SECONDS", default=90.0)
 

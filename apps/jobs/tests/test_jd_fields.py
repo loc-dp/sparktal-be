@@ -404,3 +404,43 @@ def test_a_job_abroad_without_an_office_there_is_named_as_written() -> None:
 
     assert (fields["office"], fields["unmatched_city"]) == ("", "Seoul, Korea")
     assert normalize_jd(raw(city="abroad"), [SINGAPORE])["office"] == ""
+
+
+ENGLISH_JD = (
+    "We are looking for a Production Manager to lead the plant. You will be responsible for the "
+    "output of the lines and the safety of the team. The role reports to the Factory Director "
+    "and works with the planning and quality teams. You are expected to keep the costs in line "
+    "with the budget and to report on progress every week to the board."
+)
+VIETNAMESE_JD = (
+    "Công ty đang tìm Trưởng phòng sản xuất để quản lý nhà máy. Bạn chịu trách nhiệm về sản "
+    "lượng của các chuyền và an toàn của đội ngũ. Vị trí này báo cáo cho Giám đốc nhà máy và "
+    "phối hợp với bộ phận kế hoạch và chất lượng. Bạn cần giữ chi phí trong ngân sách và báo cáo "
+    "tiến độ hằng tuần cho ban giám đốc, đồng thời đào tạo nhân viên mới theo quy trình."
+)
+
+
+@pytest.mark.parametrize(
+    ("source", "given", "expected"),
+    [
+        (ENGLISH_JD, [], ["en"]),
+        (ENGLISH_JD, ["zh"], ["zh", "en"]),
+        (VIETNAMESE_JD, ["en"], ["en", "vi"]),
+        (VIETNAMESE_JD, ["vi"], ["vi"]),
+        # An English JD that never asks for Vietnamese does not need it.
+        (ENGLISH_JD, ["vi", "en"], ["en"]),
+        (f"{ENGLISH_JD} Fluent Vietnamese and English.", ["vi", "en"], ["vi", "en"]),
+        # Mixed (an English JD with a Vietnamese section), or too short to tell: only what
+        # Claude said.
+        (f"{ENGLISH_JD} {ENGLISH_JD} {VIETNAMESE_JD}", ["en"], ["en"]),
+        ("Production Manager, Binh Duong", [], []),
+    ],
+)
+def test_the_language_a_jd_is_written_in_is_added(
+    source: str, given: list[str], expected: list[str]
+) -> None:
+    assert normalize_jd(raw(languages=given), [], source)["languages"] == expected
+
+
+def test_a_file_that_is_not_a_jd_gets_no_language() -> None:
+    assert normalize_jd(raw(is_job_description=False), [], ENGLISH_JD)["languages"] == []

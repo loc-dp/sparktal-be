@@ -1,6 +1,7 @@
 from collections.abc import Callable
 from typing import Any
 
+from django.conf import settings
 from django.db import transaction
 from django.db.models import Count, OuterRef, Q, QuerySet, Subquery
 from django.db.models.functions import Coalesce
@@ -31,8 +32,10 @@ from apps.jobs.access import (
     NOT_YOURS,
     can_change_job,
     can_view_job,
+    is_assigned,
     jobs_joined_by,
     jobs_offered_to,
+    jobs_open_to,
     jobs_visible_to,
 )
 from apps.jobs.distribution import join_marketplace_job
@@ -66,11 +69,11 @@ from apps.jobs.proposals import (
 )
 from apps.jobs.queries import annotate_job_metrics
 from apps.jobs.questions import (
+    JOB_NOT_TAKING_QUESTIONS,
     QuestionRejected,
     answer_question,
     ask_question,
     hide_question,
-    recruiter_question_jobs,
     unanswered_counts,
     visible_to_company,
     visible_to_recruiter,
@@ -333,10 +336,20 @@ def _recruiter(view: APIView) -> RecruiterProfile:
     return profile
 
 
+class MarketplaceOn(BasePermission):
+    """Every URL under `marketplace/` is a 404 unless `settings.MARKETPLACE_ENABLED`, for an
+    anonymous caller too, so it runs before the login and recruiter checks."""
+
+    def has_permission(self, request: Request, view: Any) -> bool:
+        if not settings.MARKETPLACE_ENABLED:
+            raise Http404
+        return True
+
+
 @extend_schema_view(get=extend_schema(operation_id="marketplace_jobs_list", tags=["marketplace"]))
 class MarketplaceJobListView(ListAPIView[Job]):
     queryset = Job.objects.none()
-    permission_classes = (IsApprovedRecruiter,)
+    permission_classes = (MarketplaceOn, IsApprovedRecruiter)
     serializer_class = MarketplaceJobListItemSerializer
     filter_backends = (DjangoFilterBackend,)
     filterset_class = MarketplaceFilterSet
@@ -351,11 +364,11 @@ class MarketplaceJobListView(ListAPIView[Job]):
 )
 class MarketplaceJobDetailView(RetrieveAPIView[Job]):
     queryset = Job.objects.none()
-    permission_classes = (IsApprovedRecruiter,)
+    permission_classes = (MarketplaceOn, IsApprovedRecruiter)
     serializer_class = MarketplaceJobSerializer
 
     def get_queryset(self) -> QuerySet[Job]:
-        # Also what they were invited to, which the list leaves out.
+        # Also what they were assigned, which the list leaves out.
         recruiter = _recruiter(self)
         return annotate_marketplace(
             jobs_offered_to(recruiter).select_related("company", "office"), recruiter
@@ -366,7 +379,7 @@ class MarketplaceJobDetailView(RetrieveAPIView[Job]):
 
 
 class MarketplaceActionView(APIView):
-    permission_classes = (IsApprovedRecruiter,)
+    permission_classes = (MarketplaceOn, IsApprovedRecruiter)
 
 
 @extend_schema_view(
@@ -616,23 +629,28 @@ class ChangeRequestWithdrawView(ChangeRequestActionView):
 
 @extend_schema_view(
     get=extend_schema(
-        operation_id="marketplace_jobs_questions_list",
-        tags=["marketplace"],
+        operation_id="recruiters_jobs_questions_list",
+        tags=["recruiters"],
         responses=RecruiterQuestionSerializer(many=True),
     ),
     post=extend_schema(
-        operation_id="marketplace_jobs_questions_create",
-        tags=["marketplace"],
+        operation_id="recruiters_jobs_questions_create",
+        tags=["recruiters"],
         request=QuestionCreateSerializer,
         responses={201: RecruiterQuestionSerializer},
     ),
 )
-class MarketplaceQuestionListCreateView(MarketplaceActionView):
-    """The Q&A card as a recruiter sees it: every answer, plus their own questions."""
+class RecruiterQuestionListCreateView(APIView):
+    """The Q&A card as a recruiter sees it: every answer, plus their own questions.
+
+    Reading is open to every job `jobs_open_to` gives them; asking needs a live job they are
+    still assigned to, so a removed headhunter reads but cannot ask.
+    """
+
+    permission_classes = (IsApprovedRecruiter,)
 
     def get_job(self, pk: str) -> Job:
-        # A closed or deleted job stays readable to a recruiter who was on it.
-        return get_object_or_404(recruiter_question_jobs(_recruiter(self)), pk=pk)
+        return get_object_or_404(jobs_open_to(_recruiter(self)), pk=pk)
 
     def get(self, request: Request, pk: str) -> Response:
         recruiter = _recruiter(self)
@@ -644,6 +662,8 @@ class MarketplaceQuestionListCreateView(MarketplaceActionView):
     def post(self, request: Request, pk: str) -> Response:
         recruiter = _recruiter(self)
         job = self.get_job(pk)
+        if not is_assigned(recruiter, job):
+            return Response({"detail": JOB_NOT_TAKING_QUESTIONS}, status=status.HTTP_403_FORBIDDEN)
         form = QuestionCreateSerializer(data=request.data)
         form.is_valid(raise_exception=True)
         try:

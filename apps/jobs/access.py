@@ -8,19 +8,18 @@ approvals, the company home and the counts.
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, ClassVar
 
+from django.conf import settings
 from django.db.models import Exists, OuterRef, Q, QuerySet
 
 from apps.accounts.models import User
-from apps.candidates.models import Stage
+from apps.candidates.models import Application, Stage
 from apps.companies.access import membership_of
 from apps.companies.models import CompanyRole
 from apps.jobs.bounty import HAS_BOUNTY, has_bounty
 from apps.jobs.models import (
     PRIVATE_STATUSES,
-    InviteStatus,
     Job,
     JobAssignment,
-    JobInvite,
     JobStatus,
 )
 
@@ -163,20 +162,44 @@ def live_jobs() -> QuerySet[Job]:
     return Job.objects.filter(HAS_BOUNTY, status=JobStatus.ACTIVE, deleted_at__isnull=True)
 
 
-def jobs_offered_to(recruiter: "RecruiterProfile | None") -> QuerySet[Job]:
-    """The live jobs `recruiter` may open: on the marketplace, invited to, or already on.
+def _working(recruiter: "RecruiterProfile") -> Exists:
+    """An assignment `recruiter` still holds on the outer job."""
+    return Exists(
+        JobAssignment.objects.filter(job=OuterRef("pk"), recruiter=recruiter, left_at__isnull=True)
+    )
 
-    A subquery per channel rather than a join, so a job reachable twice is still one row.
+
+def jobs_offered_to(recruiter: "RecruiterProfile | None") -> QuerySet[Job]:
+    """The live jobs `recruiter` may open and submit to: assigned to them, or, with the
+    marketplace on, listed there.
+
+    A subquery rather than a join, so a job reachable twice is still one row.
     """
     if recruiter is None:
         return Job.objects.none()
-    invited = JobInvite.objects.filter(
-        job=OuterRef("pk"), recruiter=recruiter, status=InviteStatus.PENDING
-    )
-    working = JobAssignment.objects.filter(
-        job=OuterRef("pk"), recruiter=recruiter, left_at__isnull=True
-    )
-    return live_jobs().filter(Q(on_marketplace=True) | Exists(invited) | Exists(working))
+    working = _working(recruiter)
+    if settings.MARKETPLACE_ENABLED:
+        return live_jobs().filter(working | Q(on_marketplace=True))
+    return live_jobs().filter(working)
+
+
+def jobs_open_to(recruiter: "RecruiterProfile | None") -> QuerySet[Job]:
+    """Every job `recruiter` may open, whatever its status, deleted too: one they are still
+    assigned to, or one they have a CV on (a removed headhunter keeps their own CVs' job).
+
+    `Exists` subqueries, so a job reachable twice is still one row.
+    """
+    if recruiter is None:
+        return Job.objects.none()
+    submitted = Exists(Application.objects.filter(job=OuterRef("pk"), recruiter=recruiter))
+    return Job.objects.filter(_working(recruiter) | submitted)
+
+
+def is_assigned(recruiter: "RecruiterProfile | None", job: Job) -> bool:
+    """`recruiter` holds an assignment on `job` (not left)."""
+    if recruiter is None:
+        return False
+    return JobAssignment.objects.filter(job=job, recruiter=recruiter, left_at__isnull=True).exists()
 
 
 def jobs_joined_by(recruiter: "RecruiterProfile | None") -> QuerySet[Job]:

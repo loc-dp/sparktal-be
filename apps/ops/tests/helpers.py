@@ -20,7 +20,6 @@ ITEM_KEYS = {
     "bounty_pct",
     "bounty_amount",
     "on_marketplace",
-    "invites",
     "recruiters_working",
 }
 

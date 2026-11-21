@@ -1,6 +1,7 @@
 from typing import TYPE_CHECKING
 
-from django.db.models import Count, Exists, Func, Max, OuterRef, Q, QuerySet, TextField, Value
+from django.conf import settings
+from django.db.models import Count, Exists, F, Func, Max, OuterRef, Q, QuerySet, TextField, Value
 from django.db.models.functions import Coalesce, Concat
 from django_filters import rest_framework as filters
 
@@ -19,8 +20,9 @@ class ArrayToString(Func):
 
 
 def marketplace_queryset(recruiter: "RecruiterProfile | None") -> QuerySet[Job]:
-    """The list and what Join takes: live jobs Sparktal put on the marketplace."""
-    if recruiter is None:
+    """The list and what Join takes: live jobs Sparktal put on the marketplace; nothing while
+    the marketplace is switched off, the lock under the view gate."""
+    if recruiter is None or not settings.MARKETPLACE_ENABLED:
         return Job.objects.none()
     return (
         live_jobs()
@@ -51,8 +53,12 @@ def annotate_joined_jobs(
     queryset: QuerySet[Job], recruiter: "RecruiterProfile | None"
 ) -> QuerySet[Job]:
     mine = Q(applications__recruiter=recruiter)
+    held = JobAssignment.objects.filter(
+        job=OuterRef("pk"), recruiter=recruiter, left_at__isnull=True
+    )
     return (
         queryset.annotate(
+            assigned=Exists(held),
             submitted_count=Count("applications", filter=mine, distinct=True),
             active_count=Count(
                 "applications", filter=mine & ~Q(applications__stage=Stage.REJECTED), distinct=True
@@ -64,7 +70,8 @@ def annotate_joined_jobs(
             last_stage_change=Max("applications__stage_changed_at", filter=mine),
         )
         .annotate(last_activity_at=Coalesce("last_stage_change", "joined_at"))
-        .order_by("-last_activity_at", "-joined_at")
+        # Jobs they still hold first, then the removed ones they keep for their CVs.
+        .order_by("-assigned", F("last_activity_at").desc(nulls_last=True), "-joined_at")
     )
 
 

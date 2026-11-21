@@ -96,7 +96,7 @@ def test_reset_removes_teammates_left_behind_by_e2e() -> None:
 
 OLD_CATCH_ALL = "Team chung"  # what earlier seed runs created
 GROWTH_ACTIVE = "Growth Marketing Manager"
-GROWTH_INVITE_ONLY = "Growth Analyst (invite only)"
+GROWTH_ANALYST = "Growth Analyst"
 GROWTH_DRAFT = "Merchant Acquisition Lead"
 GROWTH_SUBMITTED = "Lifecycle Marketing Specialist"
 
@@ -131,7 +131,7 @@ def test_seed_demo_has_draft_submitted_and_proposal() -> None:
     growth = Job.objects.filter(team__name="Growth")
     assert {j.title: j.status for j in growth} == {
         GROWTH_ACTIVE: JobStatus.ACTIVE,
-        GROWTH_INVITE_ONLY: JobStatus.ACTIVE,
+        GROWTH_ANALYST: JobStatus.ACTIVE,
         GROWTH_DRAFT: JobStatus.DRAFT,
         GROWTH_SUBMITTED: JobStatus.SUBMITTED,
     }
@@ -195,8 +195,8 @@ def test_reset_removes_companies_made_by_e2e() -> None:
     from apps.candidates.tests.factories import ApplicationFactory
     from apps.companies.members import invite_member
     from apps.companies.provisioning import provision_company
-    from apps.jobs.models import JobAssignment, JobInvite
-    from apps.jobs.tests.factories import JobAssignmentFactory, JobFactory, JobInviteFactory
+    from apps.jobs.models import JobAssignment
+    from apps.jobs.tests.factories import JobAssignmentFactory, JobFactory
 
     call_command("seed_demo", "--force")
     admin = provision_company(
@@ -217,7 +217,6 @@ def test_reset_removes_companies_made_by_e2e() -> None:
     gone = JobFactory(
         company=company, team=team, status=JobStatus.CLOSED, deleted_at=timezone.now()
     )
-    JobInviteFactory(job=live, recruiter=bluefin)
     JobAssignmentFactory(job=live, recruiter=bluefin)
     ApplicationFactory(job=live, candidate__owner=bluefin)
     lookalike = Company.objects.create(name="E2Equinox")
@@ -236,7 +235,6 @@ def test_reset_removes_companies_made_by_e2e() -> None:
     assert CompanyMembership.objects.filter(pk=real_admin.pk).exists()
     assert not Team.objects.filter(pk=team.pk).exists()
     assert not Job.objects.filter(pk__in=[live.pk, gone.pk]).exists()
-    assert not JobInvite.objects.filter(job_id=live.pk).exists()
     assert not JobAssignment.objects.filter(job_id=live.pk).exists()
     assert not Application.objects.filter(job_id=live.pk).exists()
     assert not CompanyMembership.objects.filter(company_id=company.pk).exists()

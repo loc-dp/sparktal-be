@@ -513,8 +513,9 @@ def test_recruiter_submission_detail_carries_the_placement(
 
 
 def test_company_job_detail_and_marketplace_show_guarantee_days(
-    team_world: TeamWorld, client_for: ClientFor
+    team_world: TeamWorld, client_for: ClientFor, settings: Any
 ) -> None:
+    settings.MARKETPLACE_ENABLED = True  # the recruiter read here is a marketplace route
     job = cast(
         Job,
         JobFactory(

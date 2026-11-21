@@ -20,7 +20,7 @@ def send_review_result(profile: RecruiterProfile) -> None:
             {
                 "nickname": profile.nickname,
                 "review_note": profile.review_note,
-                "jobs_url": f"{settings.FRONTEND_URL}/r/chat",
+                "jobs_url": f"{settings.FRONTEND_URL}/r/jobs",
             },
         )
     except Exception:

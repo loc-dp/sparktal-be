@@ -1,4 +1,5 @@
-"""Sparktal ops: the job queue, one job, its bounty, its distribution and its channels."""
+"""Sparktal ops: the job queue, one job, its bounty, its distribution, its headhunters and the
+marketplace switch."""
 
 from collections.abc import Callable
 from datetime import timedelta
@@ -6,17 +7,15 @@ from typing import Any, cast
 from uuid import uuid4
 
 import pytest
-from django.test.client import encode_multipart
 from django.utils import timezone
-from django.utils.http import urlencode
 from rest_framework.test import APIClient
 
-from apps.accounts.models import User
+from apps.candidates.tests.factories import ApplicationFactory
 from apps.companies.models import Company, Team
 from apps.companies.tests.factories import CompanyFactory, OfficeFactory, TeamFactory
-from apps.jobs.models import InviteStatus, Job, JobAssignment, JobInvite, JobStatus
+from apps.jobs.models import Job, JobAssignment, JobStatus
 from apps.jobs.serializers import MarketplaceJobSerializer
-from apps.jobs.tests.factories import JobAssignmentFactory, JobFactory, JobInviteFactory
+from apps.jobs.tests.factories import JobAssignmentFactory, JobFactory
 from apps.ops.tests.helpers import ITEM_KEYS, queued_job
 from apps.recruiters.models import RecruiterProfile, RecruiterStatus
 from apps.recruiters.tests.factories import RecruiterProfileFactory
@@ -25,10 +24,10 @@ pytestmark = pytest.mark.django_db
 
 JOBS = "/api/v1/ops/jobs"
 NOT_WAITING = "This job is no longer waiting for distribution."
-NEEDS_CHANNEL = "Pick the marketplace, at least one recruiter, or both."
-NEEDS_BOUNTY = "Set the bounty before distributing."
+NEEDS_RECRUITER = "Pick at least one recruiter."
+LAST_RECRUITER = "A live job needs at least one recruiter. Assign someone else first."
 NOT_DISTRIBUTED = "This job hasn't been distributed yet."
-NOT_LIVE = "Only a live job can take invites."
+NOT_LIVE = "Only a live job can take recruiters."
 PCT_RANGE = "Bounty must be between 5 and 30%"
 AMOUNT_MISSING = "Enter the fixed bounty amount"
 AMOUNT_SIZE = "Enter a whole amount of up to 15 digits."
@@ -75,12 +74,10 @@ DETAIL_KEYS = {
     "allowances",
     "note_for_recruiters",
     "recruiters_working",
-    "working_recruiter_ids",
-    "invites",
+    "assignments",
 }
-INVITE_KEYS = {"id", "recruiter", "status", "decline_reason", "created_at", "responded_at"}
 # On the marketplace detail only because it is a recruiter looking at the job.
-RECRUITER_ONLY = {"joined", "submitted_count", "channel_id", "invite", "created_at"}
+RECRUITER_ONLY = {"joined", "submitted_count", "channel_id", "created_at"}
 
 Commit = Callable[..., Any]
 
@@ -90,11 +87,11 @@ def detail_url(job: Job) -> str:
 
 
 def distribute(client: APIClient, job: Job, **payload: Any) -> Any:
+    """Distribute with a 20% bounty and, unless `recruiter_ids` is given, one new recruiter."""
     body = {
         "bounty_type": "pct",
         "bounty_pct": 20,
-        "on_marketplace": True,
-        "recruiter_ids": [],
+        "recruiter_ids": ids([make_recruiter()]),
         **payload,
     }
     return client.post(f"{detail_url(job)}/distribute", body, format="json")
@@ -102,6 +99,16 @@ def distribute(client: APIClient, job: Job, **payload: Any) -> Any:
 
 def put_bounty(client: APIClient, job: Job, payload: dict[str, Any]) -> Any:
     return client.put(f"{detail_url(job)}/bounty", payload, format="json")
+
+
+def assign(client: APIClient, job: Job, recruiter_ids: list[str]) -> Any:
+    return client.post(
+        f"{detail_url(job)}/assignments", {"recruiter_ids": recruiter_ids}, format="json"
+    )
+
+
+def remove(client: APIClient, job: Job, recruiter: RecruiterProfile) -> Any:
+    return client.delete(f"{detail_url(job)}/assignments/{recruiter.pk}")
 
 
 def patch_channels(client: APIClient, job: Job, payload: dict[str, Any]) -> Any:
@@ -121,8 +128,18 @@ def live_job(**fields: Any) -> Job:
     return cast(Job, JobFactory(**{"status": JobStatus.ACTIVE, **fields}))
 
 
-def invite_status(job: Job) -> dict[Any, str]:
-    return {invite.recruiter_id: invite.status for invite in JobInvite.objects.filter(job=job)}
+@pytest.fixture
+def marketplace_on(settings: Any) -> None:
+    settings.MARKETPLACE_ENABLED = True
+
+
+def held(job: Job) -> set[Any]:
+    """The recruiters on `job` now."""
+    return set(
+        JobAssignment.objects.filter(job=job, left_at__isnull=True).values_list(
+            "recruiter_id", flat=True
+        )
+    )
 
 
 # Every case an ops bounty form can get wrong: the field the 400 is keyed by, and the exact
@@ -251,18 +268,13 @@ def test_queue_is_paginated(staff_client: APIClient) -> None:
     assert [item["id"] for item in second["results"]] == [str(jobs[3].pk)]
 
 
-def test_queue_row_counts_invites_and_working_recruiters(staff_client: APIClient) -> None:
+def test_queue_row_counts_working_recruiters(staff_client: APIClient) -> None:
     company = cast(Company, CompanyFactory())
     team = cast(Team, TeamFactory(company=company, name="Payments"))
     job = live_job(company=company, team=team, on_marketplace=False)
-    # Three open invites against two recruiters on the job: a join of both would give six.
-    JobInviteFactory.create_batch(3, job=job, status=InviteStatus.PENDING)
-    JobInviteFactory(job=job, status=InviteStatus.ACCEPTED)
-    JobInviteFactory(job=job, status=InviteStatus.DECLINED)
-    JobInviteFactory(job=job, status=InviteStatus.CANCELLED)
     JobAssignmentFactory.create_batch(2, job=job)
     JobAssignmentFactory(job=job, left_at=timezone.now())
-    JobInviteFactory(job=live_job(company=company), status=InviteStatus.PENDING)
+    JobAssignmentFactory(job=live_job(company=company))
 
     body = staff_client.get(JOBS, {"status": "active"}).json()
     item = next(row for row in body["results"] if row["id"] == str(job.pk))
@@ -272,7 +284,6 @@ def test_queue_row_counts_invites_and_working_recruiters(staff_client: APIClient
     assert item["on_marketplace"] is False
     assert item["bounty_type"] == "pct"
     assert item["bounty_pct"] == 18
-    assert item["invites"] == {"pending": 3, "accepted": 1, "declined": 1}
     assert item["recruiters_working"] == 2
 
 
@@ -282,7 +293,6 @@ def test_queue_queries_do_not_grow_with_the_page(
     company = cast(Company, CompanyFactory())
     for age in range(12):
         job = queued_job(company, posted_ago_days=age + 1, team=TeamFactory(company=company))
-        JobInviteFactory(job=job)
         JobAssignmentFactory(job=job)
 
     # Session, user, the count and the page; none of them per job.
@@ -299,6 +309,8 @@ def test_queue_queries_do_not_grow_with_the_page(
         ("put", "/{id}/bounty"),
         ("post", "/{id}/distribute"),
         ("patch", "/{id}/channels"),
+        ("post", "/{id}/assignments"),
+        ("delete", "/{id}/assignments/{recruiter_id}"),
     ],
 )
 def test_ops_jobs_are_staff_only(
@@ -312,7 +324,9 @@ def test_ops_jobs_are_staff_only(
     if who != "anonymous":
         api_client.force_login(request.getfixturevalue(who))
 
-    response = getattr(api_client, method)(JOBS + path.format(id=job.pk), {}, format="json")
+    response = getattr(api_client, method)(
+        JOBS + path.format(id=job.pk, recruiter_id=uuid4()), {}, format="json"
+    )
 
     assert response.status_code == 403
     job.refresh_from_db()
@@ -323,7 +337,7 @@ def test_ops_jobs_are_staff_only(
 # One job -------------------------------------------------------------------------------------
 
 
-def test_detail_shows_invites_with_decline_reason(staff_client: APIClient) -> None:
+def test_detail_shows_the_job(staff_client: APIClient) -> None:
     company = cast(Company, CompanyFactory(name="Vela Pay"))
     OfficeFactory(company=company)
     team = cast(Team, TeamFactory(company=company, name="Payments"))
@@ -335,18 +349,6 @@ def test_detail_shows_invites_with_decline_reason(staff_client: APIClient) -> No
         working_hours="40h_mon_fri",
         languages=["en", "vi"],
     )
-    declined = JobInviteFactory(
-        job=job,
-        recruiter=make_recruiter(nickname="Bluefin Search", user__email="blue@fin.vn"),
-        status=InviteStatus.DECLINED,
-        decline_reason="Too far outside my niche",
-        responded_at=timezone.now(),
-    )
-    pending = JobInviteFactory(job=job, status=InviteStatus.PENDING)
-    cancelled = JobInviteFactory(job=job, status=InviteStatus.CANCELLED)
-    now = timezone.now()
-    for age, invite in enumerate((pending, declined, cancelled)):
-        JobInvite.objects.filter(pk=invite.pk).update(created_at=now - timedelta(days=age))
     JobAssignmentFactory(job=job)
 
     response = staff_client.get(detail_url(job))
@@ -364,24 +366,6 @@ def test_detail_shows_invites_with_decline_reason(staff_client: APIClient) -> No
     assert body["working_hours"] == "40h_mon_fri"
     assert body["languages"] == ["en", "vi"]
     assert body["recruiters_working"] == 1
-    # Every invite, newest first: what became of each is the point of the panel.
-    assert [invite["id"] for invite in body["invites"]] == [
-        str(pending.pk),
-        str(declined.pk),
-        str(cancelled.pk),
-    ]
-    shown = body["invites"][1]
-    assert set(shown) == INVITE_KEYS
-    assert shown["recruiter"] == {
-        "id": str(declined.recruiter_id),
-        "nickname": "Bluefin Search",
-        "email": "blue@fin.vn",
-    }
-    assert shown["status"] == "declined"
-    assert shown["decline_reason"] == "Too far outside my niche"
-    assert shown["responded_at"] is not None
-    assert body["invites"][0]["responded_at"] is None
-    assert body["invites"][0]["decline_reason"] == ""
 
 
 def test_detail_has_every_jd_and_brief_field_the_marketplace_detail_shows(
@@ -406,7 +390,6 @@ def test_detail_of_a_job_in_the_queue_has_no_bounty_yet(staff_client: APIClient)
     assert body["bounty_type"] is None
     assert body["bounty_pct"] is None
     assert body["bounty_amount"] is None
-    assert body["invites"] == []
 
 
 @pytest.mark.parametrize(
@@ -430,81 +413,94 @@ def test_detail_of_an_unknown_job_is_not_found(staff_client: APIClient) -> None:
     assert staff_client.get(f"{JOBS}/{uuid4()}").status_code == 404
 
 
-def test_detail_queries_do_not_grow_with_the_invites_or_the_recruiters(
+def test_detail_queries_do_not_grow_with_the_recruiters(
     staff_client: APIClient, django_assert_max_num_queries: Any
 ) -> None:
     job = live_job(team=TeamFactory())
     for _ in range(8):
-        JobInviteFactory(job=job)
         JobAssignmentFactory(job=job)
 
-    # Session, user, the job with who works on it, its invites with their recruiters; none of
-    # them per invite or per recruiter.
+    # Session, user, the job, and its assignments with their recruiters; none per recruiter.
     with django_assert_max_num_queries(4):
         body = staff_client.get(detail_url(job)).json()
-    assert len(body["invites"]) == 8
-    assert len(body["working_recruiter_ids"]) == 8
+    assert len(body["assignments"]) == 8
 
 
-def test_detail_lists_the_recruiters_working_on_the_job_now(staff_client: APIClient) -> None:
+def test_detail_lists_the_assignments_held_first_then_the_removed(
+    staff_client: APIClient,
+) -> None:
     job = live_job()
     now = timezone.now()
-    invited_working = make_recruiter()
-    JobInviteFactory(
-        job=job, recruiter=invited_working, status=InviteStatus.ACCEPTED, responded_at=now
-    )
-    JobAssignmentFactory(job=job, recruiter=invited_working)
-    invited_left = make_recruiter()
-    JobInviteFactory(
-        job=job, recruiter=invited_left, status=InviteStatus.ACCEPTED, responded_at=now
-    )
-    JobAssignmentFactory(job=job, recruiter=invited_left, left_at=now)
-    joiner_working = make_recruiter()
-    JobAssignmentFactory(job=job, recruiter=joiner_working)
-    JobAssignmentFactory(job=job, left_at=now)  # a marketplace joiner who left
+    first, second, third, gone = (make_recruiter() for _ in range(4))
+    # Joined in this order; `gone` joined before all of them but has left.
+    JobAssignmentFactory(job=job, recruiter=gone, left_at=now)
+    for recruiter in (first, second, third):
+        JobAssignmentFactory(job=job, recruiter=recruiter)
     JobAssignmentFactory(job=live_job())  # works on another job
-    JobInviteFactory(job=job, status=InviteStatus.PENDING)  # not working yet
 
     body = staff_client.get(detail_url(job)).json()
 
-    # The picker offers again an invitee who accepted and then left (ruling P3-R14).
-    assert sorted(body["working_recruiter_ids"]) == sorted(ids([invited_working, joiner_working]))
-    assert body["recruiters_working"] == 2
+    assert [row["recruiter"]["id"] for row in body["assignments"]] == ids(
+        [first, second, third, gone]
+    )
+    assert [row["left_at"] is None for row in body["assignments"]] == [True, True, True, False]
+    assert body["assignments"][0]["recruiter"] == {
+        "id": str(first.pk),
+        "nickname": first.nickname,
+        "email": first.user.email,
+    }
+    assert set(body["assignments"][0]) == {"recruiter", "joined_at", "left_at", "cv_count"}
+    assert body["recruiters_working"] == 3
 
 
-def test_detail_of_a_job_nobody_works_on_lists_no_recruiters(staff_client: APIClient) -> None:
+def test_detail_of_a_job_nobody_works_on_lists_no_assignments(staff_client: APIClient) -> None:
     job = queued_job(cast(Company, CompanyFactory()), posted_ago_days=1, team=None)
 
-    assert staff_client.get(detail_url(job)).json()["working_recruiter_ids"] == []
+    assert staff_client.get(detail_url(job)).json()["assignments"] == []
 
 
-def test_channels_invite_again_a_recruiter_who_accepted_and_left(
-    staff_client: APIClient, django_capture_on_commit_callbacks: Commit, mailoutbox: list[Any]
-) -> None:
+def test_assignment_row_counts_cvs(staff_client: APIClient) -> None:
     job = live_job()
-    left = make_recruiter()
-    invite = JobInviteFactory(
-        job=job, recruiter=left, status=InviteStatus.ACCEPTED, responded_at=timezone.now()
-    )
-    JobAssignmentFactory(job=job, recruiter=left, left_at=timezone.now())
-    assert str(left.pk) not in staff_client.get(detail_url(job)).json()["working_recruiter_ids"]
+    busy, idle = make_recruiter(), make_recruiter()
+    for recruiter in (busy, idle):
+        JobAssignmentFactory(job=job, recruiter=recruiter)
+    ApplicationFactory.create_batch(2, job=job, recruiter=busy)
+    # Not theirs, or not on this job: neither is counted.
+    ApplicationFactory(job=job, recruiter=make_recruiter())
+    ApplicationFactory(job=live_job(), recruiter=busy)
 
-    with django_capture_on_commit_callbacks(execute=True):
-        response = patch_channels(staff_client, job, {"invite_recruiter_ids": [str(left.pk)]})
+    rows = {
+        row["recruiter"]["id"]: row["cv_count"]
+        for row in staff_client.get(detail_url(job)).json()["assignments"]
+    }
 
-    assert response.status_code == 200
-    invite.refresh_from_db()
-    assert invite.status == InviteStatus.PENDING
-    assert len(mailoutbox) == 1
-    assert response.json()["working_recruiter_ids"] == []
+    assert rows == {str(busy.pk): 2, str(idle.pk): 0}
+
+
+def keys_in(value: Any) -> set[str]:
+    """Every key of every object in a JSON body, however deep."""
+    if isinstance(value, dict):
+        return set(value) | {key for item in value.values() for key in keys_in(item)}
+    if isinstance(value, list):
+        return {key for item in value for key in keys_in(item)}
+    return set()
+
+
+def test_job_payloads_have_no_invite_keys(staff_client: APIClient) -> None:
+    job = live_job()
+    JobAssignmentFactory(job=job)
+
+    listed = staff_client.get(JOBS, {"status": "active"}).json()
+    detail = staff_client.get(detail_url(job)).json()
+
+    assert not {key for key in keys_in(listed) | keys_in(detail) if "invite" in key}
 
 
 # Distribute --------------------------------------------------------------------------------
 
 
-def test_distribute_sets_bounty_and_channels(
+def test_distribute_puts_recruiters_on_the_job(
     staff_client: APIClient,
-    staff_user: User,
     mailoutbox: list[Any],
     django_capture_on_commit_callbacks: Commit,
 ) -> None:
@@ -520,22 +516,46 @@ def test_distribute_sets_bounty_and_channels(
     assert body["id"] == str(job.pk)
     assert body["status"] == "active"
     assert body["published_at"] is not None
-    assert body["on_marketplace"] is True
     assert (body["bounty_type"], body["bounty_pct"], body["bounty_amount"]) == ("pct", 20, None)
-    assert {invite["recruiter"]["id"] for invite in body["invites"]} == set(ids([first, second]))
-    assert {invite["status"] for invite in body["invites"]} == {"pending"}
+    assert [row["recruiter"]["id"] for row in body["assignments"]] == ids([first, second])
+    assert {row["left_at"] for row in body["assignments"]} == {None}
+    assert body["recruiters_working"] == 2
     job.refresh_from_db()
     assert job.status == JobStatus.ACTIVE
     assert job.bounty_pct == 20
-    assert job.on_marketplace is True
-    assert {invite.invited_by for invite in JobInvite.objects.filter(job=job)} == {staff_user}
-    # Each invited recruiter hears about it once; nobody else does.
+    assert held(job) == {first.pk, second.pk}
+    # Each assigned recruiter hears about it once; nobody else does.
     assert sorted(message.to[0] for message in mailoutbox) == sorted(
         [first.user.email, second.user.email]
     )
 
 
-def test_distribute_with_a_fixed_bounty_to_invited_recruiters_only(
+def test_distribute_ignores_on_marketplace_while_it_is_off(staff_client: APIClient) -> None:
+    job = queued_job(cast(Company, CompanyFactory()), posted_ago_days=1)
+
+    response = distribute(staff_client, job, on_marketplace=True)
+
+    assert response.status_code == 200
+    assert response.json()["on_marketplace"] is False
+    job.refresh_from_db()
+    assert job.on_marketplace is False
+
+
+@pytest.mark.usefixtures("marketplace_on")
+@pytest.mark.parametrize(("sent", "stored"), [(True, True), (False, False), (None, False)])
+def test_distribute_keeps_on_marketplace_when_it_is_enabled(
+    staff_client: APIClient, sent: bool | None, stored: bool
+) -> None:
+    job = queued_job(cast(Company, CompanyFactory()), posted_ago_days=1)
+    extra = {} if sent is None else {"on_marketplace": sent}
+
+    response = distribute(staff_client, job, **extra)
+
+    assert response.status_code == 200
+    assert response.json()["on_marketplace"] is stored
+
+
+def test_distribute_with_a_fixed_bounty_to_chosen_recruiters(
     staff_client: APIClient, django_capture_on_commit_callbacks: Commit
 ) -> None:
     job = queued_job(cast(Company, CompanyFactory()), posted_ago_days=1)
@@ -548,7 +568,6 @@ def test_distribute_with_a_fixed_bounty_to_invited_recruiters_only(
             bounty_type="fixed",
             bounty_pct=None,
             bounty_amount=12_000_000,
-            on_marketplace=False,
             recruiter_ids=ids([recruiter]),
         )
 
@@ -560,23 +579,10 @@ def test_distribute_with_a_fixed_bounty_to_invited_recruiters_only(
     job.refresh_from_db()
     assert job.bounty_amount == 12_000_000
     assert job.bounty_pct is None
-    assert invite_status(job) == {recruiter.pk: "pending"}
+    assert held(job) == {recruiter.pk}
 
 
-def test_distribute_to_the_marketplace_alone_sends_no_invites(
-    staff_client: APIClient, mailoutbox: list[Any], django_capture_on_commit_callbacks: Commit
-) -> None:
-    job = queued_job(cast(Company, CompanyFactory()), posted_ago_days=1)
-
-    with django_capture_on_commit_callbacks(execute=True):
-        response = distribute(staff_client, job)
-
-    assert response.status_code == 200
-    assert response.json()["invites"] == []
-    assert mailoutbox == []
-
-
-def test_distribute_invites_a_recruiter_listed_twice_once(
+def test_distribute_assigns_a_recruiter_listed_twice_once(
     staff_client: APIClient, django_capture_on_commit_callbacks: Commit, mailoutbox: list[Any]
 ) -> None:
     job = queued_job(cast(Company, CompanyFactory()), posted_ago_days=1)
@@ -586,7 +592,7 @@ def test_distribute_invites_a_recruiter_listed_twice_once(
         response = distribute(staff_client, job, recruiter_ids=ids([recruiter, recruiter]))
 
     assert response.status_code == 200
-    assert len(response.json()["invites"]) == 1
+    assert len(response.json()["assignments"]) == 1
     assert len(mailoutbox) == 1
 
 
@@ -608,18 +614,18 @@ def test_distribute_rejects_bad_bounty(
         cast(Company, CompanyFactory()), posted_ago_days=1, bounty_type="pct", bounty_pct=12
     )
     recruiter = make_recruiter()
-    body = {"on_marketplace": True, "recruiter_ids": ids([recruiter]), **payload}
+    body = {"recruiter_ids": ids([recruiter]), **payload}
 
     response = staff_client.post(f"{detail_url(job)}/distribute", body, format="json")
 
     assert response.status_code == 400
     assert response.json() == {field: [message]}
-    # Still waiting, bounty as it was, and nobody was invited.
+    # Still waiting, bounty as it was, and nobody was assigned.
     job.refresh_from_db()
     assert job.status == JobStatus.PENDING
     assert (job.bounty_type, job.bounty_pct, job.bounty_amount) == ("pct", 12, None)
     assert job.published_at is None
-    assert not JobInvite.objects.filter(job=job).exists()
+    assert not JobAssignment.objects.filter(job=job).exists()
 
 
 def test_distribute_rejects_pct_31_as_the_brief_says(staff_client: APIClient) -> None:
@@ -631,18 +637,25 @@ def test_distribute_rejects_pct_31_as_the_brief_says(staff_client: APIClient) ->
     assert response.json() == {"bounty_pct": [PCT_RANGE]}
 
 
-def test_distribute_without_a_channel_leaves_the_bounty_as_it_was(
-    staff_client: APIClient,
+@pytest.mark.parametrize("payload", [{"recruiter_ids": []}, {"recruiter_ids": None}, None])
+def test_distribute_without_recruiters_is_400(
+    staff_client: APIClient, payload: dict[str, Any] | None
 ) -> None:
-    """The bounty and the distribution are one transaction: a refused channel undoes the bounty."""
+    """A job goes live with at least one recruiter; the bounty it was sent with is not kept."""
     job = queued_job(
         cast(Company, CompanyFactory()), posted_ago_days=1, bounty_type="pct", bounty_pct=12
     )
+    body = {"bounty_type": "pct", "bounty_pct": 25}
+    if payload is not None:
+        body.update(payload)
 
-    response = distribute(staff_client, job, bounty_pct=25, on_marketplace=False)
+    response = staff_client.post(f"{detail_url(job)}/distribute", body, format="json")
 
     assert response.status_code == 400
-    assert response.json()["detail"] == NEEDS_CHANNEL
+    expected = [NEEDS_RECRUITER]
+    if payload == {"recruiter_ids": None}:
+        expected = ["This field may not be null."]
+    assert response.json() == {"recruiter_ids": expected}
     job.refresh_from_db()
     assert job.status == JobStatus.PENDING
     assert job.bounty_pct == 12
@@ -675,14 +688,14 @@ def test_distribute_stale_job(staff_client: APIClient, fields: dict[str, Any]) -
     after.pop("updated_at")
     before.pop("updated_at")
     assert after == before
-    assert not JobInvite.objects.filter(job=job).exists()
+    assert not JobAssignment.objects.filter(job=job).exists()
 
 
 def test_distribute_unknown_job(staff_client: APIClient) -> None:
     job = queued_job(cast(Company, CompanyFactory()), posted_ago_days=1)
     response = staff_client.post(
         f"{JOBS}/{uuid4()}/distribute",
-        {"bounty_type": "pct", "bounty_pct": 20, "on_marketplace": True, "recruiter_ids": []},
+        {"bounty_type": "pct", "bounty_pct": 20, "recruiter_ids": ids([make_recruiter()])},
         format="json",
     )
 
@@ -693,7 +706,7 @@ def test_distribute_unknown_job(staff_client: APIClient) -> None:
 
 @pytest.mark.parametrize("kind", ["unknown", "pending", "rejected"])
 def test_distribute_unknown_recruiter(staff_client: APIClient, kind: str) -> None:
-    """Only an approved recruiter can be invited, so any other is unknown to ops."""
+    """Only an approved recruiter can be assigned, so any other is unknown to ops."""
     job = queued_job(cast(Company, CompanyFactory()), posted_ago_days=1)
     good = make_recruiter()
     if kind == "unknown":
@@ -708,14 +721,14 @@ def test_distribute_unknown_recruiter(staff_client: APIClient, kind: str) -> Non
     job.refresh_from_db()
     assert job.status == JobStatus.PENDING
     assert job.bounty_type is None
-    assert not JobInvite.objects.exists()
+    assert not JobAssignment.objects.exists()
 
 
 @pytest.mark.parametrize(
     "payload",
     [{"on_marketplace": "maybe"}, {"recruiter_ids": "not-a-list"}, {"recruiter_ids": ["nope"]}],
 )
-def test_distribute_rejects_malformed_channels(
+def test_distribute_rejects_malformed_input(
     staff_client: APIClient, payload: dict[str, Any]
 ) -> None:
     job = queued_job(cast(Company, CompanyFactory()), posted_ago_days=1)
@@ -726,17 +739,6 @@ def test_distribute_rejects_malformed_channels(
     assert set(response.json()) <= {"on_marketplace", "recruiter_ids"}
     job.refresh_from_db()
     assert job.status == JobStatus.PENDING
-
-
-def test_distribute_needs_both_channel_fields(staff_client: APIClient) -> None:
-    job = queued_job(cast(Company, CompanyFactory()), posted_ago_days=1)
-
-    response = staff_client.post(
-        f"{detail_url(job)}/distribute", {"bounty_type": "pct", "bounty_pct": 20}, format="json"
-    )
-
-    assert response.status_code == 400
-    assert set(response.json()) == {"on_marketplace", "recruiter_ids"}
 
 
 # Bounty ----------------------------------------------------------------------------------------
@@ -870,46 +872,275 @@ def test_bounty_update_of_an_unknown_job(staff_client: APIClient) -> None:
     assert response.status_code == 404
 
 
-# Channels --------------------------------------------------------------------------------------
+# Assignments -----------------------------------------------------------------------------------
 
 
-def test_channels_toggle_invite_and_cancel(
+def test_assign_more_recruiters(
     staff_client: APIClient,
-    staff_user: User,
     mailoutbox: list[Any],
     django_capture_on_commit_callbacks: Commit,
 ) -> None:
-    job = live_job(on_marketplace=True)
-    waiting = JobInviteFactory(job=job, status=InviteStatus.PENDING)
-    answered = JobInviteFactory(job=job, status=InviteStatus.ACCEPTED)
-    newcomer = make_recruiter()
+    job = live_job()
+    already = make_recruiter()
+    JobAssignmentFactory(job=job, recruiter=already)
+    first, second = make_recruiter(), make_recruiter()
 
     with django_capture_on_commit_callbacks(execute=True):
-        response = patch_channels(
-            staff_client,
-            job,
-            {
-                "on_marketplace": False,
-                "invite_recruiter_ids": ids([newcomer]),
-                "cancel_invite_ids": [str(waiting.pk), str(answered.pk)],
-            },
-        )
+        response = assign(staff_client, job, ids([first, second]))
+
+    assert response.status_code == 200
+    body = response.json()
+    assert set(body) == DETAIL_KEYS
+    assert [row["recruiter"]["id"] for row in body["assignments"]] == ids([already, first, second])
+    assert {row["left_at"] for row in body["assignments"]} == {None}
+    assert body["recruiters_working"] == 3
+    assert sorted(message.to[0] for message in mailoutbox) == sorted(
+        [first.user.email, second.user.email]
+    )
+
+
+def test_assign_leaves_one_already_on_the_job_alone(
+    staff_client: APIClient,
+    mailoutbox: list[Any],
+    django_capture_on_commit_callbacks: Commit,
+) -> None:
+    job = live_job()
+    already = make_recruiter()
+    JobAssignmentFactory(job=job, recruiter=already)
+
+    with django_capture_on_commit_callbacks(execute=True):
+        response = assign(staff_client, job, ids([already, already]))
+
+    assert response.status_code == 200
+    assert len(response.json()["assignments"]) == 1
+    assert mailoutbox == []
+
+
+def test_assign_puts_a_removed_recruiter_back(staff_client: APIClient) -> None:
+    job = live_job()
+    stays, returns = make_recruiter(), make_recruiter()
+    JobAssignmentFactory(job=job, recruiter=stays)
+    JobAssignmentFactory(job=job, recruiter=returns, left_at=timezone.now())
+
+    response = assign(staff_client, job, ids([returns]))
+
+    assert response.status_code == 200
+    assert held(job) == {stays.pk, returns.pk}
+    assert JobAssignment.objects.filter(job=job).count() == 2
+
+
+@pytest.mark.parametrize("case", ["marketplace_only", "last_one_removed"])
+def test_assign_to_a_live_job_nobody_works_on(staff_client: APIClient, case: str) -> None:
+    """Both are real: a legacy marketplace-only job, and one reopened after its last removal."""
+    job = live_job(on_marketplace=case == "marketplace_only")
+    if case == "last_one_removed":
+        JobAssignmentFactory(job=job, left_at=timezone.now())
+    recruiter = make_recruiter()
+
+    response = assign(staff_client, job, ids([recruiter]))
+
+    assert response.status_code == 200
+    assert response.json()["recruiters_working"] == 1
+    assert held(job) == {recruiter.pk}
+
+
+@pytest.mark.parametrize("recruiter_ids", [[], None])
+def test_assign_needs_a_recruiter(staff_client: APIClient, recruiter_ids: list[str] | None) -> None:
+    job = live_job()
+    body = {} if recruiter_ids is None else {"recruiter_ids": recruiter_ids}
+
+    response = staff_client.post(f"{detail_url(job)}/assignments", body, format="json")
+
+    assert response.status_code == 400
+    assert response.json() == {"recruiter_ids": [NEEDS_RECRUITER]}
+
+
+@pytest.mark.parametrize("kind", ["unknown", "pending", "rejected"])
+def test_assign_unknown_recruiter(staff_client: APIClient, kind: str) -> None:
+    job = live_job()
+    good = make_recruiter()
+    bad = (
+        str(uuid4()) if kind == "unknown" else str(make_recruiter(status=RecruiterStatus(kind)).pk)
+    )
+
+    response = assign(staff_client, job, [str(good.pk), bad])
+
+    assert response.status_code == 400
+    assert response.json() == {"recruiter_ids": [UNKNOWN_RECRUITER]}
+    assert not JobAssignment.objects.exists()
+
+
+@pytest.mark.parametrize("status", [JobStatus.PENDING, JobStatus.CLOSED])
+def test_assign_needs_a_live_job(staff_client: APIClient, status: JobStatus) -> None:
+    job = live_job(status=status)
+    recruiter = make_recruiter()
+
+    response = assign(staff_client, job, ids([recruiter]))
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == NOT_LIVE
+    assert not JobAssignment.objects.exists()
+
+
+def test_assign_to_a_private_deleted_or_unknown_job_is_not_found(staff_client: APIClient) -> None:
+    recruiter = make_recruiter()
+    private = JobFactory(status=JobStatus.DRAFT, published_at=None)
+    deleted = live_job(deleted_at=timezone.now())
+
+    assert assign(staff_client, private, ids([recruiter])).status_code == 404
+    assert assign(staff_client, deleted, ids([recruiter])).status_code == 404
+    unknown = staff_client.post(
+        f"{JOBS}/{uuid4()}/assignments", {"recruiter_ids": ids([recruiter])}, format="json"
+    )
+    assert unknown.status_code == 404
+    assert not JobAssignment.objects.exists()
+
+
+def test_remove_recruiter(staff_client: APIClient) -> None:
+    job = live_job()
+    leaving, staying = make_recruiter(), make_recruiter()
+    JobAssignmentFactory(job=job, recruiter=leaving)
+    JobAssignmentFactory(job=job, recruiter=staying)
+    ApplicationFactory(job=job, recruiter=leaving)
+
+    response = remove(staff_client, job, leaving)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert set(body) == DETAIL_KEYS
+    assert body["recruiters_working"] == 1
+    # The one still on the job first, then the one taken off, who keeps their CV count.
+    assert [row["recruiter"]["id"] for row in body["assignments"]] == ids([staying, leaving])
+    assert body["assignments"][0]["left_at"] is None
+    assert body["assignments"][1]["left_at"] is not None
+    assert body["assignments"][1]["cv_count"] == 1
+    assert held(job) == {staying.pk}
+
+
+def test_remove_does_not_email_the_recruiter(
+    staff_client: APIClient,
+    mailoutbox: list[Any],
+    django_capture_on_commit_callbacks: Commit,
+) -> None:
+    job = live_job()
+    leaving = make_recruiter()
+    JobAssignmentFactory(job=job, recruiter=leaving)
+    JobAssignmentFactory(job=job)
+
+    with django_capture_on_commit_callbacks(execute=True):
+        assert remove(staff_client, job, leaving).status_code == 200
+
+    assert mailoutbox == []
+
+
+def test_remove_last_recruiter_is_400(staff_client: APIClient) -> None:
+    job = live_job()
+    only = make_recruiter()
+    JobAssignmentFactory(job=job, recruiter=only)
+
+    response = remove(staff_client, job, only)
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == LAST_RECRUITER
+    assert held(job) == {only.pk}
+
+
+@pytest.mark.parametrize("case", ["never_on_it", "already_removed", "on_another_job"])
+def test_remove_someone_not_on_the_job_is_not_found(staff_client: APIClient, case: str) -> None:
+    job = live_job()
+    JobAssignmentFactory(job=job)
+    recruiter = make_recruiter()
+    if case == "already_removed":
+        JobAssignmentFactory(job=job, recruiter=recruiter, left_at=timezone.now())
+    if case == "on_another_job":
+        JobAssignmentFactory(job=live_job(), recruiter=recruiter)
+
+    assert remove(staff_client, job, recruiter).status_code == 404
+
+
+def test_remove_from_a_private_or_unknown_job_is_not_found(staff_client: APIClient) -> None:
+    private = JobFactory(status=JobStatus.DRAFT, published_at=None)
+    recruiter = make_recruiter()
+    JobAssignmentFactory(job=private, recruiter=recruiter)
+
+    assert remove(staff_client, private, recruiter).status_code == 404
+    unknown = staff_client.delete(f"{JOBS}/{uuid4()}/assignments/{recruiter.pk}")
+    assert unknown.status_code == 404
+    assert held(private) == {recruiter.pk}
+
+
+@pytest.mark.parametrize("who", ["anonymous", "company_admin", "recruiter_user"])
+def test_non_staff_cannot_assign_or_remove(
+    who: str, api_client: APIClient, request: pytest.FixtureRequest
+) -> None:
+    job = live_job()
+    on_it = make_recruiter()
+    JobAssignmentFactory(job=job, recruiter=on_it)
+    JobAssignmentFactory(job=job)
+    newcomer = make_recruiter()
+    if who != "anonymous":
+        api_client.force_login(request.getfixturevalue(who))
+
+    added = assign(api_client, job, ids([newcomer]))
+    removed = remove(api_client, job, on_it)
+
+    assert added.status_code == 403
+    assert removed.status_code == 403
+    assert newcomer.pk not in held(job)
+    assert on_it.pk in held(job)
+
+
+# Unstaffed jobs --------------------------------------------------------------------------------
+
+
+def test_unstaffed_filter_and_count(staff_client: APIClient) -> None:
+    company = cast(Company, CompanyFactory())
+    unstaffed = live_job(company=company, on_marketplace=True)
+    reopened = live_job(company=company)
+    JobAssignmentFactory(job=reopened, left_at=timezone.now())
+    staffed = live_job(company=company)
+    JobAssignmentFactory(job=staffed)
+    # Not counted: closed, deleted.
+    live_job(company=company, status=JobStatus.CLOSED, closed_at=timezone.now())
+    live_job(company=company, deleted_at=timezone.now())
+
+    def listed(**params: str) -> set[str]:
+        body = staff_client.get(JOBS, {"status": "active", **params}).json()
+        return {item["id"] for item in body["results"]}
+
+    assert listed(unstaffed="true") == {str(unstaffed.pk), str(reopened.pk)}
+    assert listed(unstaffed="false") == {str(staffed.pk)}
+    assert listed() == {str(unstaffed.pk), str(reopened.pk), str(staffed.pk)}
+    assert staff_client.get("/api/v1/ops/overview").json()["unstaffed_jobs"] == 2
+
+
+# Marketplace switch ----------------------------------------------------------------------------
+
+
+def test_channels_endpoint_404_when_marketplace_off(staff_client: APIClient) -> None:
+    job = live_job(on_marketplace=False)
+
+    assert patch_channels(staff_client, job, {"on_marketplace": True}).status_code == 404
+    job.refresh_from_db()
+    assert job.on_marketplace is False
+
+
+@pytest.mark.usefixtures("marketplace_on")
+def test_channels_take_a_job_off_the_marketplace(staff_client: APIClient) -> None:
+    job = live_job(on_marketplace=True)
+    recruiter = make_recruiter()
+    JobAssignmentFactory(job=job, recruiter=recruiter)
+
+    response = patch_channels(staff_client, job, {"on_marketplace": False})
 
     assert response.status_code == 200
     body = response.json()
     assert set(body) == DETAIL_KEYS
     assert body["on_marketplace"] is False
-    assert body["status"] == "active"
-    assert invite_status(job) == {
-        waiting.recruiter_id: "cancelled",
-        # Only an invite nobody answered can be withdrawn.
-        answered.recruiter_id: "accepted",
-        newcomer.pk: "pending",
-    }
-    assert JobInvite.objects.get(job=job, recruiter=newcomer).invited_by == staff_user
-    assert [message.to for message in mailoutbox] == [[newcomer.user.email]]
+    assert held(job) == {recruiter.pk}
 
 
+@pytest.mark.usefixtures("marketplace_on")
 def test_channels_turn_the_marketplace_back_on(staff_client: APIClient) -> None:
     job = live_job(on_marketplace=False)
 
@@ -921,174 +1152,40 @@ def test_channels_turn_the_marketplace_back_on(staff_client: APIClient) -> None:
     assert job.on_marketplace is True
 
 
-def test_channels_invite_again_a_recruiter_who_declined(
-    staff_client: APIClient, django_capture_on_commit_callbacks: Commit, mailoutbox: list[Any]
-) -> None:
-    job = live_job()
-    declined = JobInviteFactory(
-        job=job,
-        status=InviteStatus.DECLINED,
-        decline_reason="Busy",
-        responded_at=timezone.now(),
-    )
-
-    with django_capture_on_commit_callbacks(execute=True):
-        response = patch_channels(
-            staff_client, job, {"invite_recruiter_ids": [str(declined.recruiter_id)]}
-        )
-
-    assert response.status_code == 200
-    declined.refresh_from_db()
-    assert declined.status == InviteStatus.PENDING
-    assert declined.decline_reason == ""
-    assert declined.responded_at is None
-    assert len(mailoutbox) == 1
-    assert response.json()["invites"][0]["status"] == "pending"
-
-
-def test_channels_cancel_ignores_invites_of_other_jobs(staff_client: APIClient) -> None:
-    job = live_job()
-    other = JobInviteFactory(job=live_job(), status=InviteStatus.PENDING)
-
-    response = patch_channels(staff_client, job, {"cancel_invite_ids": [str(other.pk)]})
-
-    assert response.status_code == 200
-    other.refresh_from_db()
-    assert other.status == InviteStatus.PENDING
-
-
-@pytest.mark.parametrize("kind", ["unknown", "pending", "rejected"])
-def test_channels_unknown_recruiter(staff_client: APIClient, kind: str) -> None:
-    job = live_job(on_marketplace=True)
-    good = make_recruiter()
-    if kind == "unknown":
-        bad = str(uuid4())
-    else:
-        bad = str(make_recruiter(status=RecruiterStatus(kind)).pk)
-
-    response = patch_channels(
-        staff_client,
-        job,
-        {"on_marketplace": False, "invite_recruiter_ids": [str(good.pk), bad]},
-    )
-
-    # The brief keys this by `recruiter_ids` for every list of recruiters, this one included.
-    assert response.status_code == 400
-    assert response.json() == {"recruiter_ids": [UNKNOWN_RECRUITER]}
-    job.refresh_from_db()
-    assert job.on_marketplace is True
-    assert not JobInvite.objects.exists()
-
-
+@pytest.mark.usefixtures("marketplace_on")
 def test_channels_of_a_job_in_the_queue_are_not_open_yet(staff_client: APIClient) -> None:
     job = queued_job(cast(Company, CompanyFactory()), posted_ago_days=1)
-    recruiter = make_recruiter()
 
-    marketplace = patch_channels(staff_client, job, {"on_marketplace": True})
-    invite = patch_channels(staff_client, job, {"invite_recruiter_ids": ids([recruiter])})
-
-    assert marketplace.status_code == 400
-    assert marketplace.json()["detail"] == NOT_DISTRIBUTED
-    assert invite.status_code == 400
-    assert invite.json()["detail"] == NOT_LIVE
-    job.refresh_from_db()
-    assert job.status == JobStatus.PENDING
-    assert job.on_marketplace is False
-    assert not JobInvite.objects.exists()
-
-
-def test_channels_of_a_closed_job_take_the_marketplace_but_no_invites(
-    staff_client: APIClient,
-) -> None:
-    job = live_job(status=JobStatus.CLOSED, closed_at=timezone.now(), on_marketplace=True)
-    recruiter = make_recruiter()
-
-    switched = patch_channels(staff_client, job, {"on_marketplace": False})
-    invited = patch_channels(staff_client, job, {"invite_recruiter_ids": ids([recruiter])})
-
-    assert switched.status_code == 200
-    assert switched.json()["on_marketplace"] is False
-    assert invited.status_code == 400
-    assert invited.json()["detail"] == NOT_LIVE
-    assert not JobInvite.objects.exists()
-
-
-def test_channels_change_is_all_or_nothing(staff_client: APIClient) -> None:
-    """A legacy live job without a bounty cannot take invites; the marketplace switch is undone."""
-    job = live_job(bounty_type=None, bounty_pct=None, on_marketplace=True)
-    recruiter = make_recruiter()
-
-    response = patch_channels(
-        staff_client,
-        job,
-        {"on_marketplace": False, "invite_recruiter_ids": ids([recruiter])},
-    )
+    response = patch_channels(staff_client, job, {"on_marketplace": True})
 
     assert response.status_code == 400
-    assert response.json()["detail"] == NEEDS_BOUNTY
+    assert response.json()["detail"] == NOT_DISTRIBUTED
     job.refresh_from_db()
-    assert job.on_marketplace is True
+    assert job.on_marketplace is False
 
 
-@pytest.mark.parametrize("encoding", ["multipart", "urlencoded"])
-def test_channels_form_encoded_invite_keeps_the_marketplace_on(
-    staff_client: APIClient,
-    encoding: str,
-    django_capture_on_commit_callbacks: Commit,
-    mailoutbox: list[Any],
-) -> None:
-    """A form body has no "no value": an absent `on_marketplace` must not read as False."""
-    job = live_job(on_marketplace=True)
-    newcomer, other = make_recruiter(), make_recruiter()
-    body = {"invite_recruiter_ids": ids([newcomer, other])}
-    content_type = "multipart/form-data; boundary=BoUnDaRy"
-    if encoding == "urlencoded":
-        content_type = "application/x-www-form-urlencoded"
-    data = (
-        encode_multipart("BoUnDaRy", body)
-        if encoding == "multipart"
-        else urlencode(body, doseq=True)
-    )
+@pytest.mark.usefixtures("marketplace_on")
+def test_channels_of_a_closed_job_take_the_marketplace_switch(staff_client: APIClient) -> None:
+    job = live_job(status=JobStatus.CLOSED, closed_at=timezone.now(), on_marketplace=True)
 
-    with django_capture_on_commit_callbacks(execute=True):
-        response = staff_client.generic(
-            "PATCH", f"{detail_url(job)}/channels", data, content_type=content_type
-        )
+    response = patch_channels(staff_client, job, {"on_marketplace": False})
 
     assert response.status_code == 200
-    assert response.json()["on_marketplace"] is True
-    job.refresh_from_db()
-    assert job.on_marketplace is True
-    assert invite_status(job) == {newcomer.pk: "pending", other.pk: "pending"}
-    assert len(mailoutbox) == 2
+    assert response.json()["on_marketplace"] is False
 
 
-def test_channels_with_nothing_to_change(staff_client: APIClient) -> None:
-    job = live_job(on_marketplace=True)
-
-    response = patch_channels(staff_client, job, {})
-
-    assert response.status_code == 200
-    assert response.json()["on_marketplace"] is True
-
-
-@pytest.mark.parametrize(
-    "payload",
-    [
-        {"on_marketplace": "maybe"},
-        {"invite_recruiter_ids": "not-a-list"},
-        {"cancel_invite_ids": ["nope"]},
-    ],
-)
+@pytest.mark.usefixtures("marketplace_on")
+@pytest.mark.parametrize("payload", [{"on_marketplace": "maybe"}, {}])
 def test_channels_reject_malformed_input(staff_client: APIClient, payload: dict[str, Any]) -> None:
     job = live_job()
 
     response = patch_channels(staff_client, job, payload)
 
     assert response.status_code == 400
-    assert set(response.json()) == set(payload)
+    assert set(response.json()) == {"on_marketplace"}
 
 
+@pytest.mark.usefixtures("marketplace_on")
 @pytest.mark.parametrize(
     "fields",
     [

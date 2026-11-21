@@ -1,17 +1,20 @@
 # mypy: disable-error-code="no-untyped-def,type-arg"
 
 from datetime import timedelta
+from typing import Any
 
 import pytest
 from django.core.files.base import ContentFile
 from django.utils import timezone
 
 from apps.accounts.models import User
-from apps.chat.models import ChannelRead, Message, MessageKind
+from apps.candidates.tests.factories import ApplicationFactory, CandidateFactory
+from apps.chat.models import Channel, ChannelRead, Message, MessageKind
 from apps.chat.tests.factories import ChannelFactory, MessageFactory
 from apps.companies.models import Company
 from apps.core.testing.pdf import make_pdf
-from apps.jobs.tests.factories import JobFactory
+from apps.jobs.models import JobAssignment
+from apps.jobs.tests.factories import JobAssignmentFactory, JobFactory
 from apps.recruiters.models import RecruiterProfile
 
 pytestmark = pytest.mark.django_db
@@ -208,3 +211,44 @@ def test_foreign_post_creates_nothing(
     )
     assert response.status_code == 404
     assert Message.objects.count() == 0
+
+
+# --- A headhunter removed from a job (assign-01 final review).
+
+
+def _removed_channel(
+    company: Company, profile: RecruiterProfile, *, with_cv: bool
+) -> tuple[Any, Any]:
+    job = JobFactory(company=company)
+    JobAssignmentFactory(job=job, recruiter=profile)
+    channel = Channel.objects.get(job=job, recruiter=profile)
+    message = MessageFactory(channel=channel, author=None, kind=MessageKind.SYSTEM, body="hello")
+    if with_cv:
+        ApplicationFactory(job=job, candidate=CandidateFactory(owner=profile))
+    JobAssignment.objects.filter(job=job, recruiter=profile).update(left_at=timezone.now())
+    return channel, message
+
+
+def test_removed_without_cv_gets_an_empty_list_and_404s(
+    client_for, company: Company, recruiter_user: User, recruiter_profile: RecruiterProfile
+) -> None:
+    channel, message = _removed_channel(company, recruiter_profile, with_cv=False)
+    client = client_for(recruiter_user)
+    assert client.get(CHANNELS).json() == []
+    assert client.get(f"{CHANNELS}/{channel.id}/messages").status_code == 404
+    posted = client.post(f"{CHANNELS}/{channel.id}/messages", {"body": "hi"}, format="multipart")
+    assert posted.status_code == 404
+    assert client.post(f"{CHANNELS}/{channel.id}/read").status_code == 404
+    assert Message.objects.filter(channel=channel, author=recruiter_user).count() == 0
+    assert message.pk
+
+
+def test_removed_with_cv_still_reads_the_channel(
+    client_for, company: Company, recruiter_user: User, recruiter_profile: RecruiterProfile
+) -> None:
+    channel, _ = _removed_channel(company, recruiter_profile, with_cv=True)
+    client = client_for(recruiter_user)
+    assert [row["id"] for row in client.get(CHANNELS).json()] == [str(channel.id)]
+    page = client.get(f"{CHANNELS}/{channel.id}/messages")
+    assert page.status_code == 200
+    assert "hello" in str(page.json())

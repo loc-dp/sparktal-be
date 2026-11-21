@@ -11,7 +11,6 @@ from django.db.models import Case, Count, IntegerField, Q, QuerySet, Value, When
 from django.utils import timezone
 
 from apps.accounts.models import User
-from apps.jobs.access import jobs_joined_by, jobs_offered_to
 from apps.jobs.models import Job, JobQuestion, JobStatus
 from apps.jobs.notifications import notify_question_answered, notify_question_asked
 from apps.recruiters.models import RecruiterProfile
@@ -26,14 +25,6 @@ TOO_MANY_OPEN = "You already have 5 questions waiting for an answer on this job.
 
 class QuestionRejected(Exception):
     """The question cannot be asked; the message says why, in the user's words."""
-
-
-def recruiter_question_jobs(recruiter: RecruiterProfile | None) -> QuerySet[Job]:
-    """The jobs whose Q&A `recruiter` may open: those offered to them and those they are on."""
-    return Job.objects.filter(
-        Q(pk__in=jobs_offered_to(recruiter).values("pk"))
-        | Q(pk__in=jobs_joined_by(recruiter).values("pk"))
-    )
 
 
 def _open(questions: QuerySet[JobQuestion]) -> QuerySet[JobQuestion]:

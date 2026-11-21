@@ -16,7 +16,6 @@ from apps.jobs.models import (
     JdParse,
     Job,
     JobAssignment,
-    JobInvite,
     JobQuestion,
     JobStatus,
     PayBasis,
@@ -72,14 +71,6 @@ def join_job_team(member: User, job: Job) -> None:
 class JobAssignmentFactory(DjangoModelFactory[JobAssignment]):
     class Meta:
         model = JobAssignment
-
-    job = factory.SubFactory(JobFactory)
-    recruiter = factory.SubFactory(RecruiterProfileFactory)
-
-
-class JobInviteFactory(DjangoModelFactory[JobInvite]):
-    class Meta:
-        model = JobInvite
 
     job = factory.SubFactory(JobFactory)
     recruiter = factory.SubFactory(RecruiterProfileFactory)

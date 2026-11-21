@@ -1,7 +1,7 @@
 {% extends "email/base.txt" %}{% block content %}
 You are in, {{ nickname }}.
 
-Your recruiter account is approved and live. Sign in to browse the jobs marketplace:
+Your recruiter account is approved and live. Sparktal will assign jobs to you, and the jobs assigned to you appear under My jobs:
 {{ jobs_url }}
 
 Sign in with {{ email }}.

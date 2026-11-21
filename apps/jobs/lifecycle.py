@@ -24,7 +24,6 @@ from apps.jobs.bounty import has_bounty
 from apps.jobs.models import (
     PRIVATE_STATUSES,
     ChangeStatus,
-    InviteStatus,
     Job,
     JobStatus,
     WorkModel,
@@ -138,8 +137,7 @@ def close_job(job: Job, *, actor: User) -> Job:
     job.status = JobStatus.CLOSED
     job.closed_at = timezone.now()
     job.save(update_fields=["status", "closed_at", "updated_at"])
-    # Recruiters already on it keep their place; an offer nobody took up is withdrawn.
-    job.invites.filter(status=InviteStatus.PENDING).update(status=InviteStatus.CANCELLED)
+    # Recruiters already on it keep their place.
     return job
 
 

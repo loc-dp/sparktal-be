@@ -1,9 +1,9 @@
 {% extends "email/base.html" %}
 {% block title %}New job to distribute: {{ job_title }} · {{ company_name }}{% endblock %}
-{% block preheader %}{{ company_name }} posted a job. Set the bounty and distribute it.{% endblock %}
+{% block preheader %}{{ company_name }} posted a job. Set the bounty and pick a headhunter.{% endblock %}
 {% block eyebrow %}Sparktal queue{% endblock %}
 {% block headline %}{{ job_title }} is waiting for you.{% endblock %}
-{% block lead %}Set the bounty, then distribute it to the marketplace, to invited recruiters, or both.{% endblock %}
+{% block lead %}Set the bounty and pick at least one headhunter to put it live.{% endblock %}
 {% block action %}{% include "email/_button.html" with url=job_url label="Open the job" %}{% endblock %}
 {% block details %}
 <p style="margin:0;color:#52525B;">Posted by <strong style="color:#0B0B0F;font-weight:600;">{{ company_name }}</strong>.</p>

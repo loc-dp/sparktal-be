@@ -20,9 +20,9 @@ from apps.jobs.lifecycle import (
     submit_job,
     withdraw_job,
 )
-from apps.jobs.models import InviteStatus, Job, JobStatus
+from apps.jobs.models import Job, JobStatus
 from apps.jobs.tests.conftest import TeamWorld
-from apps.jobs.tests.factories import JobAssignmentFactory, JobFactory, JobInviteFactory
+from apps.jobs.tests.factories import JobAssignmentFactory, JobFactory
 
 pytestmark = pytest.mark.django_db
 
@@ -230,19 +230,6 @@ def test_post_marks_when_the_job_entered_the_queue(team_world: TeamWorld) -> Non
     assert job.published_at is None
 
 
-def test_close_cancels_pending_invites(team_world: TeamWorld) -> None:
-    job = team_world.job_a
-    pending = JobInviteFactory(job=job)
-    accepted = JobInviteFactory(job=job, status=InviteStatus.ACCEPTED)
-
-    close_job(job, actor=team_world.ta_publish)
-
-    pending.refresh_from_db()
-    accepted.refresh_from_db()
-    assert pending.status == InviteStatus.CANCELLED
-    assert accepted.status == InviteStatus.ACCEPTED
-
-
 @pytest.mark.parametrize("on_marketplace", [True, False])
 def test_reopen_keeps_marketplace_flag(team_world: TeamWorld, on_marketplace: bool) -> None:
     job = team_world.job_a
@@ -267,7 +254,6 @@ def test_reopen_without_bounty_returns_to_queue(
     job = team_world.job_a
     Job.objects.filter(pk=job.pk).update(on_marketplace=False)  # direct-only before it closed
     assignment = JobAssignmentFactory(job=job)
-    accepted = JobInviteFactory(job=job, recruiter=assignment.recruiter, status="accepted")
     close_job(job, actor=team_world.ta_publish)
     Job.objects.filter(pk=job.pk).update(bounty_type=None, bounty_pct=None, bounty_amount=None)
 
@@ -279,8 +265,6 @@ def test_reopen_without_bounty_returns_to_queue(
     assert job.closed_at is None
     assert job.on_marketplace is False
     assignment.refresh_from_db()
-    accepted.refresh_from_db()
     assert assignment.is_active
-    assert accepted.status == InviteStatus.ACCEPTED
     assert [message.to for message in mailoutbox] == [["ops@test.local"]]
     assert mailoutbox[0].subject == "New job to distribute: Payments Backend Engineer · Orbit Pay"

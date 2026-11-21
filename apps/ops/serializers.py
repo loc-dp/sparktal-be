@@ -4,7 +4,6 @@ from typing import Any
 from uuid import UUID
 
 from django.utils import timezone
-from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from apps.companies.models import Company
@@ -16,7 +15,8 @@ from apps.jobs.bounty import (
     BOUNTY_TYPE_MESSAGE,
     clean_bounty,
 )
-from apps.jobs.models import GUARANTEE_DAYS_MAX, BountyType, Job, JobInvite
+from apps.jobs.distribution import NEEDS_RECRUITER
+from apps.jobs.models import GUARANTEE_DAYS_MAX, BountyType, Job, JobAssignment
 from apps.jobs.serializers import BRIEF_FIELDS
 from apps.recruiters.models import RecruiterProfile, RecruiterStatus
 
@@ -69,20 +69,13 @@ class OpsCompanyCreateSerializer(serializers.Serializer[dict[str, Any]]):
     admin_full_name = serializers.CharField(max_length=120)
 
 
-class OpsInviteCountsSerializer(serializers.Serializer[dict[str, int]]):
-    pending = serializers.IntegerField()
-    accepted = serializers.IntegerField()
-    declined = serializers.IntegerField()
-
-
 class OpsJobListItemSerializer(serializers.ModelSerializer[Job]):
     """A job as Sparktal staff list it."""
 
-    # The dashboard queue and `GET /ops/jobs` share this row. The invite and assignment numbers
-    # come from `annotate_ops_jobs`, and the bounty may be empty: a job in the queue has none yet.
+    # The dashboard queue and `GET /ops/jobs` share this row. The assignment count comes from
+    # `annotate_ops_jobs`, and the bounty may be empty: a job in the queue has none yet.
     company = OpsCompanyRefSerializer(read_only=True)
     team_name = serializers.CharField(source="team.name", read_only=True, allow_null=True)
-    invites = serializers.SerializerMethodField()
     recruiters_working = serializers.IntegerField(read_only=True)
 
     class Meta:
@@ -99,18 +92,9 @@ class OpsJobListItemSerializer(serializers.ModelSerializer[Job]):
             "bounty_pct",
             "bounty_amount",
             "on_marketplace",
-            "invites",
             "recruiters_working",
         )
         read_only_fields = fields
-
-    @extend_schema_field(OpsInviteCountsSerializer)
-    def get_invites(self, job: Job) -> dict[str, int]:
-        return {
-            "pending": job.invites_pending,  # type: ignore[attr-defined]
-            "accepted": job.invites_accepted,  # type: ignore[attr-defined]
-            "declined": job.invites_declined,  # type: ignore[attr-defined]
-        }
 
 
 class OpsRecruiterRefSerializer(serializers.ModelSerializer[RecruiterProfile]):
@@ -167,19 +151,21 @@ class OpsRecruiterRejectSerializer(serializers.Serializer[dict[str, Any]]):
         return value or ""
 
 
-class OpsInviteSerializer(serializers.ModelSerializer[JobInvite]):
-    """An offer Sparktal made to one recruiter, and what came of it."""
+class OpsAssignmentSerializer(serializers.ModelSerializer[JobAssignment]):
+    """A recruiter on a job: when they joined, when Sparktal took them off, the CVs they sent."""
 
+    # Read from `ops_job_assignments` only: `cv_count` is its annotation.
     recruiter = OpsRecruiterRefSerializer(read_only=True)
+    cv_count = serializers.IntegerField(read_only=True)
 
     class Meta:
-        model = JobInvite
-        fields = ("id", "recruiter", "status", "decline_reason", "created_at", "responded_at")
+        model = JobAssignment
+        fields = ("recruiter", "joined_at", "left_at", "cv_count")
         read_only_fields = fields
 
 
 class OpsJobDetailSerializer(serializers.ModelSerializer[Job]):
-    """One job as Sparktal staff read it: the whole JD and brief, the bounty and the channels."""
+    """One job as Sparktal staff read it: the whole JD and brief, the bounty and who works it."""
 
     # Read from `ops_job_detail_queryset` only. The JD and brief fields are the ones the
     # marketplace detail shows a recruiter (a test pins that), without the recruiter's own state.
@@ -187,9 +173,8 @@ class OpsJobDetailSerializer(serializers.ModelSerializer[Job]):
     team_name = serializers.CharField(source="team.name", read_only=True, allow_null=True)
     location_label = serializers.CharField(read_only=True)
     recruiters_working = serializers.IntegerField(read_only=True)
-    # Who works on the job now, so the invite picker can tell them from an invitee who left.
-    working_recruiter_ids = serializers.ListField(child=serializers.UUIDField(), read_only=True)
-    invites = OpsInviteSerializer(many=True, read_only=True)
+    # The ones on the job first, oldest first, then the ones Sparktal took off.
+    assignments = OpsAssignmentSerializer(many=True, read_only=True)
 
     class Meta:
         model = Job
@@ -221,8 +206,7 @@ class OpsJobDetailSerializer(serializers.ModelSerializer[Job]):
             *BRIEF_FIELDS,
             "note_for_recruiters",
             "recruiters_working",
-            "working_recruiter_ids",
-            "invites",
+            "assignments",
         )
         read_only_fields = fields
 
@@ -230,7 +214,7 @@ class OpsJobDetailSerializer(serializers.ModelSerializer[Job]):
 def approved_recruiters(recruiter_ids: Sequence[UUID]) -> list[RecruiterProfile]:
     """The recruiters with these ids, in the order given and each once.
 
-    A recruiter who is not approved can't be invited (spec §10), so to ops they do not exist.
+    A recruiter who is not approved can't be assigned (spec §10), so to ops they do not exist.
     """
     wanted = list(dict.fromkeys(recruiter_ids))
     found = (
@@ -292,37 +276,47 @@ class OpsBountySerializer(serializers.Serializer[dict[str, Any]]):
         }
 
 
+def recruiter_ids_field() -> serializers.ListField:
+    """The recruiters to put on a job: at least one."""
+    return serializers.ListField(
+        child=serializers.UUIDField(),
+        min_length=1,
+        error_messages={"required": NEEDS_RECRUITER, "min_length": NEEDS_RECRUITER},
+    )
+
+
 class OpsDistributeSerializer(OpsBountySerializer):
-    """Set the bounty and take a job out of the queue."""
+    """Set the bounty and take a job out of the queue, with the headhunters picked on it."""
 
-    # On the marketplace, to invited recruiters, or both: `distribute_job` wants at least one.
-
-    on_marketplace = serializers.BooleanField()
-    recruiter_ids = serializers.ListField(child=serializers.UUIDField())
+    recruiter_ids = recruiter_ids_field()
+    # Ignored while `MARKETPLACE_ENABLED` is off: `distribute_job` keeps the job off it.
+    on_marketplace = serializers.BooleanField(required=False, default=False)
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         attrs = super().validate(attrs)
         return {**attrs, "recruiters": approved_recruiters(attrs["recruiter_ids"])}
 
 
-class OpsChannelsSerializer(serializers.Serializer[dict[str, Any]]):
-    """Change who a live job reaches."""
+class OpsAssignSerializer(serializers.Serializer[dict[str, Any]]):
+    """Put more headhunters on a live job."""
 
-    on_marketplace = serializers.BooleanField(required=False)
-    invite_recruiter_ids = serializers.ListField(child=serializers.UUIDField(), required=False)
-    cancel_invite_ids = serializers.ListField(child=serializers.UUIDField(), required=False)
+    recruiter_ids = recruiter_ids_field()
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        return {
-            **attrs,
-            "invite_recruiters": approved_recruiters(attrs.get("invite_recruiter_ids", [])),
-        }
+        return {**attrs, "recruiters": approved_recruiters(attrs["recruiter_ids"])}
+
+
+class OpsChannelsSerializer(serializers.Serializer[dict[str, Any]]):
+    """Put a live job on the marketplace, or take it off."""
+
+    on_marketplace = serializers.BooleanField()
 
 
 class OpsOverviewSerializer(serializers.Serializer[dict[str, Any]]):
     companies = serializers.IntegerField()
     active_jobs = serializers.IntegerField()
     queued_jobs = serializers.IntegerField()
+    unstaffed_jobs = serializers.IntegerField()
     pending_recruiters = serializers.IntegerField()
     cvs_submitted = serializers.IntegerField()
     hires = serializers.IntegerField()

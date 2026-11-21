@@ -126,7 +126,7 @@ def test_status_filter_and_the_unfiltered_list(staff_client: APIClient) -> None:
     assert [row["id"] for row in listed(staff_client, status="approved")] == [str(approved.pk)]
     assert [row["id"] for row in listed(staff_client, status="rejected")] == [str(rejected.pk)]
     assert [row["id"] for row in listed(staff_client, status="pending")] == [str(pending.pk)]
-    # No status: everyone, by nickname (the invite picker reads `approved` this way).
+    # No status: everyone, by nickname (the recruiter picker reads `approved` this way).
     assert [row["id"] for row in listed(staff_client)] == [
         str(approved.pk),
         str(pending.pk),
@@ -252,7 +252,13 @@ def test_approve_sends_email(
     assert message.to == [recruiter.user.email]
     assert "approved" in message.subject.lower()
     assert "Mai" in message.body
-    assert "/r/chat" in message.body
+    html = str(message.alternatives[0][0])
+    for text in (message.body, html):
+        assert "Sparktal will assign jobs to you" in text
+        assert "/r/jobs" in text
+        assert "marketplace" not in text.lower()
+    assert "Open my jobs" in html
+    assert "/r/chat" not in message.body
 
 
 def test_approving_a_rejected_recruiter_is_allowed(

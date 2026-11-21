@@ -1,6 +1,6 @@
 from typing import Any
 
-from django.db.models import F, Q, QuerySet
+from django.db.models import Exists, F, OuterRef, Q, QuerySet
 from django.http import QueryDict
 from django.utils import timezone
 from django_filters import rest_framework as filters
@@ -8,7 +8,7 @@ from django_filters import rest_framework as filters
 from apps.companies.models import Company
 from apps.hiring.models import Placement
 from apps.hiring.placements import PayoutStatus, filter_by_payout
-from apps.jobs.models import Job, JobStatus
+from apps.jobs.models import Job, JobAssignment, JobStatus
 from apps.recruiters.models import RecruiterProfile, RecruiterStatus
 
 # The tabs of the queue. A draft or a job still with the company is not Sparktal's yet.
@@ -25,10 +25,14 @@ class OpsJobFilterSet(filters.FilterSet):
     )
     search = filters.CharFilter(method="filter_search", help_text="Part of the title or company.")
     company = filters.UUIDFilter(field_name="company_id", help_text="Only this company's jobs.")
+    unstaffed = filters.BooleanFilter(
+        method="filter_unstaffed",
+        help_text="`true`: only jobs no recruiter works on. `false`: only jobs one does.",
+    )
 
     class Meta:
         model = Job
-        fields = ("status", "search", "company")
+        fields = ("status", "search", "company", "unstaffed")
 
     def __init__(self, data: Any = None, *args: Any, **kwargs: Any) -> None:
         data = data.copy() if data is not None else QueryDict(mutable=True)
@@ -41,6 +45,11 @@ class OpsJobFilterSet(filters.FilterSet):
         if not term:
             return queryset
         return queryset.filter(Q(title__icontains=term) | Q(company__name__icontains=term))
+
+    def filter_unstaffed(self, queryset: QuerySet[Job], name: str, value: bool) -> QuerySet[Job]:
+        """Whether anyone works the job now: an assignment they have not left."""
+        working = Exists(JobAssignment.objects.filter(job=OuterRef("pk"), left_at__isnull=True))
+        return queryset.filter(~working if value else working)
 
     def filter_queryset(self, queryset: QuerySet[Job]) -> QuerySet[Job]:
         """The queue is oldest first; the other tabs show what went live last first."""
@@ -94,7 +103,7 @@ class OpsRecruiterFilterSet(filters.FilterSet):
         )
 
     def filter_queryset(self, queryset: QuerySet[RecruiterProfile]) -> QuerySet[RecruiterProfile]:
-        """The review queue is oldest first; every other list reads by nickname (the invite
+        """The review queue is oldest first; every other list reads by nickname (the recruiter
         picker lists `approved` that way)."""
         queryset = super().filter_queryset(queryset)
         if self.form.cleaned_data["status"] == RecruiterStatus.PENDING:

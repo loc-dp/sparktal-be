@@ -19,6 +19,7 @@ from apps.hiring.tests.factories import PlacementFactory
 from apps.jobs.models import GUARANTEE_DAYS_DEFAULT, JobStatus
 from apps.ops.tests.helpers import queued_job
 from apps.ops.tests.test_jobs_api import detail_url, live_job, put_bounty
+from apps.recruiters.tests.factories import RecruiterProfileFactory
 
 pytestmark = pytest.mark.django_db
 
@@ -302,6 +303,7 @@ def test_a_running_clock_keeps_its_days_when_the_job_changes(staff_client: APICl
 
 def test_distribute_can_set_the_guarantee_days_too(staff_client: APIClient) -> None:
     job = queued_job(cast(Company, CompanyFactory()), posted_ago_days=1, team=None)
+    recruiter = RecruiterProfileFactory()
 
     response = staff_client.post(
         f"{detail_url(job)}/distribute",
@@ -309,8 +311,7 @@ def test_distribute_can_set_the_guarantee_days_too(staff_client: APIClient) -> N
             "bounty_type": "pct",
             "bounty_pct": 20,
             "guarantee_days": 30,
-            "on_marketplace": True,
-            "recruiter_ids": [],
+            "recruiter_ids": [str(recruiter.pk)],
         },
         format="json",
     )

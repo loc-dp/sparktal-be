@@ -16,8 +16,8 @@ from apps.jobs.models import (
     ChangeKind,
     ChangeStatus,
     Job,
+    JobAssignment,
     JobChangeRequest,
-    JobInvite,
     JobQuestion,
 )
 
@@ -164,11 +164,11 @@ def _vnd(amount: Decimal) -> str:
     return f"{int(amount):,}".replace(",", ".")
 
 
-def notify_recruiter_invited(invite: JobInvite) -> None:
-    """Tell a recruiter Sparktal offered them a job, with its bounty as the marketplace shows it."""
+def notify_recruiter_assigned(assignment: JobAssignment) -> None:
+    """Tell a recruiter Sparktal assigned them a job, with its bounty as they will see it."""
     try:
-        job = invite.job
-        recruiter = invite.recruiter
+        job = assignment.job
+        recruiter = assignment.recruiter
         context = {
             "job_title": job.title,
             "company_name": job.company.name,
@@ -178,11 +178,11 @@ def notify_recruiter_invited(invite: JobInvite) -> None:
             "bounty_amount": _vnd(job.bounty_amount)
             if job.bounty_type == BountyType.FIXED and job.bounty_amount is not None
             else None,
-            "job_url": f"{settings.FRONTEND_URL}/r/marketplace/{job.pk}",
+            "job_url": f"{settings.FRONTEND_URL}/r/jobs/{job.pk}",
         }
-        message = build_email("email/recruiter_invited", recruiter.user.email, context)
+        message = build_email("email/recruiter_assigned", recruiter.user.email, context)
     except Exception:
-        logger.exception("Could not prepare the invite email for %s", invite.pk)
+        logger.exception("Could not prepare the assigned email for %s", assignment.pk)
         return
     send_safely(message)
 

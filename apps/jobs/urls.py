@@ -25,8 +25,8 @@ from apps.jobs.api import (
     MarketplaceJobListView,
     MarketplaceJoinView,
     MarketplaceLeaveView,
-    MarketplaceQuestionListCreateView,
     PublicJobView,
+    RecruiterQuestionListCreateView,
 )
 
 urlpatterns = [
@@ -96,8 +96,8 @@ urlpatterns = [
         name="marketplace-job-leave",
     ),
     path(
-        "marketplace/jobs/<uuid:pk>/questions",
-        MarketplaceQuestionListCreateView.as_view(),
-        name="marketplace-job-questions",
+        "recruiters/me/jobs/<uuid:pk>/questions",
+        RecruiterQuestionListCreateView.as_view(),
+        name="recruiter-job-questions",
     ),
 ]

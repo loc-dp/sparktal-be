@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from typing import Any
 
 import pytest
 from rest_framework.test import APIClient
@@ -12,6 +13,11 @@ from apps.recruiters.models import RecruiterProfile
 pytestmark = pytest.mark.django_db
 
 JOBS = "/api/v1/marketplace/jobs"
+
+
+@pytest.fixture(autouse=True)
+def marketplace_on(settings: Any) -> None:
+    settings.MARKETPLACE_ENABLED = True
 
 
 def test_marketplace_lists_only_active_jobs_and_filters_search(

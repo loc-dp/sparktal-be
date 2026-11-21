@@ -1,6 +1,6 @@
 {% extends "email/base.txt" %}{% block content %}
 "{{ job_title }}" from {{ company_name }} is waiting in the Sparktal queue.
 
-Set the bounty, then distribute it to the marketplace, to invited recruiters, or both:
+Set the bounty and pick at least one headhunter to put it live.
 {{ job_url }}
 {% endblock %}

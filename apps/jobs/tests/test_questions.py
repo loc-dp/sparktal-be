@@ -7,8 +7,10 @@ import pytest
 from django.conf import settings
 from django.utils import timezone
 
+from apps.candidates.tests.factories import ApplicationFactory
 from apps.companies.models import CompanyMembership, CompanyRole
 from apps.companies.tests.factories import CompanyMembershipFactory
+from apps.jobs.access import jobs_open_to
 from apps.jobs.models import Job, JobQuestion, JobStatus
 from apps.jobs.questions import (
     JOB_NOT_TAKING_QUESTIONS,
@@ -18,7 +20,6 @@ from apps.jobs.questions import (
     answer_question,
     ask_question,
     hide_question,
-    recruiter_question_jobs,
     unanswered_counts,
     visible_to_company,
     visible_to_recruiter,
@@ -241,19 +242,28 @@ def test_unanswered_counts_ignore_answered_and_hidden(team_world: TeamWorld) -> 
     assert counts == {team_world.job_a.pk: 2}
 
 
-def test_recruiter_question_jobs_unions_offered_and_joined_once(team_world: TeamWorld) -> None:
+def test_jobs_open_to_is_assigned_or_holding_a_cv_and_lists_a_job_once(
+    team_world: TeamWorld,
+) -> None:
     recruiter = _recruiter()
-    # On the marketplace and joined: still one row.
+    # Assigned and holding two CVs: still one row.
     JobAssignmentFactory(job=team_world.job_a, recruiter=recruiter)
-    # Joined, then closed: still reachable through the assignment.
+    ApplicationFactory.create_batch(2, job=team_world.job_a, candidate__owner=recruiter)
+    # Assigned, then closed: still reachable through the assignment.
     closed = cast(Job, JobFactory(status=JobStatus.CLOSED, on_marketplace=False))
     JobAssignmentFactory(job=closed, recruiter=recruiter)
-    hidden = cast(Job, JobFactory(on_marketplace=False))
+    # Removed, but a CV of theirs stays on it.
+    removed = cast(Job, JobFactory(on_marketplace=False))
+    JobAssignmentFactory(job=removed, recruiter=recruiter, left_at=timezone.now())
+    ApplicationFactory(job=removed, candidate__owner=recruiter)
+    # Live and on the marketplace, but never theirs; and one they were removed from, no CV.
+    stranger = cast(Job, JobFactory())
+    gone = cast(Job, JobFactory(on_marketplace=False))
+    JobAssignmentFactory(job=gone, recruiter=recruiter, left_at=timezone.now())
 
-    jobs = list(recruiter_question_jobs(recruiter))
+    jobs = list(jobs_open_to(recruiter))
 
-    assert sorted(job.pk for job in jobs) == sorted(
-        [team_world.job_a.pk, team_world.job_b.pk, closed.pk]
-    )
-    assert hidden not in jobs
-    assert list(recruiter_question_jobs(None)) == []
+    assert sorted(job.pk for job in jobs) == sorted([team_world.job_a.pk, closed.pk, removed.pk])
+    assert stranger not in jobs
+    assert gone not in jobs
+    assert list(jobs_open_to(None)) == []

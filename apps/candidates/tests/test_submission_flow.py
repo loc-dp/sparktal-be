@@ -13,7 +13,7 @@ from apps.candidates.tests.factories import ApplicationFactory, CandidateFactory
 from apps.chat.models import Channel, MessageKind
 from apps.companies.tests.factories import CompanyFactory
 from apps.core.testing.pdf import make_pdf
-from apps.jobs.models import JobStatus
+from apps.jobs.models import JobAssignment, JobStatus
 from apps.jobs.tests.factories import JobFactory
 from apps.recruiters.tests.factories import RecruiterProfileFactory
 
@@ -145,31 +145,128 @@ def test_submission_copies_pool_cv(
     assert application.cv_file.name != candidate.cv_file.name
 
 
+NOT_ASSIGNED = "You are no longer assigned to this job."
+NOT_OPEN = "This job is no longer open for submissions."
+NOT_JOINED = "Join this job from the marketplace before you submit a candidate."
+
+
+def submission_urls(job: Any) -> tuple[str, str]:
+    return f"/api/v1/jobs/{job.pk}/submissions/check", f"/api/v1/jobs/{job.pk}/submissions"
+
+
+def post_both(client: Any, job: Any, candidate: Any) -> tuple[Any, Any]:
+    check, submit = submission_urls(job)
+    body = {"candidate_id": str(candidate.pk)}
+    return (
+        client.post(check, body, format="json"),
+        client.post(submit, {**body, **NOTES, "cv_file": upload()}, format="multipart"),
+    )
+
+
 def test_submission_permissions(
     recruiter_client: Any, recruiter_profile: Any, joined_job: Any
 ) -> None:
     candidate = CandidateFactory(owner=recruiter_profile)
     other = CandidateFactory()
     check = f"/api/v1/jobs/{joined_job.id}/submissions/check"
+    # Someone else's candidate is not theirs to submit.
     assert (
         recruiter_client.post(check, {"candidate_id": str(other.pk)}, format="json").status_code
         == 404
     )
-    unjoined = JobFactory(company=joined_job.company)
+    # An assigned, live job takes the submission.
     assert (
-        recruiter_client.post(
-            f"/api/v1/jobs/{unjoined.pk}/submissions/check",
-            {"candidate_id": str(candidate.pk)},
-            format="json",
-        ).status_code
-        == 403
+        recruiter_client.post(check, {"candidate_id": str(candidate.pk)}, format="json").status_code
+        == 200
+    )
+    # Assigned but no longer live: they can see it, so 403 NOT_OPEN.
+    joined_job.status = JobStatus.CLOSED
+    joined_job.save(update_fields=["status"])
+    refused = recruiter_client.post(check, {"candidate_id": str(candidate.pk)}, format="json")
+    assert refused.status_code == 403
+    assert refused.json() == {"detail": NOT_OPEN}
+
+
+def test_removed_recruiter_cannot_submit(
+    recruiter_client: Any, recruiter_profile: Any, joined_job: Any
+) -> None:
+    candidate = CandidateFactory(owner=recruiter_profile)
+    ApplicationFactory(
+        job=joined_job,
+        recruiter=recruiter_profile,
+        candidate=CandidateFactory(owner=recruiter_profile),
+    )
+    JobAssignment.objects.filter(job=joined_job, recruiter=recruiter_profile).update(
+        left_at=timezone.now()
+    )
+
+    checked, submitted = post_both(recruiter_client, joined_job, candidate)
+
+    assert (checked.status_code, submitted.status_code) == (403, 403)
+    assert checked.json() == {"detail": NOT_ASSIGNED}
+    assert submitted.json() == {"detail": NOT_ASSIGNED}
+    assert Application.objects.filter(job=joined_job).count() == 1
+
+
+def test_removed_recruiter_on_a_closed_job_is_told_they_are_not_assigned(
+    recruiter_client: Any, recruiter_profile: Any, joined_job: Any
+) -> None:
+    ApplicationFactory(
+        job=joined_job,
+        recruiter=recruiter_profile,
+        candidate=CandidateFactory(owner=recruiter_profile),
+    )
+    JobAssignment.objects.filter(job=joined_job, recruiter=recruiter_profile).update(
+        left_at=timezone.now()
     )
     joined_job.status = JobStatus.CLOSED
     joined_job.save(update_fields=["status"])
-    assert (
-        recruiter_client.post(check, {"candidate_id": str(candidate.pk)}, format="json").status_code
-        == 403
+    candidate = CandidateFactory(owner=recruiter_profile)
+
+    checked, _ = post_both(recruiter_client, joined_job, candidate)
+
+    assert (checked.status_code, checked.json()) == (403, {"detail": NOT_ASSIGNED})
+
+
+def test_unassigned_job_submit_is_404(
+    recruiter_client: Any, recruiter_profile: Any, company: Any
+) -> None:
+    live_job = JobFactory(company=company)
+    candidate = CandidateFactory(owner=recruiter_profile)
+
+    checked, submitted = post_both(recruiter_client, live_job, candidate)
+
+    assert (checked.status_code, submitted.status_code) == (404, 404)
+    assert not Application.objects.filter(job=live_job).exists()
+
+
+def test_removed_recruiter_without_a_cv_gets_404(
+    recruiter_client: Any, recruiter_profile: Any, joined_job: Any
+) -> None:
+    JobAssignment.objects.filter(job=joined_job, recruiter=recruiter_profile).update(
+        left_at=timezone.now()
     )
+    candidate = CandidateFactory(owner=recruiter_profile)
+
+    checked, submitted = post_both(recruiter_client, joined_job, candidate)
+
+    assert (checked.status_code, submitted.status_code) == (404, 404)
+
+
+def test_marketplace_job_not_yet_joined_is_403_only_with_the_marketplace_on(
+    recruiter_client: Any, recruiter_profile: Any, company: Any, settings: Any
+) -> None:
+    listed = JobFactory(company=company, on_marketplace=True)
+    candidate = CandidateFactory(owner=recruiter_profile)
+
+    settings.MARKETPLACE_ENABLED = False
+    assert post_both(recruiter_client, listed, candidate)[0].status_code == 404
+
+    settings.MARKETPLACE_ENABLED = True
+    checked, submitted = post_both(recruiter_client, listed, candidate)
+    assert (checked.status_code, submitted.status_code) == (403, 403)
+    assert checked.json() == {"detail": NOT_JOINED}
+    assert not Application.objects.filter(job=listed).exists()
 
 
 def test_recruiter_list_is_private_and_filterable(

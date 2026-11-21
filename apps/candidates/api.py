@@ -50,13 +50,20 @@ from apps.candidates.tasks import parse_cv
 from apps.core.http import content_disposition
 from apps.core.pagination import DefaultPagination
 from apps.hiring.serializers import SubmissionDetailSerializer
-from apps.jobs.access import can_submit_to_job, can_view_job, jobs_joined_by, jobs_offered_to
+from apps.jobs.access import (
+    can_submit_to_job,
+    can_view_job,
+    is_assigned,
+    jobs_offered_to,
+    jobs_open_to,
+)
 from apps.jobs.models import Job
 from apps.recruiters.access import IsApprovedRecruiter, approved_recruiter
 from apps.recruiters.models import RecruiterProfile
 
 NOT_JOINED = "Join this job from the marketplace before you submit a candidate."
 NOT_OPEN = "This job is no longer open for submissions."
+NOT_ASSIGNED = "You are no longer assigned to this job."
 ALREADY_SUBMITTED = "You have already submitted this candidate to this job."
 NO_CV = "Attach a CV, or upload one to this candidate in your talent pool first."
 
@@ -66,12 +73,13 @@ def submission_target(request: Request, job_id: Any) -> tuple[RecruiterProfile, 
     job = Job.objects.filter(pk=job_id).select_related("company").first()
     if recruiter is None or job is None:
         raise Http404
-    if jobs_joined_by(recruiter).filter(pk=job.pk).exists():
-        # Theirs even once it closed, was deleted or lost its bounty (it stays in their
-        # Commission Vault), so they can see it: refuse with 403 rather than pretend it is gone.
-        if not can_submit_to_job(recruiter, job):
-            raise PermissionDenied(NOT_OPEN)
-        return recruiter, job
+    if jobs_open_to(recruiter).filter(pk=job.pk).exists():
+        # They can see it even once it closed, was deleted or lost its bounty, or after they were
+        # removed (their own CVs keep it in their list): refuse with 403 rather than pretend it
+        # is gone.
+        if can_submit_to_job(recruiter, job):
+            return recruiter, job
+        raise PermissionDenied(NOT_OPEN if is_assigned(recruiter, job) else NOT_ASSIGNED)
     if jobs_offered_to(recruiter).filter(pk=job.pk).exists():
         raise PermissionDenied(NOT_JOINED)
     # Not theirs and not offered to them (not live, or direct-only to somebody else): it does

@@ -35,7 +35,6 @@ from apps.jobs.models import (
     Job,
     JobChangeRequest,
     JobFunction,
-    JobInvite,
     JobQuestion,
     JobStatus,
     WorkModel,
@@ -559,18 +558,8 @@ class MarketplaceJobListItemSerializer(BountyReadFields, serializers.ModelSerial
         }
 
 
-class MarketplaceInviteSerializer(serializers.ModelSerializer[JobInvite]):
-    """The viewer's own invite on a job, enough to show Accept / Decline or what came of it."""
-
-    class Meta:
-        model = JobInvite
-        fields = ("id", "status")
-        read_only_fields = fields
-
-
 class MarketplaceJobSerializer(MarketplaceJobListItemSerializer):
     channel_id = serializers.SerializerMethodField()
-    invite = serializers.SerializerMethodField()
 
     class Meta:
         model = Job
@@ -584,17 +573,8 @@ class MarketplaceJobSerializer(MarketplaceJobListItemSerializer):
             "note_for_recruiters",
             "guarantee_days",
             "channel_id",
-            "invite",
         )
         read_only_fields = ("guarantee_days",)
-
-    @extend_schema_field(MarketplaceInviteSerializer(allow_null=True))
-    def get_invite(self, job: Job) -> dict[str, Any] | None:
-        recruiter = self.context.get("recruiter")
-        if recruiter is None:
-            return None
-        invite = JobInvite.objects.filter(job=job, recruiter=recruiter).only("id", "status").first()
-        return dict(MarketplaceInviteSerializer(invite).data) if invite else None
 
     @extend_schema_field(serializers.UUIDField(allow_null=True))
     def get_channel_id(self, job: Job) -> str | None:

@@ -219,6 +219,9 @@ JD_PARSE_DAILY_LIMIT = env.int("JD_PARSE_DAILY_LIMIT", default=50)
 # A JD is copied out line by line, so the reply is several times longer than a CV's.
 JD_PARSE_TIMEOUT_SECONDS = env.float("JD_PARSE_TIMEOUT_SECONDS", default=90.0)
 
+# Off: Sparktal assigns headhunters to jobs and the marketplace is closed (its URLs are 404).
+MARKETPLACE_ENABLED = env.bool("MARKETPLACE_ENABLED", default=False)
+
 FRONTEND_URL = env.str("FRONTEND_URL", default="http://localhost:3000")
 # The API's own address, kept for links to the API host; ops emails now use FRONTEND_URL.
 BACKEND_URL = env.str("BACKEND_URL", default="http://localhost:8001")
@@ -267,7 +270,6 @@ SPECTACULAR_SETTINGS = {
         "CvKindEnum": "apps.hiring.cv.CvKind.choices",
         "ChangeKindEnum": "apps.jobs.models.ChangeKind.choices",
         "ChangeStatusEnum": "apps.jobs.models.ChangeStatus.choices",
-        "InviteStatusEnum": "apps.jobs.models.InviteStatus.choices",
         "BountyTypeEnum": "apps.jobs.models.BountyType.choices",
         "RecruiterProfileStatusEnum": "apps.recruiters.models.RecruiterStatus.choices",
         "PlacementStatusEnum": "apps.hiring.placements.PlacementStatus.choices",

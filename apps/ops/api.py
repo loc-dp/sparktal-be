@@ -1,8 +1,10 @@
 from typing import Any
 from uuid import UUID
 
+from django.conf import settings
 from django.db import transaction
 from django.db.models import QuerySet
+from django.http import Http404
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django_filters.rest_framework import DjangoFilterBackend
@@ -36,7 +38,12 @@ from apps.core.pagination import DefaultPagination
 from apps.hiring.api import Conflict
 from apps.hiring.models import Placement
 from apps.hiring.placements import PlacementConflict, mark_paid
-from apps.jobs.distribution import set_bounty
+from apps.jobs.distribution import (
+    assign_recruiters,
+    set_bounty,
+    set_marketplace,
+    unassign_recruiter,
+)
 from apps.jobs.models import Job
 from apps.ops.filters import (
     OpsCompanyFilterSet,
@@ -49,12 +56,12 @@ from apps.ops.jobs import (
     ops_job_detail_queryset,
     ops_jobs,
     posted_jobs,
-    update_channels,
 )
 from apps.ops.overview import ops_overview
 from apps.ops.permissions import IsSparktalStaff
 from apps.ops.queries import annotate_ops_companies, annotate_ops_recruiters, ops_placements
 from apps.ops.serializers import (
+    OpsAssignSerializer,
     OpsBountySerializer,
     OpsChannelsSerializer,
     OpsCompanyCreateSerializer,
@@ -128,7 +135,7 @@ class OpsJobActionView(APIView):
         return get_object_or_404(ops_jobs(), pk=id)
 
     def detail(self, id: UUID) -> Response:
-        # Never the instance the change was made on: it has no counts, invites or office read.
+        # Never the instance the change was made on: it has no counts, assignments or office read.
         return Response(
             OpsJobDetailSerializer(get_object_or_404(ops_job_detail_queryset(), pk=id)).data
         )
@@ -157,8 +164,9 @@ class OpsJobBountyView(OpsJobActionView):
         tags=["ops"],
         operation_id="ops_jobs_distribute_create",
         description=(
-            "Set the bounty and take a job out of the queue, on the marketplace, to the "
-            "recruiters picked, or both. Nothing is saved unless the whole distribution works."
+            "Set the bounty and take a job out of the queue, with the recruiters picked on it. "
+            "Nothing is saved unless the whole distribution works. `on_marketplace` is "
+            "ignored while the marketplace is switched off."
         ),
         request=OpsDistributeSerializer,
         responses=OpsJobDetailSerializer,
@@ -174,9 +182,48 @@ class OpsJobDistributeView(OpsJobActionView):
             id,
             actor=self.staff(),
             bounty=bounty_form(form.validated_data),
-            on_marketplace=form.validated_data["on_marketplace"],
             recruiters=form.validated_data["recruiters"],
+            on_marketplace=form.validated_data["on_marketplace"],
         )
+        return self.detail(id)
+
+
+@extend_schema_view(
+    post=extend_schema(
+        tags=["ops"],
+        operation_id="ops_jobs_assignments_create",
+        description=(
+            "Put more recruiters on a live job. Each one newly put on is emailed; one already "
+            "on it is left as they are, and one taken off earlier is put back."
+        ),
+        request=OpsAssignSerializer,
+        responses=OpsJobDetailSerializer,
+    )
+)
+class OpsJobAssignmentsView(OpsJobActionView):
+    def post(self, request: Request, id: UUID) -> Response:
+        job = self.job(id)
+        form = OpsAssignSerializer(data=request.data)
+        form.is_valid(raise_exception=True)
+        assign_recruiters(job, actor=self.staff(), recruiters=form.validated_data["recruiters"])
+        return self.detail(id)
+
+
+@extend_schema_view(
+    delete=extend_schema(
+        tags=["ops"],
+        operation_id="ops_jobs_assignments_destroy",
+        description=(
+            "Take a recruiter off a job. Their CVs on it stay and they are not emailed. A live "
+            "job keeps at least one recruiter."
+        ),
+        request=None,
+        responses=OpsJobDetailSerializer,
+    )
+)
+class OpsJobAssignmentView(OpsJobActionView):
+    def delete(self, request: Request, id: UUID, recruiter_id: UUID) -> Response:
+        unassign_recruiter(self.job(id), recruiter_id=recruiter_id)
         return self.detail(id)
 
 
@@ -185,8 +232,8 @@ class OpsJobDistributeView(OpsJobActionView):
         tags=["ops"],
         operation_id="ops_jobs_channels_partial_update",
         description=(
-            "Switch the marketplace, withdraw pending invites and invite more recruiters on a "
-            "distributed job. Nothing is saved unless every change works."
+            "Put a distributed job on the marketplace, or take it off. Not found while the "
+            "marketplace is switched off."
         ),
         request=OpsChannelsSerializer,
         responses=OpsJobDetailSerializer,
@@ -194,19 +241,12 @@ class OpsJobDistributeView(OpsJobActionView):
 )
 class OpsJobChannelsView(OpsJobActionView):
     def patch(self, request: Request, id: UUID) -> Response:
+        if not settings.MARKETPLACE_ENABLED:
+            raise Http404
         job = self.job(id)
-        # Partial, so a field that is absent means "leave it": a form-encoded body has no way to
-        # say "no value", and DRF reads an absent boolean there as False, which would switch the
-        # marketplace off whenever only invites are sent.
-        form = OpsChannelsSerializer(data=request.data, partial=True)
+        form = OpsChannelsSerializer(data=request.data)
         form.is_valid(raise_exception=True)
-        update_channels(
-            job,
-            actor=self.staff(),
-            on_marketplace=form.validated_data.get("on_marketplace"),
-            cancel_invite_ids=form.validated_data.get("cancel_invite_ids", []),
-            invite=form.validated_data["invite_recruiters"],
-        )
+        set_marketplace(job, on=form.validated_data["on_marketplace"])
         return self.detail(id)
 
 

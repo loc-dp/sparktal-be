@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from typing import Any
 
 import pytest
 from django.utils import timezone
@@ -16,6 +17,11 @@ from apps.recruiters.models import RecruiterProfile
 from apps.recruiters.tests.factories import RecruiterProfileFactory
 
 pytestmark = pytest.mark.django_db
+
+
+@pytest.fixture(autouse=True)
+def marketplace_on(settings: Any) -> None:
+    settings.MARKETPLACE_ENABLED = True
 
 
 def filtered(data: dict[str, str], recruiter: RecruiterProfile) -> list[str]:

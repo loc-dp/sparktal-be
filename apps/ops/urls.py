@@ -3,6 +3,8 @@ from django.urls import path
 from apps.ops.api import (
     OpsCompanyDetailView,
     OpsCompanyListCreateView,
+    OpsJobAssignmentsView,
+    OpsJobAssignmentView,
     OpsJobBountyView,
     OpsJobChannelsView,
     OpsJobDetailView,
@@ -33,6 +35,16 @@ urlpatterns = [
     path("ops/jobs/<uuid:id>/bounty", OpsJobBountyView.as_view(), name="ops-job-bounty"),
     path(
         "ops/jobs/<uuid:id>/distribute", OpsJobDistributeView.as_view(), name="ops-job-distribute"
+    ),
+    path(
+        "ops/jobs/<uuid:id>/assignments",
+        OpsJobAssignmentsView.as_view(),
+        name="ops-job-assignments",
+    ),
+    path(
+        "ops/jobs/<uuid:id>/assignments/<uuid:recruiter_id>",
+        OpsJobAssignmentView.as_view(),
+        name="ops-job-assignment",
     ),
     path("ops/jobs/<uuid:id>/channels", OpsJobChannelsView.as_view(), name="ops-job-channels"),
     path("ops/companies", OpsCompanyListCreateView.as_view(), name="ops-companies"),

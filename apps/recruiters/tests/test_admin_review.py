@@ -73,7 +73,7 @@ def test_approving_sends_result_email(
     assert profile.reviewed_by == staff_user
     assert len(mail.outbox) == 1
     assert "approved" in mail.outbox[0].subject.lower()
-    assert "/r/chat" in mail.outbox[0].body
+    assert "/r/jobs" in mail.outbox[0].body
 
 
 def test_rejection_requires_a_note(

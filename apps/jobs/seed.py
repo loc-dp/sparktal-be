@@ -1,8 +1,5 @@
-from collections.abc import Iterator
-from contextlib import contextmanager
 from datetime import timedelta
 from typing import Any
-from unittest.mock import patch
 
 from django.utils import timezone
 
@@ -10,18 +7,14 @@ from apps.accounts.models import User
 from apps.companies.models import Company, Team
 from apps.companies.seed import TEAMS
 from apps.core.seed import DEMO_EMAILS, SeedContext, register_resetter, register_seeder
-from apps.jobs import distribution
-from apps.jobs.distribution import accept_invite, invite_recruiters
 from apps.jobs.functions import guess_function
 from apps.jobs.models import (
     BountyType,
     ChangeKind,
     ChangeStatus,
-    InviteStatus,
     Job,
     JobAssignment,
     JobChangeRequest,
-    JobInvite,
     JobQuestion,
     JobStatus,
     Language,
@@ -209,7 +202,6 @@ GROWTH_JOBS: list[dict[str, Any]] = [
         "title": "Growth Marketing Manager",
         "days_ago": 6,
         "status": JobStatus.ACTIVE,
-        "direct_only": True,
         "salary": (35_000_000, 50_000_000),
         "bounty_pct": 15,
         "work_model": WorkModel.HYBRID,
@@ -222,10 +214,9 @@ GROWTH_JOBS: list[dict[str, Any]] = [
         "note_for_recruiters": "",
     },
     {
-        "title": "Growth Analyst (invite only)",
+        "title": "Growth Analyst",
         "days_ago": 4,
         "status": JobStatus.ACTIVE,
-        "direct_only": True,
         "salary": (28_000_000, 40_000_000),
         "bounty_pct": 15,
         "work_model": WorkModel.HYBRID,
@@ -235,7 +226,7 @@ GROWTH_JOBS: list[dict[str, Any]] = [
         "quals": "3+ years in growth, marketing or product analytics\nStrong SQL and a solid grasp of experiment statistics\nComfortable presenting findings to non-analysts",
         "nice": "Experience in fintech or payments\nPython for ad-hoc analysis",
         "benefits": "13th-month salary\nPremium health insurance\nLearning budget 20.000.000 ₫",
-        "note_for_recruiters": "Sparktal is offering this role to a few chosen headhunters only; it is not on the marketplace.",
+        "note_for_recruiters": "Sparktal gave this role to one headhunter only.",
     },
     {
         "title": "Merchant Acquisition Lead",
@@ -317,7 +308,6 @@ def seed(ctx: SeedContext) -> None:
         # Seeds are fixtures: status is set directly, so no lifecycle email goes out.
         unposted = spec["status"] in (JobStatus.PENDING, JobStatus.DRAFT, JobStatus.SUBMITTED)
         posted = spec["status"] in (JobStatus.PENDING, JobStatus.ACTIVE, JobStatus.CLOSED)
-        live = spec["status"] in (JobStatus.ACTIVE, JobStatus.CLOSED)
         job, _ = Job.objects.update_or_create(
             company=company,
             title=spec["title"],
@@ -342,9 +332,8 @@ def seed(ctx: SeedContext) -> None:
                 ),
                 "bounty_pct": spec.get("bounty_pct"),
                 "bounty_amount": spec.get("bounty_amount"),
-                # Live jobs are on the marketplace, except the ones Sparktal gives to chosen
-                # headhunters only (their invites are made by `seed_invites`).
-                "on_marketplace": live and not spec.get("direct_only", False),
+                # The marketplace is off: Sparktal assigns every live job (`seed_assignments`).
+                "on_marketplace": False,
                 "skills": spec["skills"],
                 "status": spec["status"],
                 "note_for_recruiters": spec.get("note_for_recruiters", ""),
@@ -386,95 +375,56 @@ def reset() -> None:
     ).delete()
 
 
+# Headhunters Sparktal assigned, by nickname: the job titles they hold. Every live job has one.
 ASSIGNMENTS: dict[str, list[str]] = {
     "NorthStar Talent": [
         "Senior Backend Engineer",
         "Data Analyst",
-        "Compliance Manager",
         "QA Engineer",
+        "Growth Marketing Manager",
     ],
-    "Bluefin Search": ["Senior Backend Engineer", "Product Designer", "Compliance Manager"],
+    "Bluefin Search": [
+        "Senior Backend Engineer",
+        "Product Designer",
+        "Compliance Manager",
+        "Growth Marketing Manager",
+        "Growth Analyst",
+    ],
 }
+# Taken off the job again, so the "no longer assigned" state can be shown: the CV stays on it.
+REMOVED_ASSIGNMENTS: dict[str, list[str]] = {"NorthStar Talent": ["Compliance Manager"]}
+REMOVED_DAYS_AGO = 3
 
 
 @register_seeder(order=45)
 def seed_assignments(ctx: SeedContext) -> None:
+    """Straight through the ORM, so a seed run emails nobody; a signal opens each chat channel."""
     jobs: dict[str, Job] = ctx.refs.get("jobs") or {
         job.title: job for job in Job.objects.filter(company__name="Vela Pay")
     }
     recruiters: dict[str, RecruiterProfile] = ctx.refs["recruiters"]
+    now = timezone.now()
     created: list[JobAssignment] = []
-    for nickname, titles in ASSIGNMENTS.items():
-        recruiter = recruiters[nickname]
-        for title in titles:
-            assignment, _ = JobAssignment.objects.get_or_create(
-                job=jobs[title], recruiter=recruiter
-            )
-            if assignment.left_at is not None:
-                assignment.left_at = None
-                assignment.save(update_fields=["left_at"])
-            # `joined_at` is auto_now_add: join a few days after the job went live.
-            published = jobs[title].published_at or timezone.now()
-            JobAssignment.objects.filter(pk=assignment.pk).update(
-                joined_at=min(published + timedelta(days=2), timezone.now())
-            )
-            created.append(assignment)
+    for held, assigned in ((True, ASSIGNMENTS), (False, REMOVED_ASSIGNMENTS)):
+        for nickname, titles in assigned.items():
+            for title in titles:
+                assignment, _ = JobAssignment.objects.get_or_create(
+                    job=jobs[title], recruiter=recruiters[nickname]
+                )
+                # `joined_at` is auto_now_add: join a few days after the job went live.
+                published = jobs[title].published_at or now
+                JobAssignment.objects.filter(pk=assignment.pk).update(
+                    joined_at=min(published + timedelta(days=2), now),
+                    left_at=None if held else now - timedelta(days=REMOVED_DAYS_AGO),
+                )
+                assignment.refresh_from_db()
+                created.append(assignment)
     ctx.refs["assignments"] = created
 
 
 @register_resetter(order=45)
 def reset_assignments() -> None:
     JobAssignment.objects.filter(recruiter__user__email__in=DEMO_EMAILS).delete()
-
-
-# Sparktal's direct channel (spec §9), by job title: the headhunters it invited, and who of
-# them already accepted.
-INVITES: dict[str, list[str]] = {
-    "Growth Marketing Manager": ["Bluefin Search", "NorthStar Talent"],
-    "Growth Analyst (invite only)": ["Bluefin Search"],
-}
-ACCEPTED_INVITES: list[tuple[str, str]] = [("Growth Marketing Manager", "NorthStar Talent")]
-
-
-@contextmanager
-def _without_invite_email() -> Iterator[None]:
-    """Make `invite_recruiters` send no email inside the block: demo data mails nobody.
-
-    It queues `notify_recruiter_invited` for after the commit, looking the name up in
-    `apps.jobs.distribution` when it queues. For the block that name is a no-op; every other
-    `transaction.on_commit` callback is left alone.
-    """
-    with patch.object(distribution, "notify_recruiter_invited", lambda invite: None):
-        yield
-
-
-@register_seeder(order=46)
-def seed_invites(ctx: SeedContext) -> None:
-    """Invite through the service the Sparktal portal uses, so the rows are what production makes.
-
-    A second run changes nothing: a pending invite and a working recruiter are left alone, and an
-    invite someone declined (or Sparktal cancelled) is sent again.
-    """
-    jobs: dict[str, Job] = ctx.refs.get("jobs") or {
-        job.title: job for job in Job.objects.filter(company__name="Vela Pay")
-    }
-    recruiters: dict[str, RecruiterProfile] = ctx.refs["recruiters"]
-    users: dict[str, User] = ctx.refs.get("users", {})
-    ops = users.get("admin@sparktal.vn") or User.objects.get(email="admin@sparktal.vn")
-    with _without_invite_email():
-        for title, nicknames in INVITES.items():
-            invite_recruiters(
-                jobs[title], actor=ops, recruiters=[recruiters[name] for name in nicknames]
-            )
-        for title, nickname in ACCEPTED_INVITES:
-            invite = JobInvite.objects.get(job=jobs[title], recruiter=recruiters[nickname])
-            if invite.status == InviteStatus.PENDING:
-                accept_invite(invite, recruiter=recruiters[nickname])
-
-
-@register_resetter(order=46)
-def reset_invites() -> None:
-    JobInvite.objects.filter(job__company__name="Vela Pay").delete()
 
 
 # Q&A between NorthStar Talent and Vela Pay: job title, question, answer ("" = waiting), days ago.

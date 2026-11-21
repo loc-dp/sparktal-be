@@ -1,11 +1,22 @@
 from typing import Any
 
-from django.db.models import Count, IntegerField, OuterRef, QuerySet, Subquery, Value
+from django.db.models import (
+    BooleanField,
+    Count,
+    ExpressionWrapper,
+    IntegerField,
+    OuterRef,
+    Q,
+    QuerySet,
+    Subquery,
+    Value,
+)
 from django.db.models.functions import Coalesce
 
+from apps.candidates.models import Application
 from apps.companies.models import Company, CompanyMembership, Team
 from apps.hiring.models import Placement
-from apps.jobs.models import InviteStatus, Job, JobAssignment, JobInvite, JobStatus
+from apps.jobs.models import Job, JobAssignment, JobStatus
 from apps.recruiters.models import RecruiterProfile
 
 
@@ -20,17 +31,27 @@ def annotate_ops_jobs(queryset: QuerySet[Job]) -> QuerySet[Job]:
     """What `OpsJobListItemSerializer` reads, in one query however many jobs there are.
 
     Never serialize a `Job` with it that did not come through here. Each number is a correlated
-    subquery, not a join: counting invites and assignments through two joins would build an
-    invites by assignments product for every job.
+    subquery, not a join, so another count can be added without multiplying the rows.
     """
-    invites = JobInvite.objects.filter(job=OuterRef("pk"))
     return queryset.select_related("company", "team").annotate(
-        invites_pending=_count(invites.filter(status=InviteStatus.PENDING)),
-        invites_accepted=_count(invites.filter(status=InviteStatus.ACCEPTED)),
-        invites_declined=_count(invites.filter(status=InviteStatus.DECLINED)),
         recruiters_working=_count(
             JobAssignment.objects.filter(job=OuterRef("pk"), left_at__isnull=True)
         ),
+    )
+
+
+def ops_job_assignments() -> QuerySet[JobAssignment]:
+    """What `OpsAssignmentSerializer` reads: the ones on the job first, oldest first, then the
+    ones Sparktal took off, each with the CVs that recruiter submitted to that job."""
+    cvs = Application.objects.filter(job=OuterRef("job"), recruiter=OuterRef("recruiter"))
+    return (
+        JobAssignment.objects.select_related("recruiter__user")
+        .annotate(cv_count=_count(cvs))
+        .order_by(
+            ExpressionWrapper(Q(left_at__isnull=False), output_field=BooleanField()),
+            "joined_at",
+            "id",
+        )
     )
 
 

@@ -22,7 +22,7 @@ ClientFor = Callable[[User], APIClient]
 
 
 def _recruiter_url(job: Job) -> str:
-    return f"/api/v1/marketplace/jobs/{job.pk}/questions"
+    return f"/api/v1/recruiters/me/jobs/{job.pk}/questions"
 
 
 def _company_url(job: Job) -> str:

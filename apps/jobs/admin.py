@@ -1,15 +1,14 @@
 from typing import Any
 
 from django import forms
+from django.conf import settings
 from django.contrib import admin, messages
 from django.db.models import QuerySet
 from django.http import HttpRequest
 from rest_framework.exceptions import ValidationError
 from simple_history.admin import SimpleHistoryAdmin
 
-from apps.accounts.models import User
 from apps.jobs.bounty import clean_bounty
-from apps.jobs.distribution import DistributionError, distribute_job
 from apps.jobs.lifecycle import restore_job
 from apps.jobs.models import (
     PRIVATE_STATUSES,
@@ -17,7 +16,6 @@ from apps.jobs.models import (
     Job,
     JobAssignment,
     JobChangeRequest,
-    JobInvite,
     JobQuestion,
 )
 
@@ -61,22 +59,6 @@ class JobAdminForm(forms.ModelForm):  # type: ignore[type-arg]
         return cleaned
 
 
-class JobInviteInline(admin.TabularInline):  # type: ignore[type-arg]
-    """What was offered to whom; invites are made and answered through `distribution.py`."""
-
-    model = JobInvite
-    fields = ("recruiter", "status", "created_at", "responded_at", "decline_reason")
-    readonly_fields = fields
-    extra = 0
-    can_delete = False
-
-    def has_add_permission(self, request: HttpRequest, obj: Job | None = None) -> bool:
-        return False
-
-    def has_change_permission(self, request: HttpRequest, obj: Job | None = None) -> bool:
-        return False
-
-
 @admin.register(Job)
 class JobAdmin(SimpleHistoryAdmin):  # type: ignore[misc]
     form = JobAdminForm
@@ -105,17 +87,21 @@ class JobAdmin(SimpleHistoryAdmin):  # type: ignore[misc]
         "published_at",
         "closed_at",
     )
-    inlines = (JobInviteInline,)
-    actions = ("distribute_to_marketplace", "restore_jobs")
+    # Distributing needs headhunters picked, so it is the ops portal's, not an action here.
+    actions = ("restore_jobs",)
 
     def get_readonly_fields(self, request: HttpRequest, obj: Job | None = None) -> tuple[str, ...]:
-        """On an existing job, only the bounty and the channel can be edited.
+        """On an existing job, only the bounty and the guarantee can be edited (and, with the
+        marketplace on, the channel).
 
         The form saves the whole row, so a content field left editable lets a stale form revert
         what the company changed in between (the title, the brief). The add view keeps them all:
         a job made here has no company edit to protect and needs them to exist at all.
         """
         readonly = tuple(super().get_readonly_fields(request, obj))
+        if not settings.MARKETPLACE_ENABLED:
+            # Inert while the marketplace is off: it would only be stored for the day it is on.
+            readonly = (*readonly, "on_marketplace")
         if obj is None:
             return readonly
         content = (
@@ -124,26 +110,6 @@ class JobAdmin(SimpleHistoryAdmin):  # type: ignore[misc]
             if field.editable and field.name not in (*EDITABLE_ON_CHANGE, *readonly)
         )
         return (*readonly, *content)
-
-    @admin.action(description="Distribute selected jobs to the marketplace", permissions=["change"])
-    def distribute_to_marketplace(self, request: HttpRequest, queryset: QuerySet[Job]) -> None:
-        """Stop-gap until the Sparktal queue page: marketplace only, the bounty set on the job."""
-        assert isinstance(request.user, User)
-        distributed = 0
-        problems: list[str] = []
-        for job in queryset:
-            try:
-                distribute_job(job, actor=request.user, on_marketplace=True, recruiters=[])
-            except DistributionError as error:  # not pending any more, or no bounty yet
-                problems.append(f"{job.title}: {error.detail}")
-            else:
-                distributed += 1
-        if distributed:
-            self.message_user(
-                request, f"Distributed {distributed} job(s) to the marketplace.", messages.SUCCESS
-            )
-        if problems:
-            self.message_user(request, "Not distributed. " + " ".join(problems), messages.ERROR)
 
     @admin.action(description="Restore deleted jobs", permissions=["change"])
     def restore_jobs(self, request: HttpRequest, queryset: QuerySet[Job]) -> None:
@@ -155,30 +121,15 @@ class JobAdmin(SimpleHistoryAdmin):  # type: ignore[misc]
 
 @admin.register(JobAssignment)
 class JobAssignmentAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
+    """The fallback for putting a headhunter on a job, or taking them off (set `left_at`).
+
+    It skips `distribution.py`'s checks (approved, live, the last one kept) and sends no email.
+    """
+
     list_display = ("job", "recruiter", "joined_at", "left_at")
     list_filter = ("job__company",)
     search_fields = ("job__title", "recruiter__nickname")
     autocomplete_fields = ("job", "recruiter")
-
-
-@admin.register(JobInvite)
-class JobInviteAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
-    list_display = ("job", "recruiter", "status", "created_at")
-    list_filter = ("status",)
-    search_fields = ("job__title", "recruiter__nickname")
-    list_select_related = ("job", "recruiter")
-
-    def get_readonly_fields(self, request: HttpRequest, obj: JobInvite | None = None) -> list[str]:
-        return [field.name for field in self.model._meta.fields]
-
-    def has_add_permission(self, request: HttpRequest) -> bool:
-        return False
-
-    def has_change_permission(self, request: HttpRequest, obj: JobInvite | None = None) -> bool:
-        return False
-
-    # Delete stays at its default on purpose: Django checks it on every related object, so
-    # refusing it here would block deleting a job that has invites.
 
 
 @admin.register(JobQuestion)

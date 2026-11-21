@@ -1,10 +1,10 @@
 {% extends "email/base.html" %}
-{% block title %}{{ company_name }} job for you: {{ job_title }}{% endblock %}
-{% block preheader %}Sparktal invited you to {{ job_title }} at {{ company_name }}.{% endblock %}
-{% block eyebrow %}Job invite{% endblock %}
+{% block title %}You have been assigned a job: {{ job_title }}{% endblock %}
+{% block preheader %}Sparktal assigned you {{ job_title }} at {{ company_name }}.{% endblock %}
+{% block eyebrow %}Job assigned{% endblock %}
 {% block headline %}A job for you, {{ nickname }}.{% endblock %}
-{% block lead %}Sparktal picked you for {{ job_title }} at {{ company_name }}. Read the brief, then accept or decline the invite.{% endblock %}
-{% block action %}{% include "email/_button.html" with url=job_url label="See the job" %}{% endblock %}
+{% block lead %}Sparktal assigned you {{ job_title }} at {{ company_name }}. Read the brief and start submitting candidates.{% endblock %}
+{% block action %}{% include "email/_button.html" with url=job_url label="Open the job" %}{% endblock %}
 {% block details %}
 <p style="margin:0;color:#52525B;">Bounty: <strong style="color:#0B0B0F;font-weight:600;">{% if bounty_type == "fixed" %}Fixed amount · {{ bounty_amount }} ₫{% else %}{{ bounty_pct }}% of annual salary{% endif %}</strong></p>
 {% endblock %}

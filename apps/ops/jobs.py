@@ -1,4 +1,4 @@
-"""What Sparktal staff do to a job: read it, and set its bounty and channels (spec §10).
+"""What Sparktal staff do to a job: read it, set its bounty and who works it (spec §10).
 
 The rules are `apps.jobs.distribution`'s; this module picks which jobs ops can reach and runs
 several of those steps as one.
@@ -8,23 +8,19 @@ from collections.abc import Sequence
 from typing import Any
 from uuid import UUID
 
-from django.contrib.postgres.expressions import ArraySubquery
 from django.db import transaction
-from django.db.models import OuterRef, Prefetch, QuerySet
+from django.db.models import Prefetch, QuerySet
 from django.http import Http404
 
 from apps.accounts.models import User
 from apps.jobs.distribution import (
     NOT_WAITING,
     DistributionError,
-    cancel_invites,
     distribute_job,
-    invite_recruiters,
     set_bounty,
-    set_marketplace,
 )
-from apps.jobs.models import PRIVATE_STATUSES, Job, JobAssignment, JobInvite, JobStatus
-from apps.ops.queries import annotate_ops_jobs
+from apps.jobs.models import PRIVATE_STATUSES, Job, JobStatus
+from apps.ops.queries import annotate_ops_jobs, ops_job_assignments
 from apps.recruiters.models import RecruiterProfile
 
 
@@ -40,18 +36,10 @@ def ops_jobs() -> QuerySet[Job]:
 
 def ops_job_detail_queryset() -> QuerySet[Job]:
     """What `OpsJobDetailSerializer` reads; the one way to fetch a job to return it."""
-    invites = JobInvite.objects.select_related("recruiter__user").order_by("-created_at", "id")
-    # In the job's own query: an array of the recruiters on it who have not left.
-    working = JobAssignment.objects.filter(job=OuterRef("pk"), left_at__isnull=True)
     return (
         ops_jobs()
         .select_related("office")
-        .annotate(
-            working_recruiter_ids=ArraySubquery(
-                working.order_by("joined_at", "id").values("recruiter_id")
-            )
-        )
-        .prefetch_related(Prefetch("invites", invites))
+        .prefetch_related(Prefetch("assignments", queryset=ops_job_assignments()))
     )
 
 
@@ -61,8 +49,8 @@ def distribute_with_bounty(
     *,
     actor: User,
     bounty: dict[str, Any],
-    on_marketplace: bool,
     recruiters: Sequence[RecruiterProfile],
+    on_marketplace: bool = False,
 ) -> Job:
     """Set the bounty, then distribute, as one: a refused distribution leaves the bounty as it was.
 
@@ -77,21 +65,3 @@ def distribute_with_bounty(
         raise DistributionError(NOT_WAITING)
     set_bounty(job, **bounty)
     return distribute_job(job, actor=actor, on_marketplace=on_marketplace, recruiters=recruiters)
-
-
-@transaction.atomic
-def update_channels(
-    job: Job,
-    *,
-    actor: User,
-    on_marketplace: bool | None,
-    cancel_invite_ids: Sequence[UUID],
-    invite: Sequence[RecruiterProfile],
-) -> None:
-    """The marketplace switch, invites withdrawn, then new invites, all or none."""
-    if on_marketplace is not None:
-        set_marketplace(job, on=on_marketplace)
-    if cancel_invite_ids:
-        cancel_invites(job, invite_ids=cancel_invite_ids)
-    if invite:
-        invite_recruiters(job, actor=actor, recruiters=invite)

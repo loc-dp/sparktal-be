@@ -1,10 +1,10 @@
 {% extends "email/base.html" %}
 {% block title %}Your Sparktal recruiter account is approved{% endblock %}
-{% block preheader %}Your recruiter account is live. Browse the jobs marketplace now.{% endblock %}
+{% block preheader %}Your recruiter account is live. Sparktal will assign jobs to you.{% endblock %}
 {% block eyebrow %}Recruiter review{% endblock %}
 {% block headline %}You are in, {{ nickname }}.{% endblock %}
-{% block lead %}Your recruiter account is approved and live. Sign in to browse the jobs marketplace.{% endblock %}
-{% block action %}{% include "email/_button.html" with url=jobs_url label="Open the jobs marketplace" %}{% endblock %}
+{% block lead %}Your recruiter account is approved and live. Sparktal will assign jobs to you, and the jobs assigned to you appear under My jobs.{% endblock %}
+{% block action %}{% include "email/_button.html" with url=jobs_url label="Open my jobs" %}{% endblock %}
 {% block details %}
 <p style="margin:0;color:#52525B;">Sign in with <strong style="color:#0B0B0F;font-weight:600;">{{ email }}</strong>.</p>
 {% endblock %}

@@ -4,10 +4,15 @@ from types import SimpleNamespace
 import pytest
 from django.apps import apps as django_apps
 from django.db import connection
+from django.db.migrations.executor import MigrationExecutor
+from django.utils import timezone
 
+from apps.chat.models import Channel
 from apps.companies.models import Company
-from apps.jobs.models import BountyType, Job, JobStatus
+from apps.jobs.models import BountyType, Job, JobAssignment, JobStatus
 from apps.jobs.tests.factories import JobFactory
+from apps.recruiters.models import RecruiterStatus
+from apps.recruiters.tests.factories import RecruiterProfileFactory
 
 pytestmark = pytest.mark.django_db
 
@@ -75,3 +80,65 @@ def test_the_history_keeps_the_bounty_it_recorded(company: Company) -> None:
         == recorded
         == [(recorded[0][0], 15)]
     )
+
+
+BEFORE_ASSIGN = ("jobs", "0011_job_guarantee_days")
+
+
+def _leaves(executor: MigrationExecutor, **apps: str) -> list[tuple[str, str]]:
+    """Every app at its latest migration, except the ones named, which stop where given."""
+    return [(app, apps.get(app, name)) for app, name in executor.loader.graph.leaf_nodes()]
+
+
+@pytest.mark.django_db(transaction=True)
+def test_pending_invites_become_assignments() -> None:
+    """Spec: a headhunter Sparktal invited and who was still deciding is now on the job.
+
+    The before-state is built by migrating the database back past the conversion, since the
+    live app registry no longer has `JobInvite`; it is migrated forward again however the
+    test ends.
+    """
+    executor = MigrationExecutor(connection)
+    before = _leaves(executor, jobs=BEFORE_ASSIGN[1])
+    executor.migrate(before)
+    try:
+        executor.loader.build_graph()
+        old = executor.loader.project_state(before).apps
+        JobInvite = old.get_model("jobs", "JobInvite")
+        OldAssignment = old.get_model("jobs", "JobAssignment")
+
+        job = JobFactory(on_marketplace=False)
+        waiting = RecruiterProfileFactory(nickname="Bluefin")
+        unapproved = RecruiterProfileFactory(nickname="Atlas", status=RecruiterStatus.PENDING)
+        declined = RecruiterProfileFactory(nickname="Fog Bank")
+        came_back = RecruiterProfileFactory(nickname="NorthStar")
+        for recruiter, status in (
+            (waiting, "pending"),
+            (unapproved, "pending"),
+            (declined, "declined"),
+            (came_back, "pending"),
+        ):
+            JobInvite.objects.create(job_id=job.pk, recruiter_id=recruiter.pk, status=status)
+        # Through the old model, so no channel comes with it: the migration has to make one.
+        removed = OldAssignment.objects.create(
+            job_id=job.pk, recruiter_id=came_back.pk, left_at=timezone.now()
+        )
+        # An invite nobody could answer any more (the old `open_invites`: a live job only) stays
+        # nothing: the job was deleted or closed before the conversion.
+        deleted_job = JobFactory(on_marketplace=False, deleted_at=timezone.now())
+        closed_job = JobFactory(on_marketplace=False, status=JobStatus.CLOSED)
+        for dead in (deleted_job, closed_job):
+            JobInvite.objects.create(job_id=dead.pk, recruiter_id=waiting.pk, status="pending")
+    finally:
+        executor = MigrationExecutor(connection)
+        executor.migrate(executor.loader.graph.leaf_nodes())
+
+    held = JobAssignment.objects.filter(job=job, left_at__isnull=True)
+    assert sorted(assignment.recruiter.nickname for assignment in held) == ["Bluefin", "NorthStar"]
+    assert held.get(recruiter=came_back).pk == removed.pk
+    assert not JobAssignment.objects.filter(recruiter__in=[unapproved, declined]).exists()
+    channels = Channel.objects.filter(job=job)
+    assert sorted(channel.recruiter.nickname for channel in channels) == ["Bluefin", "NorthStar"]
+    assert not JobAssignment.objects.filter(job__in=[deleted_job, closed_job]).exists()
+    assert not Channel.objects.filter(job__in=[deleted_job, closed_job]).exists()
+    assert "jobs_jobinvite" not in connection.introspection.table_names()

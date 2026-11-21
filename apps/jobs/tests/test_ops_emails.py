@@ -1,4 +1,5 @@
-"""Sparktal ops hear about every job entering the queue and every edit to a live job (spec §10)."""
+"""Sparktal ops hear about every job entering the queue and every edit to a live job (spec §10);
+a headhunter hears when Sparktal assigns them a job."""
 
 import logging
 from collections.abc import Callable
@@ -8,11 +9,15 @@ import pytest
 from rest_framework.test import APIClient
 
 from apps.accounts.models import User
-from apps.jobs.models import ChangeKind, Job, JobStatus
+from apps.accounts.tests.factories import UserFactory
+from apps.jobs.distribution import assign_recruiters
+from apps.jobs.models import BountyType, ChangeKind, Job, JobAssignment, JobStatus
 from apps.jobs.notifications import ops_job_url
 from apps.jobs.proposals import approve_change, propose_change
 from apps.jobs.tests.conftest import TeamWorld
 from apps.jobs.tests.factories import JobFactory
+from apps.recruiters.models import RecruiterProfile
+from apps.recruiters.tests.factories import RecruiterProfileFactory
 
 pytestmark = pytest.mark.django_db
 
@@ -61,6 +66,9 @@ def test_post_emails_ops_once(
     link = f"/a/jobs/{job.pk}"
     assert link in message.body
     assert link in _html(message)
+    for text in (message.body, _html(message)):
+        assert "Set the bounty and pick at least one headhunter to put it live." in text
+        assert "marketplace" not in text.lower()
     job.refresh_from_db()
     assert job.posted_at is not None
 
@@ -229,3 +237,69 @@ def test_ops_email_failure_does_not_block_an_edit(
     assert job.status == JobStatus.ACTIVE
     assert "Could not send email" in caplog.text
     assert "Live job edited" in caplog.text
+
+
+def _staff() -> User:
+    return cast(User, UserFactory(email="long.mai@sparktal.com", is_staff=True))
+
+
+def _headhunter() -> RecruiterProfile:
+    return cast(
+        RecruiterProfile,
+        RecruiterProfileFactory(nickname="Bluefin", user__email="bluefin@example.com"),
+    )
+
+
+def test_assigned_email_names_the_job_and_its_fixed_bounty(
+    team_world: TeamWorld,
+    mailoutbox: list[Any],
+    settings: Any,
+    django_capture_on_commit_callbacks: Commit,
+) -> None:
+    settings.FRONTEND_URL = "https://app.sparktal.test"
+    job = cast(
+        Job,
+        JobFactory(
+            company=team_world.company,
+            title="R&D Lead",
+            bounty_type=BountyType.FIXED,
+            bounty_pct=None,
+            bounty_amount=120_000_000,
+        ),
+    )
+
+    with django_capture_on_commit_callbacks(execute=True):
+        assign_recruiters(job, actor=_staff(), recruiters=[_headhunter()])
+
+    (message,) = mailoutbox
+    assert message.to == ["bluefin@example.com"]
+    assert message.subject == "You have been assigned a job: R&D Lead"
+    for body in (message.body, _html(message)):
+        assert "Sparktal assigned you" in body
+        assert "Orbit Pay" in body
+        assert "Fixed amount · 120.000.000 ₫" in body
+        assert f"https://app.sparktal.test/r/jobs/{job.pk}" in body
+        assert "accept" not in body.lower()
+    assert "Open the job" in _html(message)
+
+
+def test_assigned_email_failure_does_not_block_the_assignment(
+    team_world: TeamWorld,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    django_capture_on_commit_callbacks: Commit,
+) -> None:
+    def boom(self: Any, *args: Any, **kwargs: Any) -> int:
+        raise OSError("smtp down")
+
+    monkeypatch.setattr("django.core.mail.EmailMultiAlternatives.send", boom)
+    headhunter = _headhunter()
+
+    with caplog.at_level(logging.ERROR), django_capture_on_commit_callbacks(execute=True):
+        assign_recruiters(team_world.job_a, actor=_staff(), recruiters=[headhunter])
+
+    assert JobAssignment.objects.filter(
+        job=team_world.job_a, recruiter=headhunter, left_at__isnull=True
+    ).exists()
+    assert "Could not send email" in caplog.text
+    assert "You have been assigned a job" in caplog.text

@@ -11,9 +11,8 @@ from rest_framework import serializers
 
 from apps.accounts.models import User, UserKind
 from apps.jobs.bounty import JoinedBountyReadFields
-from apps.jobs.distribution import DECLINE_REASON_MAX
-from apps.jobs.models import Job, JobFunction, JobInvite
-from apps.jobs.serializers import MarketplaceJobListItemSerializer
+from apps.jobs.models import Job, JobFunction
+from apps.jobs.serializers import BRIEF_FIELDS
 from apps.recruiters.models import RecruiterProfile
 
 NICKNAME_RE = re.compile(r"^(?!.*_)[\w &.\-]{3,60}$", re.UNICODE)
@@ -159,7 +158,9 @@ class RecruiterJobSerializer(JoinedBountyReadFields, serializers.ModelSerializer
     location_label = serializers.CharField(read_only=True)
     submitted_count = serializers.IntegerField(read_only=True)
     active_count = serializers.IntegerField(read_only=True)
-    joined_at = serializers.DateTimeField(read_only=True)
+    # A job they were removed from has no held assignment: no joined_at, assigned False.
+    assigned = serializers.BooleanField(read_only=True)
+    joined_at = serializers.DateTimeField(read_only=True, allow_null=True)
     last_activity_at = serializers.DateTimeField(read_only=True, allow_null=True)
 
     class Meta:
@@ -177,6 +178,7 @@ class RecruiterJobSerializer(JoinedBountyReadFields, serializers.ModelSerializer
             "bounty_type",
             "bounty_pct",
             "bounty_amount",
+            "assigned",
             "joined_at",
             "submitted_count",
             "active_count",
@@ -187,6 +189,62 @@ class RecruiterJobSerializer(JoinedBountyReadFields, serializers.ModelSerializer
     @extend_schema_field(serializers.DictField(child=serializers.CharField()))
     def get_company(self, job: Job) -> dict[str, str]:
         return {"id": str(job.company_id), "name": job.company.name}
+
+
+class RecruiterJobDetailSerializer(JoinedBountyReadFields, serializers.ModelSerializer[Job]):
+    """A job as its headhunter reads it. `channel_id` comes from an annotation on the queryset
+    (`RecruiterJobDetailView`), so a list that reuses this serializer must annotate it too."""
+
+    company = serializers.SerializerMethodField()
+    location_label = serializers.CharField(read_only=True)
+    assigned = serializers.BooleanField(read_only=True)
+    joined_at = serializers.DateTimeField(read_only=True, allow_null=True)
+    submitted_count = serializers.IntegerField(read_only=True)
+    active_count = serializers.IntegerField(read_only=True)
+    channel_id = serializers.UUIDField(read_only=True, allow_null=True)
+
+    class Meta:
+        model = Job
+        fields = (
+            "id",
+            "title",
+            "function",
+            "status",
+            "company",
+            "work_model",
+            "location_label",
+            "salary_min",
+            "salary_max",
+            "pay_basis",
+            "bounty_type",
+            "bounty_pct",
+            "bounty_amount",
+            "guarantee_days",
+            "skills",
+            "why_we_need_you",
+            "roles",
+            "qualifications",
+            "nice_to_have",
+            "benefits",
+            *BRIEF_FIELDS,
+            "note_for_recruiters",
+            "published_at",
+            "closed_at",
+            "assigned",
+            "joined_at",
+            "submitted_count",
+            "active_count",
+            "channel_id",
+        )
+        read_only_fields = fields
+
+    @extend_schema_field(serializers.DictField(child=serializers.CharField()))
+    def get_company(self, job: Job) -> dict[str, str]:
+        return {
+            "id": str(job.company_id),
+            "name": job.company.name,
+            "industry": job.company.get_industry_display(),
+        }
 
 
 class WaitingJobSerializer(JoinedBountyReadFields):
@@ -207,21 +265,4 @@ class RecruiterOverviewSerializer(serializers.Serializer[dict[str, Any]]):
     cv_screened = serializers.IntegerField()
     cv_in_interviews = serializers.IntegerField()
     offer = serializers.IntegerField()
-    marketplace_open_count = serializers.IntegerField()
-    pending_invites = serializers.IntegerField()
     waiting_jobs = WaitingJobSerializer(many=True)
-
-
-class RecruiterInviteSerializer(serializers.ModelSerializer[JobInvite]):
-    """An open invite: when it was sent and the job it offers, as the marketplace shows it."""
-
-    job = MarketplaceJobListItemSerializer(read_only=True)
-
-    class Meta:
-        model = JobInvite
-        fields = ("id", "created_at", "job")
-        read_only_fields = fields
-
-
-class DeclineInviteSerializer(serializers.Serializer[dict[str, Any]]):
-    reason = serializers.CharField(required=False, allow_blank=True, max_length=DECLINE_REASON_MAX)

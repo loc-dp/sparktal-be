@@ -2343,65 +2343,6 @@ paths:
               schema:
                 $ref: '#/components/schemas/LeaveResult'
           description: ''
-  /api/v1/marketplace/jobs/{id}/questions:
-    get:
-      operationId: marketplace_jobs_questions_list
-      description: 'The Q&A card as a recruiter sees it: every answer, plus their
-        own questions.'
-      parameters:
-      - in: path
-        name: id
-        schema:
-          type: string
-          format: uuid
-        required: true
-      tags:
-      - marketplace
-      security:
-      - cookieAuth: []
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/RecruiterQuestion'
-          description: ''
-    post:
-      operationId: marketplace_jobs_questions_create
-      description: 'The Q&A card as a recruiter sees it: every answer, plus their
-        own questions.'
-      parameters:
-      - in: path
-        name: id
-        schema:
-          type: string
-          format: uuid
-        required: true
-      tags:
-      - marketplace
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/QuestionCreateRequest'
-          application/x-www-form-urlencoded:
-            schema:
-              $ref: '#/components/schemas/QuestionCreateRequest'
-          multipart/form-data:
-            schema:
-              $ref: '#/components/schemas/QuestionCreateRequest'
-        required: true
-      security:
-      - cookieAuth: []
-      responses:
-        '201':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/RecruiterQuestion'
-          description: ''
   /api/v1/me:
     get:
       operationId: me_retrieve
@@ -2866,6 +2807,12 @@ paths:
           * `pending` - Waiting for Sparktal
           * `active` - Active
           * `closed` - Closed
+      - in: query
+        name: unstaffed
+        schema:
+          type: boolean
+        description: '`true`: only jobs no recruiter works on. `false`: only jobs
+          one does.'
       tags:
       - ops
       security:
@@ -2898,6 +2845,66 @@ paths:
               schema:
                 $ref: '#/components/schemas/OpsJobDetail'
           description: ''
+  /api/v1/ops/jobs/{id}/assignments:
+    post:
+      operationId: ops_jobs_assignments_create
+      description: Put more recruiters on a live job. Each one newly put on is emailed;
+        one already on it is left as they are, and one taken off earlier is put back.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - ops
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OpsAssignRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/OpsAssignRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/OpsAssignRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OpsJobDetail'
+          description: ''
+  /api/v1/ops/jobs/{id}/assignments/{recruiter_id}:
+    delete:
+      operationId: ops_jobs_assignments_destroy
+      description: Take a recruiter off a job. Their CVs on it stay and they are not
+        emailed. A live job keeps at least one recruiter.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      - in: path
+        name: recruiter_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - ops
+      security:
+      - cookieAuth: []
+      responses:
+        '204':
+          description: No response body
   /api/v1/ops/jobs/{id}/bounty:
     put:
       operationId: ops_jobs_bounty_update
@@ -2936,8 +2943,8 @@ paths:
   /api/v1/ops/jobs/{id}/channels:
     patch:
       operationId: ops_jobs_channels_partial_update
-      description: Switch the marketplace, withdraw pending invites and invite more
-        recruiters on a distributed job. Nothing is saved unless every change works.
+      description: Put a distributed job on the marketplace, or take it off. Not found
+        while the marketplace is switched off.
       parameters:
       - in: path
         name: id
@@ -2970,9 +2977,9 @@ paths:
   /api/v1/ops/jobs/{id}/distribute:
     post:
       operationId: ops_jobs_distribute_create
-      description: Set the bounty and take a job out of the queue, on the marketplace,
-        to the recruiters picked, or both. Nothing is saved unless the whole distribution
-        works.
+      description: Set the bounty and take a job out of the queue, with the recruiters
+        picked on it. Nothing is saved unless the whole distribution works. `on_marketplace`
+        is ignored while the marketplace is switched off.
       parameters:
       - in: path
         name: id
@@ -3333,71 +3340,6 @@ paths:
               schema:
                 $ref: '#/components/schemas/RecruiterProfile'
           description: ''
-  /api/v1/recruiters/me/invites:
-    get:
-      operationId: recruiters_invites_list
-      tags:
-      - recruiters
-      security:
-      - cookieAuth: []
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/RecruiterInvite'
-          description: ''
-  /api/v1/recruiters/me/invites/{id}/accept:
-    post:
-      operationId: recruiters_invites_accept_create
-      parameters:
-      - in: path
-        name: id
-        schema:
-          type: string
-          format: uuid
-        required: true
-      tags:
-      - recruiters
-      security:
-      - cookieAuth: []
-      responses:
-        '201':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/JoinResult'
-          description: ''
-  /api/v1/recruiters/me/invites/{id}/decline:
-    post:
-      operationId: recruiters_invites_decline_create
-      parameters:
-      - in: path
-        name: id
-        schema:
-          type: string
-          format: uuid
-        required: true
-      tags:
-      - recruiters
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/DeclineInviteRequest'
-          application/x-www-form-urlencoded:
-            schema:
-              $ref: '#/components/schemas/DeclineInviteRequest'
-          multipart/form-data:
-            schema:
-              $ref: '#/components/schemas/DeclineInviteRequest'
-      security:
-      - cookieAuth: []
-      responses:
-        '204':
-          description: No response body
   /api/v1/recruiters/me/jobs:
     get:
       operationId: recruiters_jobs_list
@@ -3424,6 +3366,94 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PaginatedRecruiterJobList'
+          description: ''
+  /api/v1/recruiters/me/jobs/{id}:
+    get:
+      operationId: recruiters_jobs_retrieve
+      description: A job the headhunter holds or has a CV on, closed or removed too;
+        any other is 404.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - recruiters
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecruiterJobDetail'
+          description: ''
+  /api/v1/recruiters/me/jobs/{id}/questions:
+    get:
+      operationId: recruiters_jobs_questions_list
+      description: |-
+        The Q&A card as a recruiter sees it: every answer, plus their own questions.
+
+        Reading is open to every job `jobs_open_to` gives them; asking needs a live job they are
+        still assigned to, so a removed headhunter reads but cannot ask.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - recruiters
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RecruiterQuestion'
+          description: ''
+    post:
+      operationId: recruiters_jobs_questions_create
+      description: |-
+        The Q&A card as a recruiter sees it: every answer, plus their own questions.
+
+        Reading is open to every job `jobs_open_to` gives them; asking needs a live job they are
+        still assigned to, so a removed headhunter reads but cannot ask.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - recruiters
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QuestionCreateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/QuestionCreateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/QuestionCreateRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecruiterQuestion'
           description: ''
   /api/v1/recruiters/me/overview:
     get:
@@ -4731,12 +4761,6 @@ components:
       - decided_at
       - id
       - reason
-    DeclineInviteRequest:
-      type: object
-      properties:
-        reason:
-          type: string
-          maxLength: 500
     DetailJob:
       type: object
       properties:
@@ -5054,18 +5078,6 @@ components:
       description: |-
         * `in_person` - In person
         * `online` - Online
-    InviteStatusEnum:
-      enum:
-      - pending
-      - accepted
-      - declined
-      - cancelled
-      type: string
-      description: |-
-        * `pending` - Pending
-        * `accepted` - Accepted
-        * `declined` - Declined
-        * `cancelled` - Cancelled
     JdParse:
       type: object
       properties:
@@ -5607,22 +5619,6 @@ components:
         * `bn` - Bac Ninh
         * `other` - Other province
         * `abroad` - Outside Vietnam
-    MarketplaceInvite:
-      type: object
-      description: The viewer's own invite on a job, enough to show Accept / Decline
-        or what came of it.
-      properties:
-        id:
-          type: string
-          format: uuid
-          readOnly: true
-        status:
-          allOf:
-          - $ref: '#/components/schemas/InviteStatusEnum'
-          readOnly: true
-      required:
-      - id
-      - status
     MarketplaceJob:
       type: object
       properties:
@@ -5760,11 +5756,6 @@ components:
           format: uuid
           nullable: true
           readOnly: true
-        invite:
-          allOf:
-          - $ref: '#/components/schemas/MarketplaceInvite'
-          nullable: true
-          readOnly: true
       required:
       - bounty_amount
       - bounty_pct
@@ -5774,7 +5765,6 @@ components:
       - created_at
       - guarantee_days
       - id
-      - invite
       - joined
       - location_label
       - recruiters_working
@@ -6224,6 +6214,44 @@ components:
           maxLength: 120
       required:
       - address
+    OpsAssignRequest:
+      type: object
+      description: Put more headhunters on a live job.
+      properties:
+        recruiter_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+          minItems: 1
+      required:
+      - recruiter_ids
+    OpsAssignment:
+      type: object
+      description: 'A recruiter on a job: when they joined, when Sparktal took them
+        off, the CVs they sent.'
+      properties:
+        recruiter:
+          allOf:
+          - $ref: '#/components/schemas/OpsRecruiterRef'
+          readOnly: true
+        joined_at:
+          type: string
+          format: date-time
+          readOnly: true
+        left_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        cv_count:
+          type: integer
+          readOnly: true
+      required:
+      - cv_count
+      - joined_at
+      - left_at
+      - recruiter
     OpsBountyRequest:
       type: object
       description: The bounty Sparktal sets on a job.
@@ -6319,7 +6347,8 @@ components:
       - name
     OpsDistributeRequest:
       type: object
-      description: Set the bounty and take a job out of the queue.
+      description: Set the bounty and take a job out of the queue, with the headhunters
+        picked on it.
       properties:
         bounty_type:
           $ref: '#/components/schemas/BountyTypeEnum'
@@ -6335,69 +6364,22 @@ components:
           type: integer
           maximum: 365
           minimum: 1
-        on_marketplace:
-          type: boolean
         recruiter_ids:
           type: array
           items:
             type: string
             format: uuid
+          minItems: 1
+        on_marketplace:
+          type: boolean
+          default: false
       required:
       - bounty_type
-      - on_marketplace
       - recruiter_ids
-    OpsInvite:
-      type: object
-      description: An offer Sparktal made to one recruiter, and what came of it.
-      properties:
-        id:
-          type: string
-          format: uuid
-          readOnly: true
-        recruiter:
-          allOf:
-          - $ref: '#/components/schemas/OpsRecruiterRef'
-          readOnly: true
-        status:
-          allOf:
-          - $ref: '#/components/schemas/InviteStatusEnum'
-          readOnly: true
-        decline_reason:
-          type: string
-          readOnly: true
-        created_at:
-          type: string
-          format: date-time
-          readOnly: true
-        responded_at:
-          type: string
-          format: date-time
-          readOnly: true
-          nullable: true
-      required:
-      - created_at
-      - decline_reason
-      - id
-      - recruiter
-      - responded_at
-      - status
-    OpsInviteCounts:
-      type: object
-      properties:
-        pending:
-          type: integer
-        accepted:
-          type: integer
-        declined:
-          type: integer
-      required:
-      - accepted
-      - declined
-      - pending
     OpsJobDetail:
       type: object
       description: 'One job as Sparktal staff read it: the whole JD and brief, the
-        bounty and the channels.'
+        bounty and who works it.'
       properties:
         id:
           type: string
@@ -6557,19 +6539,14 @@ components:
         recruiters_working:
           type: integer
           readOnly: true
-        working_recruiter_ids:
+        assignments:
           type: array
           items:
-            type: string
-            format: uuid
-          readOnly: true
-        invites:
-          type: array
-          items:
-            $ref: '#/components/schemas/OpsInvite'
+            $ref: '#/components/schemas/OpsAssignment'
           readOnly: true
       required:
       - allowances
+      - assignments
       - benefits
       - bounty_amount
       - bounty_pct
@@ -6582,7 +6559,6 @@ components:
       - id
       - interview_process_details
       - interview_rounds_count
-      - invites
       - languages
       - location_label
       - nice_to_have
@@ -6609,7 +6585,6 @@ components:
       - why_we_need_you
       - work_model
       - working_hours
-      - working_recruiter_ids
     OpsJobListItem:
       type: object
       description: A job as Sparktal staff list it.
@@ -6662,10 +6637,6 @@ components:
         on_marketplace:
           type: boolean
           readOnly: true
-        invites:
-          allOf:
-          - $ref: '#/components/schemas/OpsInviteCounts'
-          readOnly: true
         recruiters_working:
           type: integer
           readOnly: true
@@ -6675,7 +6646,6 @@ components:
       - bounty_type
       - company
       - id
-      - invites
       - on_marketplace
       - posted_at
       - published_at
@@ -6710,6 +6680,8 @@ components:
           type: integer
         queued_jobs:
           type: integer
+        unstaffed_jobs:
+          type: integer
         pending_recruiters:
           type: integer
         cvs_submitted:
@@ -6728,6 +6700,7 @@ components:
       - pending_recruiters
       - queue
       - queued_jobs
+      - unstaffed_jobs
     OpsPlacement:
       type: object
       description: 'A hire as Sparktal staff read it: what the recruiter sees, and
@@ -7495,20 +7468,10 @@ components:
           type: boolean
     PatchedOpsChannelsRequest:
       type: object
-      description: Change who a live job reaches.
+      description: Put a live job on the marketplace, or take it off.
       properties:
         on_marketplace:
           type: boolean
-        invite_recruiter_ids:
-          type: array
-          items:
-            type: string
-            format: uuid
-        cancel_invite_ids:
-          type: array
-          items:
-            type: string
-            format: uuid
     PatchedPlacementStartDateRequest:
       type: object
       properties:
@@ -7800,27 +7763,6 @@ components:
       required:
       - last_read_at
       - unread_count
-    RecruiterInvite:
-      type: object
-      description: 'An open invite: when it was sent and the job it offers, as the
-        marketplace shows it.'
-      properties:
-        id:
-          type: string
-          format: uuid
-          readOnly: true
-        created_at:
-          type: string
-          format: date-time
-          readOnly: true
-        job:
-          allOf:
-          - $ref: '#/components/schemas/MarketplaceJobListItem'
-          readOnly: true
-      required:
-      - created_at
-      - id
-      - job
     RecruiterJob:
       type: object
       properties:
@@ -7873,10 +7815,14 @@ components:
           pattern: ^-?\d{0,15}(?:\.\d{0,0})?$
           readOnly: true
           nullable: true
+        assigned:
+          type: boolean
+          readOnly: true
         joined_at:
           type: string
           format: date-time
           readOnly: true
+          nullable: true
         submitted_count:
           type: integer
           readOnly: true
@@ -7892,6 +7838,7 @@ components:
           type: string
       required:
       - active_count
+      - assigned
       - bounty_amount
       - bounty_pct
       - bounty_type
@@ -7902,6 +7849,224 @@ components:
       - location_label
       - submitted_count
       - title
+    RecruiterJobDetail:
+      type: object
+      description: |-
+        A job as its headhunter reads it. `channel_id` comes from an annotation on the queryset
+        (`RecruiterJobDetailView`), so a list that reuses this serializer must annotate it too.
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        title:
+          type: string
+          readOnly: true
+        function:
+          allOf:
+          - $ref: '#/components/schemas/FunctionEnum'
+          readOnly: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/JobStatusEnum'
+          readOnly: true
+        company:
+          type: object
+          additionalProperties:
+            type: string
+          readOnly: true
+        work_model:
+          allOf:
+          - $ref: '#/components/schemas/WorkModelEnum'
+          readOnly: true
+        location_label:
+          type: string
+          readOnly: true
+        salary_min:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,15}(?:\.\d{0,0})?$
+          readOnly: true
+          nullable: true
+        salary_max:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,15}(?:\.\d{0,0})?$
+          readOnly: true
+          nullable: true
+        pay_basis:
+          allOf:
+          - $ref: '#/components/schemas/PayBasisEnum'
+          readOnly: true
+        bounty_type:
+          readOnly: true
+          nullable: true
+          oneOf:
+          - $ref: '#/components/schemas/BountyTypeEnum'
+          - $ref: '#/components/schemas/NullEnum'
+        bounty_pct:
+          type: integer
+          maximum: 30
+          minimum: 5
+          readOnly: true
+          nullable: true
+        bounty_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,15}(?:\.\d{0,0})?$
+          readOnly: true
+          nullable: true
+        guarantee_days:
+          type: integer
+          readOnly: true
+        skills:
+          type: array
+          items:
+            type: string
+            maxLength: 40
+          readOnly: true
+        why_we_need_you:
+          type: string
+          readOnly: true
+        roles:
+          type: string
+          readOnly: true
+          description: One responsibility per line.
+        qualifications:
+          type: string
+          readOnly: true
+          description: One must-have per line.
+        nice_to_have:
+          type: string
+          readOnly: true
+        benefits:
+          type: string
+          readOnly: true
+        working_hours:
+          allOf:
+          - $ref: '#/components/schemas/WorkingHoursEnum'
+          readOnly: true
+        reporting_line:
+          type: string
+          readOnly: true
+        role_type:
+          allOf:
+          - $ref: '#/components/schemas/RoleTypeEnum'
+          readOnly: true
+        has_internal_candidate:
+          type: boolean
+          readOnly: true
+          nullable: true
+        search_duration:
+          allOf:
+          - $ref: '#/components/schemas/SearchDurationEnum'
+          readOnly: true
+        target_start_date:
+          type: string
+          format: date
+          readOnly: true
+          nullable: true
+        interview_rounds_count:
+          type: integer
+          readOnly: true
+          nullable: true
+        interview_process_details:
+          type: string
+          readOnly: true
+        languages:
+          type: array
+          items:
+            $ref: '#/components/schemas/LanguagesEnum'
+          readOnly: true
+        core_competencies:
+          type: string
+          readOnly: true
+          description: One per line.
+        probation_expectations:
+          type: string
+          readOnly: true
+        salary_negotiable:
+          type: boolean
+          readOnly: true
+          nullable: true
+        allowances:
+          type: string
+          readOnly: true
+          description: One allowance or reward per line.
+        note_for_recruiters:
+          type: string
+          readOnly: true
+        published_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        closed_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        assigned:
+          type: boolean
+          readOnly: true
+        joined_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        submitted_count:
+          type: integer
+          readOnly: true
+        active_count:
+          type: integer
+          readOnly: true
+        channel_id:
+          type: string
+          format: uuid
+          readOnly: true
+          nullable: true
+      required:
+      - active_count
+      - allowances
+      - assigned
+      - benefits
+      - bounty_amount
+      - bounty_pct
+      - bounty_type
+      - channel_id
+      - closed_at
+      - company
+      - core_competencies
+      - function
+      - guarantee_days
+      - has_internal_candidate
+      - id
+      - interview_process_details
+      - interview_rounds_count
+      - joined_at
+      - languages
+      - location_label
+      - nice_to_have
+      - note_for_recruiters
+      - pay_basis
+      - probation_expectations
+      - published_at
+      - qualifications
+      - reporting_line
+      - role_type
+      - roles
+      - salary_max
+      - salary_min
+      - salary_negotiable
+      - search_duration
+      - skills
+      - status
+      - submitted_count
+      - target_start_date
+      - title
+      - why_we_need_you
+      - work_model
+      - working_hours
     RecruiterOnJob:
       type: object
       properties:
@@ -7931,10 +8096,6 @@ components:
           type: integer
         offer:
           type: integer
-        marketplace_open_count:
-          type: integer
-        pending_invites:
-          type: integer
         waiting_jobs:
           type: array
           items:
@@ -7945,9 +8106,7 @@ components:
       - cv_screened
       - cv_sent
       - jobs_waiting_for_cv
-      - marketplace_open_count
       - offer
-      - pending_invites
       - waiting_jobs
     RecruiterPlacement:
       type: object

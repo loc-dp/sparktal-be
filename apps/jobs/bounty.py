@@ -62,7 +62,7 @@ def clean_bounty(
 # a pct). These are comments, not docstrings, because drf-spectacular would print a docstring as
 # the description of every component built on them.
 class BountyReadFields(serializers.Serializer[Any]):
-    # A job on the marketplace, in an invite, or being worked on is live, so it has a bounty
+    # A job on the marketplace or with a headhunter assigned is live, so it has a bounty
     # (`HAS_BOUNTY`) and the type is never empty.
     bounty_type = serializers.ChoiceField(choices=BountyType.choices, read_only=True)
     bounty_pct = serializers.IntegerField(

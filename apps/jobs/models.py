@@ -163,7 +163,8 @@ class Job(models.Model):
         max_length=32, unique=True, default=new_share_token, editable=False
     )
 
-    # Sparktal's channel (spec §9); invited recruiters are `JobInvite` rows.
+    # Sparktal's channel (spec §9), used only with `settings.MARKETPLACE_ENABLED`; the
+    # headhunters Sparktal assigned are `JobAssignment` rows.
     on_marketplace = models.BooleanField(default=False)
 
     created_at = models.DateTimeField(auto_now_add=True)
@@ -282,43 +283,6 @@ class JobAssignment(models.Model):
     @property
     def is_active(self) -> bool:
         return self.left_at is None
-
-
-class InviteStatus(models.TextChoices):
-    PENDING = "pending", "Pending"
-    ACCEPTED = "accepted", "Accepted"
-    DECLINED = "declined", "Declined"
-    CANCELLED = "cancelled", "Cancelled"
-
-
-class JobInvite(models.Model):
-    """Sparktal offers a job straight to one recruiter (spec §9); see `apps.jobs.distribution`."""
-
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    job = models.ForeignKey(Job, on_delete=models.CASCADE, related_name="invites")
-    recruiter = models.ForeignKey(
-        "recruiters.RecruiterProfile", on_delete=models.CASCADE, related_name="job_invites"
-    )
-    status = models.CharField(
-        max_length=16, choices=InviteStatus.choices, default=InviteStatus.PENDING
-    )
-    decline_reason = models.TextField(blank=True)
-    invited_by = models.ForeignKey(
-        User, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
-    )
-    created_at = models.DateTimeField(auto_now_add=True)
-    responded_at = models.DateTimeField(null=True, blank=True)
-
-    class Meta:
-        ordering = ("-created_at",)
-        constraints = (
-            models.UniqueConstraint(
-                fields=("job", "recruiter"), name="one_invite_per_recruiter_per_job"
-            ),
-        )
-
-    def __str__(self) -> str:
-        return f"{self.recruiter.nickname} · {self.job.title} · {self.status}"
 
 
 class JdParseStatus(models.TextChoices):

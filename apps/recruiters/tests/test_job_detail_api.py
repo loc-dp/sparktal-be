@@ -148,6 +148,22 @@ def test_counts_only_this_recruiters_cvs(
     assert (body["submitted_count"], body["active_count"]) == (2, 1)
 
 
+def test_job_detail_counts(
+    recruiter_client: APIClient, assigned_live_job: Job, recruiter_profile: RecruiterProfile
+) -> None:
+    cv_on(assigned_live_job, recruiter_profile)  # new
+    for stage in (Stage.INTERVIEW, Stage.REJECTED, Stage.ONBOARDED):
+        application = cv_on(assigned_live_job, recruiter_profile)
+        application.stage = stage
+        application.save(update_fields=["stage"])
+    for _ in range(2):
+        cv_on(assigned_live_job, JobAssignmentFactory(job=assigned_live_job).recruiter)
+
+    body = recruiter_client.get(url(assigned_live_job)).json()
+
+    assert (body["submitted_count"], body["active_count"], body["hired_count"]) == (4, 2, 1)
+
+
 def test_job_detail_costs_a_fixed_number_of_queries(
     recruiter_client: APIClient, assigned_live_job: Job, recruiter_profile: RecruiterProfile
 ) -> None:

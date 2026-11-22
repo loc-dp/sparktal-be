@@ -70,6 +70,21 @@ def test_list_includes_removed_job_with_cv_flagged(
     assert rows[1]["submitted_count"] == 1
 
 
+def test_list_counts_cvs_in_play_apart_from_hired_ones(
+    client_for: Callable[[User], APIClient],
+    recruiter_user: User,
+    recruiter_profile: RecruiterProfile,
+) -> None:
+    job = JobFactory(title="Held Job")
+    JobAssignmentFactory(job=job, recruiter=recruiter_profile)
+    for stage in (Stage.SCREEN, Stage.OFFER, Stage.REJECTED, Stage.ONBOARDED, Stage.ONBOARDED):
+        submit(job, recruiter_profile, stage)
+
+    row = client_for(recruiter_user).get("/api/v1/recruiters/me/jobs").json()["results"][0]
+
+    assert (row["submitted_count"], row["active_count"], row["hired_count"]) == (5, 2, 2)
+
+
 def test_list_puts_held_jobs_first_then_by_last_activity(
     client_for: Callable[[User], APIClient],
     recruiter_user: User,

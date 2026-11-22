@@ -138,7 +138,8 @@ def test_company_comment_mails_assigned_recruiters_only(
     message = mail.outbox[0]
     assert message.subject == "Orbit Pay posted on Payments Backend Engineer"
     assert "Two days in the office." in message.body
-    assert f"{settings.FRONTEND_URL}/r/jobs/{world.job.pk}/details#questions" in message.body
+    assert f"{settings.FRONTEND_URL}/r/jobs/{world.job.pk}#questions" in message.body
+    assert "/details#questions" not in message.body
     assert world.team.admin.full_name in message.body
 
 

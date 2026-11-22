@@ -158,6 +158,7 @@ class RecruiterJobSerializer(JoinedBountyReadFields, serializers.ModelSerializer
     location_label = serializers.CharField(read_only=True)
     submitted_count = serializers.IntegerField(read_only=True)
     active_count = serializers.IntegerField(read_only=True)
+    hired_count = serializers.IntegerField(read_only=True)
     # A job they were removed from has no held assignment: no joined_at, assigned False.
     assigned = serializers.BooleanField(read_only=True)
     joined_at = serializers.DateTimeField(read_only=True, allow_null=True)
@@ -182,6 +183,7 @@ class RecruiterJobSerializer(JoinedBountyReadFields, serializers.ModelSerializer
             "joined_at",
             "submitted_count",
             "active_count",
+            "hired_count",
             "last_activity_at",
             "note_for_recruiters",
         )
@@ -201,6 +203,7 @@ class RecruiterJobDetailSerializer(JoinedBountyReadFields, serializers.ModelSeri
     joined_at = serializers.DateTimeField(read_only=True, allow_null=True)
     submitted_count = serializers.IntegerField(read_only=True)
     active_count = serializers.IntegerField(read_only=True)
+    hired_count = serializers.IntegerField(read_only=True)
     channel_id = serializers.UUIDField(read_only=True, allow_null=True)
 
     class Meta:
@@ -234,6 +237,7 @@ class RecruiterJobDetailSerializer(JoinedBountyReadFields, serializers.ModelSeri
             "joined_at",
             "submitted_count",
             "active_count",
+            "hired_count",
             "channel_id",
         )
         read_only_fields = fields

@@ -287,7 +287,7 @@ def notify_comment_posted(comment: JobComment) -> None:
                     "author_label": _comment_label(fresh, user, company_name),
                     "body": fresh.body,
                     "parent_body": parent.body if parent is not None else "",
-                    "job_url": f"{settings.FRONTEND_URL}/r/jobs/{job.pk}/details#questions"
+                    "job_url": f"{settings.FRONTEND_URL}/r/jobs/{job.pk}#questions"
                     if for_headhunter
                     else f"{settings.FRONTEND_URL}/jobs/{job.pk}#questions",
                 },

@@ -7878,6 +7878,9 @@ components:
         active_count:
           type: integer
           readOnly: true
+        hired_count:
+          type: integer
+          readOnly: true
         last_activity_at:
           type: string
           format: date-time
@@ -7892,6 +7895,7 @@ components:
       - bounty_pct
       - bounty_type
       - company
+      - hired_count
       - id
       - joined_at
       - last_activity_at
@@ -8069,6 +8073,9 @@ components:
         active_count:
           type: integer
           readOnly: true
+        hired_count:
+          type: integer
+          readOnly: true
         channel_id:
           type: string
           format: uuid
@@ -8089,6 +8096,7 @@ components:
       - function
       - guarantee_days
       - has_internal_candidate
+      - hired_count
       - id
       - interview_process_details
       - interview_rounds_count

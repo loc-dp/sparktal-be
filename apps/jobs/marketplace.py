@@ -60,8 +60,14 @@ def annotate_joined_jobs(
         queryset.annotate(
             assigned=Exists(held),
             submitted_count=Count("applications", filter=mine, distinct=True),
+            # Still in play: neither rejected nor hired.
             active_count=Count(
-                "applications", filter=mine & ~Q(applications__stage=Stage.REJECTED), distinct=True
+                "applications",
+                filter=mine & ~Q(applications__stage__in=(Stage.REJECTED, Stage.ONBOARDED)),
+                distinct=True,
+            ),
+            hired_count=Count(
+                "applications", filter=mine & Q(applications__stage=Stage.ONBOARDED), distinct=True
             ),
             joined_at=Max(
                 "assignments__joined_at",

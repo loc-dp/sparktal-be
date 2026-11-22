@@ -8,7 +8,6 @@ from django.utils import timezone
 
 from apps.accounts.models import User
 from apps.candidates.models import Application, Stage
-from apps.chat.models import Message
 from apps.core.seed import SeedContext, register_seeder
 from apps.hiring.models import (
     ApprovalRequest,
@@ -150,7 +149,6 @@ PLACEMENTS = [
 def seed(ctx: SeedContext) -> None:
     job = ctx.refs["jobs"][JOB]
     users = {email: User.objects.get(email=email) for email in (TA, ADMIN, APPROVER)}
-    applications = list(Application.objects.filter(job=job).select_related("candidate"))
     every_application = Application.objects.filter(job__company=job.company).select_related(
         "candidate"
     )
@@ -221,15 +219,6 @@ def seed(ctx: SeedContext) -> None:
         ApprovalRequest.objects.filter(pk=approval.pk).update(
             created_at=decided_at - timedelta(hours=3)
         )
-
-    # Chat lines that name a candidate become part of that candidate's Discussion.
-    for application in applications:
-        Message.objects.filter(
-            channel__job=job,
-            channel__recruiter=application.recruiter,
-            application__isnull=True,
-            body__contains=application.candidate.full_name,
-        ).update(application=application)
 
     # Rows are written directly, so no outcome email goes out.
     placed_on = timezone.localdate()

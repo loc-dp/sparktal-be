@@ -32,6 +32,7 @@ class MessageFactory(DjangoModelFactory[Message]):
         model = Message
 
     channel = factory.SubFactory(ChannelFactory)
+    application = factory.SelfAttribute("channel.application")
     author = factory.SubFactory(UserFactory)
     kind = MessageKind.USER
     body = factory.Sequence(lambda n: f"Message {n}")

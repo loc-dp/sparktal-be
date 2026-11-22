@@ -2,7 +2,7 @@ import uuid
 from typing import ClassVar
 
 from django.db import models
-from django.db.models import F
+from django.db.models import F, Q
 
 from apps.accounts.models import User
 from apps.jobs.models import Job
@@ -22,17 +22,38 @@ class Channel(models.Model):
     recruiter = models.ForeignKey(
         RecruiterProfile, on_delete=models.CASCADE, related_name="channels"
     )
+    # Set: the thread about this one submitted candidate.
+    # Empty: the general thread of (job, recruiter).
+    application = models.OneToOneField(
+        "candidates.Application",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="channel",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     last_message_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         constraints: ClassVar[list[models.BaseConstraint]] = [
-            models.UniqueConstraint(fields=("job", "recruiter"), name="chat_channel_job_recruiter")
+            models.UniqueConstraint(
+                fields=("job", "recruiter"),
+                condition=Q(application__isnull=True),
+                name="chat_general_channel_job_recruiter",
+            )
         ]
         ordering = (F("last_message_at").desc(nulls_last=True), "-created_at")
 
     def __str__(self) -> str:
-        return f"{self.recruiter.nickname} · {self.job.title}"
+        label = f"{self.recruiter.nickname} · {self.job.title}"
+        if self.application is None:
+            return label
+        return f"{label} · {self.application.candidate.full_name}"
+
+    @property
+    def kind(self) -> str:
+        """Either "candidate" (the thread about one submitted candidate) or "general"."""
+        return "general" if self.application_id is None else "candidate"
 
 
 class Message(models.Model):

@@ -89,6 +89,56 @@ async def test_posted_message_reaches_both_sides_but_not_an_outsider() -> None:
     await outsider_socket.disconnect()
 
 
+def build_candidate_thread() -> dict[str, object]:
+    """One job with two headhunters on it; the first sent a CV, so it has a candidate thread."""
+    from apps.candidates.tests.factories import ApplicationFactory, CandidateFactory
+    from apps.chat.models import Channel
+    from apps.jobs.tests.factories import JobAssignmentFactory
+
+    world = build_world()
+    job = world["channel"].job
+    owner = world["recruiter"]
+    rival = JobAssignmentFactory(job=job).recruiter
+    application = ApplicationFactory(job=job, candidate=CandidateFactory(owner=owner))
+    return {
+        **world,
+        "rival": rival,
+        "thread": Channel.objects.get(application=application),
+    }
+
+
+async def test_event_reaches_job_viewers_and_the_recruiter_only() -> None:
+    """A message in a candidate thread goes to the company side and its own headhunter; another
+    headhunter on the same job gets nothing."""
+    world = await database_sync_to_async(build_candidate_thread)()
+    ta, recruiter, rival, thread = (world[k] for k in ("ta", "recruiter", "rival", "thread"))
+    sockets = {
+        "ta": await connect_as(ta),
+        "owner": await connect_as(recruiter.user),
+        "rival": await connect_as(rival.user),
+    }
+    for socket in sockets.values():
+        assert (await socket.connect())[0] is True
+
+    def post() -> int:
+        client = APIClient()
+        client.force_login(ta)
+        return client.post(
+            f"/api/v1/chat/channels/{thread.id}/messages",
+            {"body": "Can he start in May?"},
+            format="multipart",
+        ).status_code
+
+    assert await database_sync_to_async(post)() == 201
+    for name in ("ta", "owner"):
+        event = await sockets[name].receive_json_from(timeout=3)
+        assert event["channel_id"] == str(thread.id)
+        assert event["message"]["application"]["id"] == str(thread.application_id)
+    assert await sockets["rival"].receive_nothing(timeout=0.5) is True
+    for socket in sockets.values():
+        await socket.disconnect()
+
+
 async def test_group_name_uses_uuid_hex() -> None:
     world = await database_sync_to_async(build_world)()
     assert group_name(world["ta"]) == f"user_{world['ta'].pk.hex}"

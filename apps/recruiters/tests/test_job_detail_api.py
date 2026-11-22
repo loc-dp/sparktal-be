@@ -75,7 +75,9 @@ def removed_with_cv_job(removed_job: Job, recruiter_profile: RecruiterProfile) -
 def test_assigned_recruiter_reads_job_with_bounty(
     recruiter_client: APIClient, assigned_live_job: Job, recruiter_profile: RecruiterProfile
 ) -> None:
-    channel = Channel.objects.get(job=assigned_live_job, recruiter=recruiter_profile)
+    channel = Channel.objects.get(
+        job=assigned_live_job, recruiter=recruiter_profile, application=None
+    )
     cv_on(assigned_live_job, recruiter_profile)
 
     response = recruiter_client.get(url(assigned_live_job))
@@ -95,6 +97,18 @@ def test_assigned_recruiter_reads_job_with_bounty(
     assert body["submitted_count"] == 1
     assert body["active_count"] == 1
     assert body["channel_id"] == str(channel.pk)
+
+
+def test_channel_id_is_the_general_thread_not_a_candidate_thread(
+    recruiter_client: APIClient, assigned_live_job: Job, recruiter_profile: RecruiterProfile
+) -> None:
+    general = Channel.objects.get(job=assigned_live_job, recruiter=recruiter_profile)
+    candidate_threads = [cv_on(assigned_live_job, recruiter_profile) for _ in range(2)]
+
+    body = recruiter_client.get(url(assigned_live_job)).json()
+
+    assert Channel.objects.filter(application__in=candidate_threads).count() == 2
+    assert body["channel_id"] == str(general.pk)
 
 
 def test_channel_id_is_null_without_a_channel(

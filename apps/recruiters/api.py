@@ -131,7 +131,9 @@ class RecruiterJobDetailView(RetrieveAPIView[Job]):
 
     def get_queryset(self) -> QuerySet[Job]:
         recruiter = _recruiter(self)
-        channel = Channel.objects.filter(job=OuterRef("pk"), recruiter=recruiter).values("id")[:1]
+        channel = Channel.objects.filter(
+            job=OuterRef("pk"), recruiter=recruiter, application__isnull=True
+        ).values("id")[:1]
         return annotate_joined_jobs(
             jobs_open_to(recruiter).select_related("company", "office"), recruiter
         ).annotate(channel_id=Subquery(channel))

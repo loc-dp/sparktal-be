@@ -229,5 +229,8 @@ def join_marketplace_job(
     if locked is None:
         raise Http404
     assignment, created = join_job(locked, recruiter)
-    # A plain read, not a second `ensure_channel`: `join_job` has just made sure it exists.
-    return assignment, created, Channel.objects.get(job=locked, recruiter=recruiter)
+    # A plain read of the general thread, not a second `ensure_channel`: `join_job` has just made
+    # sure it exists. A candidate thread of theirs may exist too, from a CV they sent before they
+    # left, so the lookup must say which one it means.
+    channel = Channel.objects.get(job=locked, recruiter=recruiter, application__isnull=True)
+    return assignment, created, channel

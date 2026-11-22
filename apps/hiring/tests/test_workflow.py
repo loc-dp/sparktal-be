@@ -115,6 +115,7 @@ def test_schedule_posts_a_system_message_about_the_candidate(
     assert message.body == (
         "Interview round 1 · 22/09/2026 09:00–10:00 · Online · https://meet.google.com/abc-defg-hij"
     )
+    assert message.channel.application == application  # the candidate thread
     assert (message.channel.job, message.channel.recruiter) == (
         application.job,
         application.recruiter,
@@ -253,6 +254,7 @@ def test_post_message_broadcasts_after_commit(
         )
     assert sent == [message]
     assert message.application == application
+    assert message.channel.application == application  # the candidate thread
     assert message.kind == MessageKind.USER
 
 

@@ -278,8 +278,8 @@ paths:
   /api/v1/applications/{id}/messages:
     get:
       operationId: applications_messages_list
-      description: Messages about this candidate in the (job, recruiter) channel;
-        both sides can post.
+      description: The candidate's chat thread seen from the candidate, with its id.
+        Both sides can post.
       parameters:
       - in: query
         name: before
@@ -307,12 +307,12 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/MessagePage'
+                $ref: '#/components/schemas/DiscussionPage'
           description: ''
     post:
       operationId: applications_messages_create
-      description: Messages about this candidate in the (job, recruiter) channel;
-        both sides can post.
+      description: The candidate's chat thread seen from the candidate, with its id.
+        Both sides can post.
       parameters:
       - in: path
         name: id
@@ -4231,6 +4231,18 @@ components:
           type: string
           format: uuid
           readOnly: true
+        kind:
+          allOf:
+          - $ref: '#/components/schemas/ChannelKindEnum'
+          readOnly: true
+        application:
+          allOf:
+          - $ref: '#/components/schemas/ChannelApplication'
+          nullable: true
+          readOnly: true
+        can_post:
+          type: boolean
+          readOnly: true
         job:
           type: object
           additionalProperties: {}
@@ -4256,12 +4268,35 @@ components:
           nullable: true
           readOnly: true
       required:
+      - application
+      - can_post
       - company
       - id
       - job
+      - kind
       - last_message
       - recruiter
       - unread_count
+    ChannelApplication:
+      type: object
+      description: The candidate a thread is about.
+      properties:
+        id:
+          type: string
+          format: uuid
+        candidate_name:
+          type: string
+      required:
+      - candidate_name
+      - id
+    ChannelKindEnum:
+      enum:
+      - general
+      - candidate
+      type: string
+      description: |-
+        * `general` - general
+        * `candidate` - candidate
     Company:
       type: object
       properties:
@@ -4703,6 +4738,25 @@ components:
           maxLength: 4000
       required:
       - body
+    DiscussionPage:
+      type: object
+      description: |-
+        The messages of a candidate's thread, and the thread's id, so the Discussion panel can
+        mark it read and the chat page can link to it.
+      properties:
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Message'
+        has_more:
+          type: boolean
+        channel_id:
+          type: string
+          format: uuid
+      required:
+      - channel_id
+      - has_more
+      - results
     DuplicateCheckRequest:
       type: object
       properties:

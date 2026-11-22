@@ -1,4 +1,4 @@
-"""Messages about one candidate, posted into the (job, recruiter) chat channel."""
+"""Messages about one candidate, posted into that candidate's chat thread."""
 
 from django.db import transaction
 
@@ -6,7 +6,7 @@ from apps.accounts.models import User
 from apps.candidates.models import Application
 from apps.chat.events import broadcast_message
 from apps.chat.models import Message, MessageKind
-from apps.chat.signals import ensure_channel
+from apps.chat.signals import ensure_candidate_channel
 
 
 def post_message(
@@ -16,7 +16,7 @@ def post_message(
     body: str,
     kind: str = MessageKind.USER,
 ) -> Message:
-    channel, _ = ensure_channel(application.job, application.recruiter)
+    channel, _ = ensure_candidate_channel(application)
     message = Message.objects.create(
         channel=channel, application=application, author=author, kind=kind, body=body
     )

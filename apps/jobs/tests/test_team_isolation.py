@@ -80,6 +80,9 @@ JOB_SURFACES = [
     ("get", "/api/v1/chat/channels/{channel}/messages"),
     ("post", "/api/v1/chat/channels/{channel}/messages"),
     ("post", "/api/v1/chat/channels/{channel}/read"),
+    ("get", "/api/v1/chat/channels/{general}/messages"),
+    ("post", "/api/v1/chat/channels/{general}/messages"),
+    ("post", "/api/v1/chat/channels/{general}/read"),
     ("get", "/api/v1/chat/messages/{attachment}/attachment"),
 ]
 MEMBER_SURFACES = [
@@ -106,7 +109,14 @@ def call(client: APIClient, method: str, url: str) -> Response:
 
 
 def channel_of(application: Application) -> Channel:
-    return Channel.objects.get(job=application.job, recruiter=application.recruiter)
+    """The candidate's thread."""
+    return Channel.objects.get(application=application)
+
+
+def general_channel_of(application: Application) -> Channel:
+    return Channel.objects.get_or_create(
+        job=application.job, recruiter=application.recruiter, application=None
+    )[0]
 
 
 @pytest.fixture
@@ -155,6 +165,7 @@ def team_a(team_world: TeamWorld) -> dict[str, str]:
         "approval": str(approval.pk),
         "export": str(export.pk),
         "channel": str(channel.pk),
+        "general": str(general_channel_of(application).pk),
         "comment": str(comment.pk),
         "attachment": str(attachment.pk),
         "member": str(world.hm_a.membership.pk),
@@ -223,6 +234,7 @@ def test_lists_exclude_other_team(
         str(application_b.pk),
         application_b.candidate.full_name,
         str(channel_of(application_b).pk),
+        str(general_channel_of(application_b).pk),
         world.hm_b.email,
     ]
 
@@ -246,9 +258,10 @@ def test_lists_exclude_other_team(
     assert home["pipeline"]["new"] == 1
     assert [row["id"] for row in home["active_jobs"]] == [str(world.job_b.pk)]
     assert hm_b.get("/api/v1/company/talent-pool").json()["count"] == 1
-    assert [row["id"] for row in hm_b.get("/api/v1/chat/channels").json()] == [
-        str(channel_of(application_b).pk)
-    ]
+    assert {row["id"] for row in hm_b.get("/api/v1/chat/channels").json()} == {
+        str(channel_of(application_b).pk),
+        str(general_channel_of(application_b).pk),
+    }
     assert hm_b.get("/api/v1/approval-requests/waiting").json() == []
 
 

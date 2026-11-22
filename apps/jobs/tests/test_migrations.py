@@ -87,6 +87,9 @@ def test_the_history_keeps_the_bounty_it_recorded(company: Company) -> None:
 
 
 BEFORE_ASSIGN = ("jobs", "0011_job_guarantee_days")
+# The chat split (chat 0003) needs the jobs conversions to have run first, so a test that takes
+# jobs back past them has to hold chat before the split too, or jobs is moved forward again.
+BEFORE_THREADS = "0002_message_application"
 
 
 def _leaves(executor: MigrationExecutor, **apps: str) -> list[tuple[str, str]]:
@@ -103,7 +106,7 @@ def test_pending_invites_become_assignments() -> None:
     test ends.
     """
     executor = MigrationExecutor(connection)
-    before = _leaves(executor, jobs=BEFORE_ASSIGN[1])
+    before = _leaves(executor, jobs=BEFORE_ASSIGN[1], chat=BEFORE_THREADS)
     executor.migrate(before)
     try:
         executor.loader.build_graph()
@@ -158,7 +161,7 @@ def _before_comments[T](build: Callable[[Any], T]) -> T:
     The live registry no longer has `JobQuestion`, so `build` gets the historical model.
     """
     executor = MigrationExecutor(connection)
-    before = _leaves(executor, jobs=BEFORE_COMMENTS[1])
+    before = _leaves(executor, jobs=BEFORE_COMMENTS[1], chat=BEFORE_THREADS)
     executor.migrate(before)
     try:
         executor.loader.build_graph()

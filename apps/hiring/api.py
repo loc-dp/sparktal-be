@@ -29,7 +29,8 @@ from rest_framework.views import APIView
 from apps.accounts.models import User
 from apps.candidates.models import Application
 from apps.chat.api import MESSAGE_PAGE_PARAMETERS, message_page
-from apps.chat.serializers import MessagePageSerializer, MessageSerializer
+from apps.chat.serializers import DiscussionPageSerializer, MessageSerializer
+from apps.chat.signals import ensure_candidate_channel
 from apps.companies.access import membership_of
 from apps.core.documents import extract_text
 from apps.core.http import content_disposition
@@ -410,7 +411,7 @@ class InterviewFeedbackView(APIView):
         tags=["hiring"],
         operation_id="applications_messages_list",
         parameters=MESSAGE_PAGE_PARAMETERS,
-        responses=MessagePageSerializer,
+        responses=DiscussionPageSerializer,
     ),
     post=extend_schema(
         tags=["hiring"],
@@ -420,11 +421,13 @@ class InterviewFeedbackView(APIView):
     ),
 )
 class DiscussionView(APIView):
-    """Messages about this candidate in the (job, recruiter) channel; both sides can post."""
+    """The candidate's chat thread seen from the candidate, with its id. Both sides can post."""
 
     def get(self, request: Request, pk: Any) -> Response:
         application = shared_application_or_404(acting_user(request), pk)
-        return Response(message_page(request, application.messages.all()))
+        channel, _ = ensure_candidate_channel(application)
+        page = message_page(request, channel.messages.all())
+        return Response({**page, "channel_id": channel.pk})
 
     def post(self, request: Request, pk: Any) -> Response:
         user = acting_user(request)

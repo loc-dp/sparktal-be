@@ -1,21 +1,30 @@
 from typing import Any, cast
 
 from django.db import transaction
-from django.db.models import QuerySet
+from django.db.models import Prefetch, QuerySet
 from django.http import FileResponse, Http404
 from django.utils import timezone
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from rest_framework import serializers, status
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.accounts.models import User
-from apps.chat.access import can_access_channel, channels_visible_to, with_unread_count
+from apps.chat.access import (
+    GENERAL_READ_ONLY,
+    can_access_channel,
+    can_post_to_channel,
+    can_post_to_channels,
+    channels_visible_to,
+    with_unread_count,
+)
 from apps.chat.events import broadcast_message
 from apps.chat.models import Channel, ChannelRead, Message
 from apps.chat.serializers import (
+    LATEST_MESSAGE,
     ChannelSerializer,
     MessageCreateSerializer,
     MessagePageSerializer,
@@ -27,7 +36,7 @@ from apps.core.http import content_disposition
 
 MAX_PAGE = 50
 DEFAULT_PAGE = 30
-CHANNEL_QS_HINTS = ("job", "job__company", "recruiter")
+CHANNEL_QS_HINTS = ("job", "job__company", "recruiter", "application__candidate")
 MESSAGE_QS_HINTS = ("author", "author__recruiter", "application", "application__candidate")
 
 
@@ -87,10 +96,17 @@ def message_page(request: Request, queryset: QuerySet[Message]) -> dict[str, Any
 class ChannelListView(APIView):
     def get(self, request: Request) -> Response:
         user = cast(User, request.user)
-        queryset = with_unread_count(channels_visible_to(user), user).select_related(
-            *CHANNEL_QS_HINTS
+        newest = Message.objects.select_related("author", "author__recruiter").order_by(
+            "-created_at", "-id"
         )
-        return Response(ChannelSerializer(queryset, many=True, context={"request": request}).data)
+        queryset = (
+            with_unread_count(channels_visible_to(user), user)
+            .select_related(*CHANNEL_QS_HINTS)
+            .prefetch_related(Prefetch("messages", queryset=newest[:1], to_attr=LATEST_MESSAGE))
+        )
+        channels = list(queryset)
+        context = {"request": request, "can_post": can_post_to_channels(user, channels)}
+        return Response(ChannelSerializer(channels, many=True, context=context).data)
 
 
 @extend_schema_view(
@@ -114,6 +130,8 @@ class ChannelMessagesView(APIView):
 
     def post(self, request: Request, pk: Any) -> Response:
         channel = get_channel_or_404(request, pk)
+        if not can_post_to_channel(cast(User, request.user), channel):
+            raise PermissionDenied(GENERAL_READ_ONLY)
         serializer = MessageCreateSerializer(
             data=request.data, context={"request": request, "channel": channel}
         )

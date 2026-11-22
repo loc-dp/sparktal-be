@@ -37,6 +37,6 @@ def test_only_one_pending_approval_per_application(
 
 
 def test_message_can_be_tagged_with_an_application(application: Any) -> None:
-    channel = Channel.objects.get(job=application.job, recruiter=application.recruiter)
+    channel = Channel.objects.get(application=application)  # its candidate thread
     Message.objects.create(channel=channel, application=application, body="About Quân")
     assert application.messages.filter(body="About Quân").count() == 1

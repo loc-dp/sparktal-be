@@ -1,10 +1,12 @@
 from datetime import datetime, timedelta
+from uuid import UUID
 
 from django.core.files.base import ContentFile
 from django.utils import timezone
 
+from apps.candidates.models import Application
 from apps.chat.models import Channel, Message, MessageKind
-from apps.chat.signals import ensure_channel
+from apps.chat.signals import ensure_candidate_channel, ensure_channel
 from apps.core.seed import (
     DEMO_EMAILS,
     SeedContext,
@@ -14,7 +16,10 @@ from apps.core.seed import (
 from apps.core.testing.pdf import make_pdf
 from apps.jobs.models import JobAssignment
 
-type MessageSpec = tuple[int, str, str, str, str, str]
+# (hours ago, author, body, quote source, quote text, attachment name, candidate it is about).
+# A message about a candidate is posted in that candidate's thread; an empty last field means the
+# general thread of the job and headhunter.
+type MessageSpec = tuple[int, str, str, str, str, str, str]
 
 NORTHSTAR: list[MessageSpec] = [
     (
@@ -25,6 +30,7 @@ NORTHSTAR: list[MessageSpec] = [
         "",
         "",
         "CV_Mai_Gia_Bao.pdf",
+        "Mai Gia Bảo",
     ),
     (
         73,
@@ -33,6 +39,7 @@ NORTHSTAR: list[MessageSpec] = [
         "",
         "",
         "",
+        "Mai Gia Bảo",
     ),
     (
         50,
@@ -42,6 +49,7 @@ NORTHSTAR: list[MessageSpec] = [
         "Very solid on Kafka and Postgres, explained idempotency with real numbers. "
         "I want to probe ledger design in round 2.",
         "",
+        "Phạm Minh Quân",
     ),
     (
         49,
@@ -50,6 +58,7 @@ NORTHSTAR: list[MessageSpec] = [
         "",
         "",
         "",
+        "Phạm Minh Quân",
     ),
     (
         5,
@@ -59,11 +68,22 @@ NORTHSTAR: list[MessageSpec] = [
         "",
         "",
         "",
+        "Phạm Minh Quân",
     ),
     (
         4,
         "northstar",
         "Also a heads-up: Tiki may put a counter-offer on the table next week, so speed matters.",
+        "",
+        "",
+        "",
+        "",
+    ),
+    (
+        3,
+        "maianh.tran@velapay.vn",
+        "Understood. We will keep the loop short and answer within a day after each round.",
+        "",
         "",
         "",
         "",
@@ -74,11 +94,12 @@ BLUEFIN: list[MessageSpec] = [
     (
         28,
         "bluefin",
-        "Hoàng Bảo Ngọc was flagged as a duplicate. We did not know about the "
+        "Phạm Minh Quân was flagged as a duplicate. We did not know about the "
         "earlier submission — understood that the first submitter keeps the rights.",
         "",
         "",
         "",
+        "Phạm Minh Quân",
     ),
     (
         27,
@@ -87,6 +108,7 @@ BLUEFIN: list[MessageSpec] = [
         "",
         "",
         "",
+        "Đặng Khánh Vy",
     ),
     (
         15,
@@ -96,11 +118,32 @@ BLUEFIN: list[MessageSpec] = [
         "",
         "",
         "",
+        "Đặng Khánh Vy",
     ),
     (
         12,
         "khoa.nguyen@velapay.vn",
         "We're setting up round 2 for Vy this Thursday at 14:00. The panel includes our Principal Architect.",
+        "",
+        "",
+        "",
+        "Đặng Khánh Vy",
+    ),
+    (
+        10,
+        "bluefin",
+        "We have two more backend engineers in our network who could fit this role. "
+        "Should we hold them until Vy's round 2 is done?",
+        "",
+        "",
+        "",
+        "",
+    ),
+    (
+        9,
+        "maianh.tran@velapay.vn",
+        "Please send them over now, we would rather compare early.",
+        "",
         "",
         "",
         "",
@@ -116,11 +159,31 @@ ATLAS: list[MessageSpec] = [
         "",
         "",
         "",
+        "Bùi Anh Tuấn",
     ),
     (
         18,
         "maianh.tran@velapay.vn",
         "Thanks Atlas team! Reviewing his profile now. We'll update the pipeline status shortly.",
+        "",
+        "",
+        "",
+        "Bùi Anh Tuấn",
+    ),
+    (
+        8,
+        "atlas",
+        "Quick question on the brief: is remote work from Da Nang acceptable for this role?",
+        "",
+        "",
+        "",
+        "",
+    ),
+    (
+        7,
+        "maianh.tran@velapay.vn",
+        "Hybrid from Da Nang works if the candidate can be in Ho Chi Minh City one week a month.",
+        "",
         "",
         "",
         "",
@@ -135,7 +198,7 @@ RECRUITER_KEYS = {
 
 
 def _post(ctx: SeedContext, channel: Channel, spec: MessageSpec) -> None:
-    hours_ago, author_key, body, quote_source, quote_text, attachment_name = spec
+    hours_ago, author_key, body, quote_source, quote_text, attachment_name, _about = spec
     if author_key in RECRUITER_KEYS:
         author = ctx.refs["recruiters"][RECRUITER_KEYS[author_key]].user
     else:
@@ -151,6 +214,7 @@ def _post(ctx: SeedContext, channel: Channel, spec: MessageSpec) -> None:
         )
     message = Message.objects.create(
         channel=channel,
+        application=channel.application,
         author=author,
         kind=MessageKind.USER,
         body=body,
@@ -193,19 +257,31 @@ def _refresh_last_message(channel: Channel) -> None:
 def seed(ctx: SeedContext) -> None:
     job = ctx.refs["jobs"]["Senior Backend Engineer"]
     oldest = timezone.now() - timedelta(hours=80)
+    applications: dict[tuple[str, str], Application] = {
+        (app.recruiter.nickname, app.candidate.full_name): app
+        for app in ctx.refs["applications"]
+        if app.job_id == job.pk
+    }
     channels: dict[str, Channel] = {}
+    scripted: list[UUID] = []
 
     for key, script in (("northstar", NORTHSTAR), ("bluefin", BLUEFIN), ("atlas", ATLAS)):
         recruiter = ctx.refs["recruiters"][RECRUITER_KEYS[key]]
-        channel, _ = ensure_channel(job, recruiter)
-        _backdate_system_messages(channel, oldest)
+        general, _ = ensure_channel(job, recruiter)
+        threads: dict[str, Channel] = {"": general}
+        for about in {spec[-1] for spec in script if spec[-1]}:
+            application = applications[(recruiter.nickname, about)]
+            threads[about], _ = ensure_candidate_channel(application)
+        for thread in threads.values():
+            _backdate_system_messages(thread, oldest)
         for spec in script:
-            _post(ctx, channel, spec)
-        _refresh_last_message(channel)
-        channel.refresh_from_db()
-        channels[f"{job.title} · {recruiter.nickname}"] = channel
+            _post(ctx, threads[spec[-1]], spec)
+        for thread in threads.values():
+            _refresh_last_message(thread)
+        scripted += [thread.pk for thread in threads.values()]
+        general.refresh_from_db()
+        channels[f"{job.title} · {recruiter.nickname}"] = general
 
-    scripted = [channel.pk for channel in channels.values()]
     for channel in Channel.objects.filter(recruiter__user__email__in=DEMO_EMAILS).exclude(
         pk__in=scripted
     ):

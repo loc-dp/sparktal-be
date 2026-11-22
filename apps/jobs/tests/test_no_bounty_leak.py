@@ -65,6 +65,9 @@ COMPANY_COMPONENTS = [
     "JobComment",
     "JobCommentThread",
     "JobCommentCreateRequest",
+    "Channel",
+    "ChannelApplication",
+    "DiscussionPage",
 ]
 
 

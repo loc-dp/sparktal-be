@@ -10,6 +10,8 @@ from apps.chat.attachments import validate_attachment
 from apps.chat.models import BODY_MAX_LENGTH, Channel, Message, MessageKind
 
 EMPTY_MESSAGE = "Type a message or attach a file."
+# The attribute the channel list prefetches the newest message of each channel into.
+LATEST_MESSAGE = "latest_message"
 
 
 def display_name(user: User | None) -> str:
@@ -23,6 +25,13 @@ def display_name(user: User | None) -> str:
 
 def sanitise_body(value: str) -> str:
     return nh3.clean(value or "", tags=set(), attributes={}, strip_comments=True).strip()
+
+
+class ChannelApplicationSerializer(serializers.Serializer[Any]):
+    """The candidate a thread is about."""
+
+    id = serializers.UUIDField()
+    candidate_name = serializers.CharField()
 
 
 class MessageApplicationSerializer(serializers.Serializer[Any]):
@@ -110,6 +119,7 @@ class MessageCreateSerializer(serializers.ModelSerializer[Message]):
         upload = validated_data.get("attachment")
         return Message.objects.create(
             channel=self.context["channel"],
+            application=self.context["channel"].application,
             author=self.context["request"].user,
             kind=MessageKind.USER,
             attachment_name=getattr(upload, "name", "") or "",
@@ -119,6 +129,11 @@ class MessageCreateSerializer(serializers.ModelSerializer[Message]):
 
 
 class ChannelSerializer(serializers.ModelSerializer[Channel]):
+    # The list view passes `can_post` (see `can_post_to_channels`) and prefetches the newest
+    # message into `latest_message`, so a page of rows costs a fixed number of queries.
+    kind = serializers.ChoiceField(choices=("general", "candidate"), read_only=True)
+    application = serializers.SerializerMethodField()
+    can_post = serializers.SerializerMethodField()
     job = serializers.SerializerMethodField()
     company = serializers.SerializerMethodField()
     recruiter = serializers.SerializerMethodField()
@@ -129,6 +144,9 @@ class ChannelSerializer(serializers.ModelSerializer[Channel]):
         model = Channel
         fields = (
             "id",
+            "kind",
+            "application",
+            "can_post",
             "job",
             "company",
             "recruiter",
@@ -136,6 +154,16 @@ class ChannelSerializer(serializers.ModelSerializer[Channel]):
             "last_message_at",
             "last_message",
         )
+
+    @extend_schema_field(ChannelApplicationSerializer(allow_null=True))
+    def get_application(self, channel: Channel) -> dict[str, str] | None:
+        application = channel.application
+        if application is None:
+            return None
+        return {"id": str(application.pk), "candidate_name": application.candidate.full_name}
+
+    def get_can_post(self, channel: Channel) -> bool:
+        return bool(self.context["can_post"][channel.pk])
 
     def get_job(self, channel: Channel) -> dict[str, Any]:
         return {
@@ -157,13 +185,10 @@ class ChannelSerializer(serializers.ModelSerializer[Channel]):
         }
 
     def get_last_message(self, channel: Channel) -> dict[str, Any] | None:
-        message = (
-            channel.messages.select_related("author", "author__recruiter")
-            .order_by("-created_at", "-id")
-            .first()
-        )
-        if message is None:
+        latest: list[Message] = getattr(channel, LATEST_MESSAGE, [])
+        if not latest:
             return None
+        message = latest[0]
         return {
             "id": str(message.pk),
             "kind": message.kind,
@@ -178,6 +203,13 @@ class ChannelSerializer(serializers.ModelSerializer[Channel]):
 class MessagePageSerializer(serializers.Serializer[Any]):
     results = MessageSerializer(many=True)
     has_more = serializers.BooleanField()
+
+
+class DiscussionPageSerializer(MessagePageSerializer):
+    """The messages of a candidate's thread, and the thread's id, so the Discussion panel can
+    mark it read and the chat page can link to it."""
+
+    channel_id = serializers.UUIDField()
 
 
 class ReadSerializer(serializers.Serializer[Any]):

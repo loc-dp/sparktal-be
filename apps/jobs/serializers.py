@@ -582,7 +582,11 @@ class MarketplaceJobSerializer(MarketplaceJobListItemSerializer):
         recruiter = self.context.get("recruiter")
         if recruiter is None or not getattr(job, "joined", False):
             return None
-        channel = Channel.objects.filter(job=job, recruiter=recruiter).only("id").first()
+        channel = (
+            Channel.objects.filter(job=job, recruiter=recruiter, application__isnull=True)
+            .only("id")
+            .first()
+        )
         return str(channel.id) if channel else None
 
 

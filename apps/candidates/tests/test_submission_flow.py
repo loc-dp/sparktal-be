@@ -87,13 +87,15 @@ def test_submission_and_anonymous_duplicate_check(
     assert application.is_duplicate is True
     assert application.stage == Stage.NEW
     assert application.motivation == NOTES["motivation"]
-    assert Channel.objects.filter(job=joined_job, recruiter=recruiter_profile).count() == 1
-    assert (
-        Channel.objects.get(job=joined_job, recruiter=recruiter_profile)
-        .messages.filter(kind=MessageKind.SYSTEM)
-        .count()
-        == 2
-    )
+    # One general thread per job and headhunter, and one thread for this candidate.
+    general = Channel.objects.get(job=joined_job, recruiter=recruiter_profile, application=None)
+    thread = Channel.objects.get(application=application)
+    assert Channel.objects.filter(job=joined_job, recruiter=recruiter_profile).count() == 2
+    assert (thread.job, thread.recruiter) == (joined_job, recruiter_profile)
+    # The join line sits in the general thread, the submission line in the candidate's.
+    assert general.messages.filter(kind=MessageKind.SYSTEM).count() == 1
+    assert thread.messages.filter(kind=MessageKind.SYSTEM).count() == 1
+    assert thread.messages.get(kind=MessageKind.SYSTEM).application == application
     again = recruiter_client.post(
         f"/api/v1/jobs/{joined_job.id}/submissions",
         {"candidate_id": str(candidate.pk), **NOTES, "cv_file": upload()},

@@ -9,7 +9,7 @@ from apps.candidates.models import Stage
 from apps.candidates.tests.factories import ApplicationFactory, CandidateFactory
 from apps.companies.models import Company
 from apps.jobs.models import Job, JobStatus
-from apps.jobs.tests.factories import JobFactory, JobQuestionFactory
+from apps.jobs.tests.factories import JobCommentFactory, JobFactory
 from apps.recruiters.models import RecruiterProfile
 
 pytestmark = pytest.mark.django_db
@@ -194,10 +194,11 @@ def test_home_active_jobs_carry_unanswered_questions(
 ) -> None:
     asked = JobFactory(company=company, title="Has questions")
     quiet = JobFactory(company=company, title="Quiet")
-    JobQuestionFactory(job=asked)
-    JobQuestionFactory(job=asked)
-    JobQuestionFactory(job=asked, answered_at=timezone.now(), answer="Yes")
-    JobQuestionFactory(job=asked, hidden_at=timezone.now())
+    JobCommentFactory(job=asked)
+    JobCommentFactory(job=asked)
+    answered = JobCommentFactory(job=asked)
+    JobCommentFactory(job=asked, parent=answered, author=company_admin)
+    JobCommentFactory(job=asked, hidden_at=timezone.now())
 
     rows = client_for(company_admin).get(HOME).json()["active_jobs"]
 

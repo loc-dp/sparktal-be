@@ -5,7 +5,7 @@ from django.core.files.base import ContentFile
 from django.utils import timezone
 from factory.django import DjangoModelFactory
 
-from apps.accounts.models import User
+from apps.accounts.models import User, UserKind
 from apps.accounts.tests.factories import UserFactory
 from apps.companies.models import Team
 from apps.companies.tests.factories import CompanyFactory, OfficeFactory
@@ -16,7 +16,7 @@ from apps.jobs.models import (
     JdParse,
     Job,
     JobAssignment,
-    JobQuestion,
+    JobComment,
     JobStatus,
     PayBasis,
     WorkModel,
@@ -88,10 +88,17 @@ class JdParseFactory(DjangoModelFactory[JdParse]):
     )
 
 
-class JobQuestionFactory(DjangoModelFactory[JobQuestion]):
+class JobCommentFactory(DjangoModelFactory[JobComment]):
+    """A headhunter's top-level comment unless told otherwise; `from_recruiter` follows the
+    author's kind, as `add_comment` sets it."""
+
     class Meta:
-        model = JobQuestion
+        model = JobComment
 
     job = factory.SubFactory(JobFactory)
-    asked_by = factory.SubFactory(RecruiterProfileFactory)
+    author = factory.LazyFunction(lambda: RecruiterProfileFactory().user)
+    from_recruiter = factory.LazyAttribute(
+        lambda comment: comment.author is not None and comment.author.kind == UserKind.RECRUITER
+    )
+    parent = None
     body = "Is the salary range negotiable for a candidate with 8 years of experience?"

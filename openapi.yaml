@@ -1580,9 +1580,11 @@ paths:
               schema:
                 $ref: '#/components/schemas/JdParseAvailability'
           description: ''
-  /api/v1/job-questions/{id}:
+  /api/v1/job-comments/{id}:
     delete:
-      operationId: job_questions_destroy
+      operationId: job_comments_destroy
+      description: A comment still shown, on a job the caller can read; anything else
+        is a 404.
       parameters:
       - in: path
         name: id
@@ -1597,9 +1599,11 @@ paths:
       responses:
         '204':
           description: No response body
-  /api/v1/job-questions/{id}/answer:
+  /api/v1/job-comments/{id}/hide:
     post:
-      operationId: job_questions_answer_create
+      operationId: job_comments_hide_create
+      description: A comment still shown, on a job the caller can read; anything else
+        is a 404.
       parameters:
       - in: path
         name: id
@@ -1609,27 +1613,11 @@ paths:
         required: true
       tags:
       - jobs
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/AnswerCreateRequest'
-          application/x-www-form-urlencoded:
-            schema:
-              $ref: '#/components/schemas/AnswerCreateRequest'
-          multipart/form-data:
-            schema:
-              $ref: '#/components/schemas/AnswerCreateRequest'
-        required: true
       security:
       - cookieAuth: []
       responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CompanyQuestion'
-          description: ''
+        '204':
+          description: No response body
   /api/v1/jobs:
     get:
       operationId: jobs_list
@@ -2033,6 +2021,65 @@ paths:
               schema:
                 $ref: '#/components/schemas/Job'
           description: ''
+  /api/v1/jobs/{id}/comments:
+    get:
+      operationId: jobs_comments_list
+      description: |-
+        A job's Q&A thread. A job the caller cannot read is a 404, here and on every
+        comment route; the rules in `apps.jobs.comments` assume that was already checked.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - jobs
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobCommentThread'
+          description: ''
+    post:
+      operationId: jobs_comments_create
+      description: |-
+        A job's Q&A thread. A job the caller cannot read is a 404, here and on every
+        comment route; the rules in `apps.jobs.comments` assume that was already checked.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - jobs
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JobCommentCreateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/JobCommentCreateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/JobCommentCreateRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobComment'
+          description: ''
   /api/v1/jobs/{id}/overview:
     get:
       operationId: jobs_overview_retrieve
@@ -2077,30 +2124,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Job'
-          description: ''
-  /api/v1/jobs/{id}/questions:
-    get:
-      operationId: jobs_questions_list
-      description: What recruiters asked about the job, the unanswered first.
-      parameters:
-      - in: path
-        name: id
-        schema:
-          type: string
-          format: uuid
-        required: true
-      tags:
-      - jobs
-      security:
-      - cookieAuth: []
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/CompanyQuestion'
           description: ''
   /api/v1/jobs/{id}/reopen:
     post:
@@ -3390,71 +3413,6 @@ paths:
               schema:
                 $ref: '#/components/schemas/RecruiterJobDetail'
           description: ''
-  /api/v1/recruiters/me/jobs/{id}/questions:
-    get:
-      operationId: recruiters_jobs_questions_list
-      description: |-
-        The Q&A card as a recruiter sees it: every answer, plus their own questions.
-
-        Reading is open to every job `jobs_open_to` gives them; asking needs a live job they are
-        still assigned to, so a removed headhunter reads but cannot ask.
-      parameters:
-      - in: path
-        name: id
-        schema:
-          type: string
-          format: uuid
-        required: true
-      tags:
-      - recruiters
-      security:
-      - cookieAuth: []
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/RecruiterQuestion'
-          description: ''
-    post:
-      operationId: recruiters_jobs_questions_create
-      description: |-
-        The Q&A card as a recruiter sees it: every answer, plus their own questions.
-
-        Reading is open to every job `jobs_open_to` gives them; asking needs a live job they are
-        still assigned to, so a removed headhunter reads but cannot ask.
-      parameters:
-      - in: path
-        name: id
-        schema:
-          type: string
-          format: uuid
-        required: true
-      tags:
-      - recruiters
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/QuestionCreateRequest'
-          application/x-www-form-urlencoded:
-            schema:
-              $ref: '#/components/schemas/QuestionCreateRequest'
-          multipart/form-data:
-            schema:
-              $ref: '#/components/schemas/QuestionCreateRequest'
-        required: true
-      security:
-      - cookieAuth: []
-      responses:
-        '201':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/RecruiterQuestion'
-          description: ''
   /api/v1/recruiters/me/overview:
     get:
       operationId: recruiters_overview_retrieve
@@ -3623,15 +3581,6 @@ paths:
           description: ''
 components:
   schemas:
-    AnswerCreateRequest:
-      type: object
-      properties:
-        answer:
-          type: string
-          minLength: 1
-          maxLength: 2000
-      required:
-      - answer
     ApplicationActionEnum:
       enum:
       - move_forward
@@ -3864,6 +3813,14 @@ components:
           maxLength: 1000
       required:
       - reason
+    AuthorKindEnum:
+      enum:
+      - company
+      - recruiter
+      type: string
+      description: |-
+        * `company` - company
+        * `recruiter` - recruiter
     BlankEnum:
       enum:
       - ''
@@ -4564,43 +4521,6 @@ components:
       - location
       - skills
       - years_experience
-    CompanyQuestion:
-      type: object
-      properties:
-        id:
-          type: string
-          format: uuid
-          readOnly: true
-        body:
-          type: string
-          readOnly: true
-        answer:
-          type: string
-          readOnly: true
-        answered_at:
-          type: string
-          format: date-time
-          readOnly: true
-          nullable: true
-        created_at:
-          type: string
-          format: date-time
-          readOnly: true
-        recruiter_nickname:
-          type: string
-          readOnly: true
-        answered_by_name:
-          type: string
-          nullable: true
-          readOnly: true
-      required:
-      - answer
-      - answered_at
-      - answered_by_name
-      - body
-      - created_at
-      - id
-      - recruiter_nickname
     CompanyTypeEnum:
       enum:
       - fdi
@@ -5272,6 +5192,90 @@ components:
       - share_token
       - status
       - title
+    JobComment:
+      type: object
+      description: |-
+        One comment as its viewer may see it; `replies` is always a list.
+
+        There is no author id of any kind: a headhunter must not be able to tell two other
+        headhunters apart, or find who one of them is. `author_name` is the viewer's view of the
+        author (spec §5.3): a headhunter's nickname only to the company side and to the headhunter
+        themselves; on the company side the name, else the email for a colleague and the company's
+        name for a headhunter; `null` once the account is gone.
+
+        The context carries `viewer`, `company_name` and `may_delete` (the viewer may take their own
+        comments down on this job right now), so no row costs a query.
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        body:
+          type: string
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        author_kind:
+          allOf:
+          - $ref: '#/components/schemas/AuthorKindEnum'
+          readOnly: true
+        author_name:
+          type: string
+          nullable: true
+          readOnly: true
+        mine:
+          type: boolean
+          readOnly: true
+        can_delete:
+          type: boolean
+          readOnly: true
+        replies:
+          type: array
+          items:
+            $ref: '#/components/schemas/JobComment'
+          readOnly: true
+      required:
+      - author_kind
+      - author_name
+      - body
+      - can_delete
+      - created_at
+      - id
+      - mine
+      - replies
+    JobCommentCreateRequest:
+      type: object
+      properties:
+        body:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        parent:
+          type: string
+          format: uuid
+          nullable: true
+      required:
+      - body
+    JobCommentThread:
+      type: object
+      properties:
+        can_write:
+          type: boolean
+          readOnly: true
+        can_hide:
+          type: boolean
+          readOnly: true
+        comments:
+          type: array
+          items:
+            $ref: '#/components/schemas/JobComment'
+          readOnly: true
+      required:
+      - can_hide
+      - can_write
+      - comments
     JobCounts:
       type: object
       properties:
@@ -7737,15 +7741,6 @@ components:
       - id
       - location_label
       - title
-    QuestionCreateRequest:
-      type: object
-      properties:
-        body:
-          type: string
-          minLength: 1
-          maxLength: 1000
-      required:
-      - body
     ReadRequest:
       type: object
       properties:
@@ -8339,40 +8334,6 @@ components:
         * `pending` - Pending review
         * `approved` - Approved
         * `rejected` - Rejected
-    RecruiterQuestion:
-      type: object
-      description: 'No asker identity: another recruiter''s answered question reads
-        the same as your own.'
-      properties:
-        id:
-          type: string
-          format: uuid
-          readOnly: true
-        body:
-          type: string
-          readOnly: true
-        answer:
-          type: string
-          readOnly: true
-        answered_at:
-          type: string
-          format: date-time
-          readOnly: true
-          nullable: true
-        created_at:
-          type: string
-          format: date-time
-          readOnly: true
-        mine:
-          type: boolean
-          readOnly: true
-      required:
-      - answer
-      - answered_at
-      - body
-      - created_at
-      - id
-      - mine
     RecruiterSubmission:
       type: object
       properties:

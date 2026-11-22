@@ -1,0 +1,8 @@
+{% extends "email/base.txt" %}{% block content %}
+{{ author_label }} posted on "{{ job_title }}" at {{ company_name }}:
+
+{{ body }}
+
+Read it, and reply, on the job page. Everyone working on this job can read the thread:
+{{ job_url }}
+{% endblock %}

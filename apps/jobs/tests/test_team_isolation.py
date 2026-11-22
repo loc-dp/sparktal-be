@@ -28,7 +28,7 @@ from apps.hiring.models import ApprovalRequest, CandidateNote, Interview, Interv
 from apps.jobs.access import can_view_job, jobs_visible_to
 from apps.jobs.models import Job, JobStatus
 from apps.jobs.tests.conftest import TeamWorld
-from apps.jobs.tests.factories import JobFactory
+from apps.jobs.tests.factories import JobCommentFactory, JobFactory
 
 pytestmark = pytest.mark.django_db
 
@@ -40,6 +40,11 @@ JOB_SURFACES = [
     ("get", "/api/v1/jobs/{job}"),
     ("patch", "/api/v1/jobs/{job}"),
     ("get", "/api/v1/jobs/{job}/overview"),
+    # the job's Q&A thread
+    ("get", "/api/v1/jobs/{job}/comments"),
+    ("post", "/api/v1/jobs/{job}/comments"),
+    ("delete", "/api/v1/job-comments/{comment}"),
+    ("post", "/api/v1/job-comments/{comment}/hide"),
     ("post", "/api/v1/jobs/{job}/close"),
     ("post", "/api/v1/jobs/{job}/reopen"),
     # applicants, and the pipeline board (the same list, filtered by stage)
@@ -130,6 +135,7 @@ def team_a(team_world: TeamWorld) -> dict[str, str]:
         job=world.job_a, requested_by=world.ta_publish, application_ids=[application.pk]
     )
     channel = channel_of(application)
+    comment = JobCommentFactory(job=world.job_a)
     attachment = cast(
         Message,
         MessageFactory(
@@ -149,6 +155,7 @@ def team_a(team_world: TeamWorld) -> dict[str, str]:
         "approval": str(approval.pk),
         "export": str(export.pk),
         "channel": str(channel.pk),
+        "comment": str(comment.pk),
         "attachment": str(attachment.pk),
         "member": str(world.hm_a.membership.pk),
     }

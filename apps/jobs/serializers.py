@@ -19,6 +19,7 @@ from apps.companies.models import Company, CompanyRole, Office, Team
 from apps.core.documents import validate_document
 from apps.jobs.access import NOT_YOURS, JobPermissions, job_permissions
 from apps.jobs.bounty import BountyReadFields
+from apps.jobs.comments import COMMENT_MAX_LENGTH, author_name
 from apps.jobs.functions import guess_function
 from apps.jobs.lifecycle import (
     BRIEF_REQUIRED_MESSAGES,
@@ -34,14 +35,12 @@ from apps.jobs.models import (
     JdParse,
     Job,
     JobChangeRequest,
+    JobComment,
     JobFunction,
-    JobQuestion,
     JobStatus,
     WorkModel,
 )
 from apps.jobs.notifications import notify_ops_job_edited
-from apps.jobs.questions import ANSWER_MAX_LENGTH, QUESTION_MAX_LENGTH
-from apps.recruiters.models import RecruiterProfile
 
 MAX_SKILLS = 20
 
@@ -725,46 +724,70 @@ class ChangeRequestDecisionSerializer(serializers.Serializer[Any]):
     note = serializers.CharField(required=False, allow_blank=True, default="")
 
 
-class QuestionCreateSerializer(serializers.Serializer[Any]):
-    body = serializers.CharField(max_length=QUESTION_MAX_LENGTH)
+class JobCommentCreateSerializer(serializers.Serializer[Any]):
+    body = serializers.CharField(max_length=COMMENT_MAX_LENGTH)  # trimmed; blank is refused
+    # DRF's own `Field.parent` is the same name; the API field is `parent` all the same.
+    parent = serializers.UUIDField(required=False, allow_null=True, default=None)  # type: ignore[assignment]
 
 
-class AnswerCreateSerializer(serializers.Serializer[Any]):
-    answer = serializers.CharField(max_length=ANSWER_MAX_LENGTH)
+class JobCommentSerializer(serializers.ModelSerializer[JobComment]):
+    """One comment as its viewer may see it; `replies` is always a list.
 
+    There is no author id of any kind: a headhunter must not be able to tell two other
+    headhunters apart, or find who one of them is. `author_name` is the viewer's view of the
+    author (spec §5.3): a headhunter's nickname only to the company side and to the headhunter
+    themselves; on the company side the name, else the email for a colleague and the company's
+    name for a headhunter; `null` once the account is gone.
 
-class RecruiterQuestionSerializer(serializers.ModelSerializer[JobQuestion]):
-    """No asker identity: another recruiter's answered question reads the same as your own."""
+    The context carries `viewer`, `company_name` and `may_delete` (the viewer may take their own
+    comments down on this job right now), so no row costs a query.
+    """
 
+    author_kind = serializers.SerializerMethodField()
+    author_name = serializers.SerializerMethodField()
     mine = serializers.SerializerMethodField()
+    can_delete = serializers.SerializerMethodField()
+    replies = serializers.SerializerMethodField()
 
     class Meta:
-        model = JobQuestion
-        fields = ("id", "body", "answer", "answered_at", "created_at", "mine")
-        read_only_fields = fields
-
-    def get_mine(self, obj: JobQuestion) -> bool:
-        recruiter: RecruiterProfile = self.context["recruiter"]
-        return bool(obj.asked_by_id == recruiter.pk)
-
-
-class CompanyQuestionSerializer(serializers.ModelSerializer[JobQuestion]):
-    recruiter_nickname = serializers.CharField(source="asked_by.nickname", read_only=True)
-    answered_by_name = serializers.SerializerMethodField()
-
-    class Meta:
-        model = JobQuestion
-        fields = (
+        model = JobComment
+        fields: tuple[str, ...] = (
             "id",
             "body",
-            "answer",
-            "answered_at",
             "created_at",
-            "recruiter_nickname",
-            "answered_by_name",
+            "author_kind",
+            "author_name",
+            "mine",
+            "can_delete",
+            "replies",
         )
         read_only_fields = fields
 
-    def get_answered_by_name(self, obj: JobQuestion) -> str | None:
-        user = obj.answered_by
-        return (user.full_name or user.email) if user is not None else None
+    @extend_schema_field(serializers.ChoiceField(choices=("company", "recruiter")))
+    def get_author_kind(self, obj: JobComment) -> str:
+        return "recruiter" if obj.from_recruiter else "company"
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_author_name(self, obj: JobComment) -> str | None:
+        return author_name(obj, self.context["viewer"], str(self.context["company_name"]))
+
+    def get_mine(self, obj: JobComment) -> bool:
+        return obj.author_id is not None and obj.author_id == self.context["viewer"].pk
+
+    def get_can_delete(self, obj: JobComment) -> bool:
+        return bool(self.context["may_delete"]) and self.get_mine(obj)
+
+    @extend_schema_field({"type": "array", "items": {"$ref": "#/components/schemas/JobComment"}})
+    def get_replies(self, obj: JobComment) -> list[Any]:
+        """The replies still shown, on a top-level comment; a reply has none (an empty list,
+        and its `replies` relation is never touched)."""
+        if obj.parent_id is not None:
+            return []
+        replies = getattr(obj, "visible_replies", [])
+        return list(JobCommentSerializer(replies, many=True, context=self.context).data)
+
+
+class JobCommentThreadSerializer(serializers.Serializer[Any]):
+    can_write = serializers.BooleanField(read_only=True)
+    can_hide = serializers.BooleanField(read_only=True)
+    comments = JobCommentSerializer(many=True, read_only=True)

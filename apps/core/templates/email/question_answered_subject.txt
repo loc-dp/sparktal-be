@@ -1,1 +1,0 @@
-Your question about {{ job_title }} has an answer

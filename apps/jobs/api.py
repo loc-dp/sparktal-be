@@ -23,6 +23,7 @@ from rest_framework.parsers import MultiPartParser
 from rest_framework.permissions import AllowAny, BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.throttling import BaseThrottle
 from rest_framework.views import APIView
 
 from apps.accounts.models import User
@@ -31,12 +32,23 @@ from apps.companies.access import company_of
 from apps.jobs.access import (
     NOT_YOURS,
     can_change_job,
-    can_view_job,
-    is_assigned,
     jobs_joined_by,
     jobs_offered_to,
-    jobs_open_to,
     jobs_visible_to,
+)
+from apps.jobs.comments import (
+    CANNOT_REPLY,
+    VISIBLE,
+    CommentRejected,
+    add_comment,
+    can_delete_own,
+    can_hide_comments,
+    can_read_comments,
+    can_write_comments,
+    delete_comment,
+    hide_comment,
+    unanswered_counts,
+    visible_comments,
 )
 from apps.jobs.distribution import join_marketplace_job
 from apps.jobs.filters import JobFilterSet
@@ -56,7 +68,7 @@ from apps.jobs.models import (
     Job,
     JobAssignment,
     JobChangeRequest,
-    JobQuestion,
+    JobComment,
     JobStatus,
 )
 from apps.jobs.proposals import (
@@ -68,25 +80,16 @@ from apps.jobs.proposals import (
     withdraw_change,
 )
 from apps.jobs.queries import annotate_job_metrics
-from apps.jobs.questions import (
-    JOB_NOT_TAKING_QUESTIONS,
-    QuestionRejected,
-    answer_question,
-    ask_question,
-    hide_question,
-    unanswered_counts,
-    visible_to_company,
-    visible_to_recruiter,
-)
 from apps.jobs.serializers import (
-    AnswerCreateSerializer,
     ChangeRequestCreateSerializer,
     ChangeRequestDecisionSerializer,
     ChangeRequestSerializer,
-    CompanyQuestionSerializer,
     JdParseAvailabilitySerializer,
     JdParseCreateSerializer,
     JdParseSerializer,
+    JobCommentCreateSerializer,
+    JobCommentSerializer,
+    JobCommentThreadSerializer,
     JobCountsSerializer,
     JobListItemSerializer,
     JobOverviewSerializer,
@@ -96,8 +99,6 @@ from apps.jobs.serializers import (
     MarketplaceJobListItemSerializer,
     MarketplaceJobSerializer,
     PublicJobSerializer,
-    QuestionCreateSerializer,
-    RecruiterQuestionSerializer,
 )
 from apps.jobs.tasks import parse_jd
 from apps.recruiters.access import IsApprovedRecruiter, approved_recruiter
@@ -627,115 +628,97 @@ class ChangeRequestWithdrawView(ChangeRequestActionView):
         return self.respond(change)
 
 
-@extend_schema_view(
-    get=extend_schema(
-        operation_id="recruiters_jobs_questions_list",
-        tags=["recruiters"],
-        responses=RecruiterQuestionSerializer(many=True),
-    ),
-    post=extend_schema(
-        operation_id="recruiters_jobs_questions_create",
-        tags=["recruiters"],
-        request=QuestionCreateSerializer,
-        responses={201: RecruiterQuestionSerializer},
-    ),
-)
-class RecruiterQuestionListCreateView(APIView):
-    """The Q&A card as a recruiter sees it: every answer, plus their own questions.
+def _comment_context(user: User, job: Job) -> dict[str, Any]:
+    """What `JobCommentSerializer` needs about the viewer, worked out once per request."""
+    return {
+        "viewer": user,
+        "company_name": job.company.name,
+        "may_delete": can_delete_own(user, job),
+    }
 
-    Reading is open to every job `jobs_open_to` gives them; asking needs a live job they are
-    still assigned to, so a removed headhunter reads but cannot ask.
-    """
 
-    permission_classes = (IsApprovedRecruiter,)
+class JobCommentListCreateView(APIView):
+    """A job's Q&A thread. A job the caller cannot read is a 404, here and on every
+    comment route; the rules in `apps.jobs.comments` assume that was already checked."""
+
+    throttle_scope = "job_comment"
+
+    def get_throttles(self) -> list[BaseThrottle]:
+        # Only writing is limited; reading the thread is not.
+        return super().get_throttles() if self.request.method == "POST" else []
 
     def get_job(self, pk: str) -> Job:
-        return get_object_or_404(jobs_open_to(_recruiter(self)), pk=pk)
+        job = get_object_or_404(Job.objects.select_related("company"), pk=pk)
+        if not can_read_comments(_user(self), job):
+            raise Http404
+        return job
 
+    @extend_schema(
+        tags=["jobs"], operation_id="jobs_comments_list", responses=JobCommentThreadSerializer
+    )
     def get(self, request: Request, pk: str) -> Response:
-        recruiter = _recruiter(self)
-        questions = visible_to_recruiter(self.get_job(pk), recruiter).order_by("-created_at")
+        user, job = _actor(self), self.get_job(pk)
+        thread = {
+            "can_write": can_write_comments(user, job),
+            "can_hide": can_hide_comments(user, job),
+            "comments": visible_comments(job),
+        }
         return Response(
-            RecruiterQuestionSerializer(questions, many=True, context={"recruiter": recruiter}).data
+            JobCommentThreadSerializer(thread, context=_comment_context(user, job)).data
         )
 
+    @extend_schema(
+        tags=["jobs"],
+        operation_id="jobs_comments_create",
+        request=JobCommentCreateSerializer,
+        responses={201: JobCommentSerializer},
+    )
     def post(self, request: Request, pk: str) -> Response:
-        recruiter = _recruiter(self)
-        job = self.get_job(pk)
-        if not is_assigned(recruiter, job):
-            return Response({"detail": JOB_NOT_TAKING_QUESTIONS}, status=status.HTTP_403_FORBIDDEN)
-        form = QuestionCreateSerializer(data=request.data)
+        user, job = _actor(self), self.get_job(pk)
+        form = JobCommentCreateSerializer(data=request.data)
         form.is_valid(raise_exception=True)
+        parent: JobComment | None = None
+        if form.validated_data["parent"] is not None:
+            parent = JobComment.objects.filter(pk=form.validated_data["parent"], job=job).first()
+            if parent is None:
+                raise ParseError(CANNOT_REPLY)
         try:
-            question = ask_question(job, recruiter, form.validated_data["body"])
-        except QuestionRejected as rejected:
-            return Response({"detail": str(rejected)}, status=status.HTTP_400_BAD_REQUEST)
+            comment = add_comment(job, user, form.validated_data["body"], parent=parent)
+        except CommentRejected as exc:
+            raise ParseError(str(exc)) from exc
         return Response(
-            RecruiterQuestionSerializer(question, context={"recruiter": recruiter}).data,
+            JobCommentSerializer(comment, context=_comment_context(user, job)).data,
             status=status.HTTP_201_CREATED,
         )
 
 
-@extend_schema_view(
-    get=extend_schema(
-        operation_id="jobs_questions_list",
-        tags=["jobs"],
-        responses=CompanyQuestionSerializer(many=True),
-    )
-)
-class JobQuestionListView(APIView):
-    """What recruiters asked about the job, the unanswered first."""
+class JobCommentActionView(APIView):
+    """A comment still shown, on a job the caller can read; anything else is a 404."""
 
-    def get(self, request: Request, pk: str) -> Response:
-        job = get_object_or_404(Job, pk=pk)
-        if not can_view_job(_user(self), job):
+    def get_comment(self, pk: str) -> JobComment:
+        comment = get_object_or_404(
+            JobComment.objects.filter(VISIBLE).select_related("job", "parent"), pk=pk
+        )
+        # A reply goes out of view with its parent, so it is as gone as the parent is.
+        parent = comment.parent
+        if parent is not None and (parent.hidden_at or parent.deleted_at):
             raise Http404
-        questions = visible_to_company(job).select_related("asked_by", "answered_by")
-        return Response(CompanyQuestionSerializer(questions, many=True).data)
+        if not can_read_comments(_user(self), comment.job):
+            raise Http404
+        return comment
 
 
-def _question_or_404(view: APIView, pk: str, *, lock: bool = False) -> JobQuestion:
-    """A hidden question, or one on a job the user may not view, does not exist.
-
-    Answering and hiding belong to whoever may edit the job; a viewer without that gets 403.
-    """
-    questions = JobQuestion.objects.filter(hidden_at__isnull=True)
-    if lock:
-        # `of=("self",)`: lock the question only, not the job and recruiter it joins.
-        questions = questions.select_for_update(of=("self",))
-    question = get_object_or_404(questions.select_related("job", "asked_by", "answered_by"), pk=pk)
-    if not can_view_job(_user(view), question.job):
-        raise Http404
-    if not can_change_job(_user(view), question.job):
-        raise PermissionDenied(NOT_YOURS)
-    return question
-
-
-@extend_schema_view(
-    post=extend_schema(
-        operation_id="job_questions_answer_create",
-        tags=["jobs"],
-        request=AnswerCreateSerializer,
-        responses=CompanyQuestionSerializer,
-    )
-)
-class JobQuestionAnswerView(APIView):
-    def post(self, request: Request, pk: str) -> Response:
-        # The row lock makes two first answers at once take turns, so only one emails the asker.
-        with transaction.atomic():
-            question = _question_or_404(self, pk, lock=True)
-            form = AnswerCreateSerializer(data=request.data)
-            form.is_valid(raise_exception=True)
-            answer_question(question, _actor(self), form.validated_data["answer"])
-        return Response(CompanyQuestionSerializer(question).data)
-
-
-@extend_schema_view(
-    delete=extend_schema(
-        operation_id="job_questions_destroy", tags=["jobs"], request=None, responses={204: None}
-    )
-)
-class JobQuestionDetailView(APIView):
+class JobCommentDetailView(JobCommentActionView):
+    @extend_schema(tags=["jobs"], operation_id="job_comments_destroy", responses={204: None})
     def delete(self, request: Request, pk: str) -> Response:
-        hide_question(_question_or_404(self, pk))
+        delete_comment(self.get_comment(pk), _actor(self))
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class JobCommentHideView(JobCommentActionView):
+    @extend_schema(
+        tags=["jobs"], operation_id="job_comments_hide_create", request=None, responses={204: None}
+    )
+    def post(self, request: Request, pk: str) -> Response:
+        hide_comment(self.get_comment(pk), _actor(self))
         return Response(status=status.HTTP_204_NO_CONTENT)

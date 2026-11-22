@@ -3,7 +3,7 @@ from typing import Any
 
 from django.utils import timezone
 
-from apps.accounts.models import User
+from apps.accounts.models import User, UserKind
 from apps.companies.models import Company, Team
 from apps.companies.seed import TEAMS
 from apps.core.seed import DEMO_EMAILS, SeedContext, register_resetter, register_seeder
@@ -15,7 +15,7 @@ from apps.jobs.models import (
     Job,
     JobAssignment,
     JobChangeRequest,
-    JobQuestion,
+    JobComment,
     JobStatus,
     Language,
     PayBasis,
@@ -427,7 +427,9 @@ def reset_assignments() -> None:
     JobAssignment.objects.filter(recruiter__user__email__in=DEMO_EMAILS).delete()
 
 
-# Q&A between NorthStar Talent and Vela Pay: job title, question, answer ("" = waiting), days ago.
+# Headhunter questions on Vela Pay jobs: job title, question, company answer ("" = waiting), days ago.
+# Every one is written by QUESTIONER (a headhunter who holds the job); the answer is a reply from
+# ANSWERER a few hours later.
 QUESTIONS: list[tuple[str, str, str, int]] = [
     (
         "Senior Backend Engineer",
@@ -457,31 +459,81 @@ QUESTIONS: list[tuple[str, str, str, int]] = [
 ]
 QUESTIONER = "NorthStar Talent"
 ANSWERER = "maianh.tran@velapay.vn"
+ANSWER_AFTER = timedelta(hours=5)
+
+# The thread on "Senior Backend Engineer" that shows the rest of the rules: a second headhunter
+# (anonymous to the first) with two replies from two company users, and a company comment that a
+# headhunter answers.
+THREAD_JOB = "Senior Backend Engineer"
+SECOND_QUESTIONER = "Bluefin Search"
+SECOND_QUESTION = "Is the team in the office three days a week, or is there room to flex?"
+SECOND_REPLIES: list[tuple[str, str, int]] = [
+    (ANSWERER, "Three days in the HCMC office, Tuesday and Thursday fixed.", 7),
+    (
+        "khoa.nguyen@velapay.vn",
+        "For a senior hire the third day is flexible; ask us per candidate.",
+        6,
+    ),
+]
+SECOND_DAYS_AGO = 8
+COMPANY_NOTE = (
+    "For everyone on this role: the ledger design round now comes before the final interview."
+)
+COMPANY_NOTE_DAYS_AGO = 5
+COMPANY_NOTE_REPLY = "Thanks. Should we brief candidates on the format of that round?"
+COMPANY_NOTE_REPLY_DAYS_AGO = 4
 
 
 @register_seeder(order=47)
-def seed_questions(ctx: SeedContext) -> None:
-    """Rebuilt from scratch, straight through the ORM: demo data emails nobody."""
+def seed_comments(ctx: SeedContext) -> None:
+    """Rebuilds the Q&A threads on the Vela Pay jobs through the ORM, never `add_comment`, so a
+    seed run emails nobody and queues no task. `created_at` is `auto_now_add`: back-dated after."""
     jobs: dict[str, Job] = ctx.refs.get("jobs") or {
         job.title: job for job in Job.objects.filter(company__name="Vela Pay")
     }
-    recruiter = ctx.refs["recruiters"][QUESTIONER]
-    answerer = ctx.refs.get("users", {}).get(ANSWERER) or User.objects.get(email=ANSWERER)
-    JobQuestion.objects.filter(job__company__name="Vela Pay").delete()
+    recruiters: dict[str, RecruiterProfile] = ctx.refs["recruiters"]
+    users = {user.email: user for user in User.objects.filter(email__in=DEMO_EMAILS)}
     now = timezone.now()
-    for title, body, answer, days_ago in QUESTIONS:
-        asked = now - timedelta(days=days_ago)
-        question = JobQuestion.objects.create(
-            job=jobs[title],
-            asked_by=recruiter,
+    JobComment.objects.filter(job__company__name="Vela Pay").delete()
+
+    def post(
+        job: Job, author: User, body: str, at: timedelta, parent: JobComment | None = None
+    ) -> JobComment:
+        comment = JobComment.objects.create(
+            job=job,
+            author=author,
+            from_recruiter=author.kind == UserKind.RECRUITER,
+            parent=parent,
             body=body,
-            answer=answer,
-            answered_by=answerer if answer else None,
-            answered_at=asked + timedelta(hours=5) if answer else None,
         )
-        JobQuestion.objects.filter(pk=question.pk).update(created_at=asked)
+        JobComment.objects.filter(pk=comment.pk).update(created_at=min(now - at, now))
+        return comment
+
+    for title, question, answer, days_ago in QUESTIONS:
+        asked_ago = timedelta(days=days_ago)
+        comment = post(jobs[title], recruiters[QUESTIONER].user, question, asked_ago)
+        if answer:
+            post(jobs[title], users[ANSWERER], answer, asked_ago - ANSWER_AFTER, comment)
+
+    job = jobs[THREAD_JOB]
+    second = post(
+        job,
+        recruiters[SECOND_QUESTIONER].user,
+        SECOND_QUESTION,
+        timedelta(days=SECOND_DAYS_AGO),
+    )
+    for email, body, days_ago in SECOND_REPLIES:
+        post(job, users[email], body, timedelta(days=days_ago), second)
+    note = post(job, users[ANSWERER], COMPANY_NOTE, timedelta(days=COMPANY_NOTE_DAYS_AGO))
+    post(
+        job,
+        recruiters[QUESTIONER].user,
+        COMPANY_NOTE_REPLY,
+        timedelta(days=COMPANY_NOTE_REPLY_DAYS_AGO),
+        note,
+    )
 
 
 @register_resetter(order=47)
-def reset_questions() -> None:
-    JobQuestion.objects.filter(job__company__name="Vela Pay").delete()
+def reset_comments() -> None:
+    JobComment.objects.filter(job__company__name="Vela Pay").delete()

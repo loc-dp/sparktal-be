@@ -250,6 +250,7 @@ REST_FRAMEWORK = {
         "nickname": "30/min",
         "cv_parse": "60/hour",
         "jd_parse": "60/hour",
+        "job_comment": "30/min",
     },
 }
 

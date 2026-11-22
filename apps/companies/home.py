@@ -6,10 +6,10 @@ from apps.accounts.models import User
 from apps.candidates.models import Application, Stage
 from apps.candidates.stages import STAGE_ORDER
 from apps.jobs.access import job_permissions, jobs_visible_to
+from apps.jobs.comments import unanswered_counts
 from apps.jobs.models import ChangeKind, ChangeStatus, Job, JobChangeRequest, JobStatus
 from apps.jobs.proposals import change_requests_visible_to, is_admin
 from apps.jobs.queries import annotate_job_metrics
-from apps.jobs.questions import unanswered_counts
 
 MAX_ACTIONS = 5
 PIPELINE_STAGES = [*STAGE_ORDER, Stage.REJECTED]

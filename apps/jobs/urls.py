@@ -10,14 +10,14 @@ from apps.jobs.api import (
     JdParseDetailView,
     JobChangeRequestListCreateView,
     JobCloseView,
+    JobCommentDetailView,
+    JobCommentHideView,
+    JobCommentListCreateView,
     JobCountsView,
     JobDetailView,
     JobListCreateView,
     JobOverviewView,
     JobPostView,
-    JobQuestionAnswerView,
-    JobQuestionDetailView,
-    JobQuestionListView,
     JobReopenView,
     JobSubmitView,
     JobWithdrawView,
@@ -26,7 +26,6 @@ from apps.jobs.api import (
     MarketplaceJoinView,
     MarketplaceLeaveView,
     PublicJobView,
-    RecruiterQuestionListCreateView,
 )
 
 urlpatterns = [
@@ -70,14 +69,10 @@ urlpatterns = [
         ChangeRequestWithdrawView.as_view(),
         name="change-request-withdraw",
     ),
+    path("jobs/<uuid:pk>/comments", JobCommentListCreateView.as_view(), name="job-comments"),
+    path("job-comments/<uuid:pk>", JobCommentDetailView.as_view(), name="job-comment-detail"),
+    path("job-comments/<uuid:pk>/hide", JobCommentHideView.as_view(), name="job-comment-hide"),
     path("jobs/<uuid:pk>/overview", JobOverviewView.as_view(), name="job-overview"),
-    path("jobs/<uuid:pk>/questions", JobQuestionListView.as_view(), name="job-questions"),
-    path(
-        "job-questions/<uuid:pk>/answer",
-        JobQuestionAnswerView.as_view(),
-        name="job-question-answer",
-    ),
-    path("job-questions/<uuid:pk>", JobQuestionDetailView.as_view(), name="job-question-detail"),
     path("public/jobs/<str:share_token>", PublicJobView.as_view(), name="public-job"),
     path("marketplace/jobs", MarketplaceJobListView.as_view(), name="marketplace-jobs"),
     path(
@@ -94,10 +89,5 @@ urlpatterns = [
         "marketplace/jobs/<uuid:pk>/leave",
         MarketplaceLeaveView.as_view(),
         name="marketplace-job-leave",
-    ),
-    path(
-        "recruiters/me/jobs/<uuid:pk>/questions",
-        RecruiterQuestionListCreateView.as_view(),
-        name="recruiter-job-questions",
     ),
 ]

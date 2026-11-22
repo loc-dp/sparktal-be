@@ -1,0 +1,12 @@
+{% extends "email/base.txt" %}{% block content %}
+{{ author_label }} replied to your comment on "{{ job_title }}".
+
+You wrote:
+{{ parent_body }}
+
+Reply:
+{{ body }}
+
+See it on the job page:
+{{ job_url }}
+{% endblock %}

@@ -140,15 +140,17 @@ def test_note_for_recruiters_is_saved_through_patch(
 def test_overview_counts_unanswered(
     client_for: ClientFor, company_ta: User, job_with_pipeline: Any
 ) -> None:
-    from apps.jobs.tests.factories import JobQuestionFactory
+    from apps.jobs.tests.factories import JobCommentFactory
 
     url = f"/api/v1/jobs/{job_with_pipeline.id}/overview"
     assert client_for(company_ta).get(url).json()["unanswered_questions"] == 0
 
-    JobQuestionFactory(job=job_with_pipeline)
-    JobQuestionFactory(job=job_with_pipeline)
-    JobQuestionFactory(job=job_with_pipeline, answered_at=timezone.now(), answer="Yes")
-    JobQuestionFactory(job=job_with_pipeline, hidden_at=timezone.now())
-    JobQuestionFactory()  # another job's
+    JobCommentFactory(job=job_with_pipeline)
+    JobCommentFactory(job=job_with_pipeline)
+    answered = JobCommentFactory(job=job_with_pipeline)
+    JobCommentFactory(job=job_with_pipeline, parent=answered, author=company_ta)
+    JobCommentFactory(job=job_with_pipeline, hidden_at=timezone.now())
+    JobCommentFactory(job=job_with_pipeline, author=company_ta)  # the company's own note
+    JobCommentFactory()  # another job's
 
     assert client_for(company_ta).get(url).json()["unanswered_questions"] == 2

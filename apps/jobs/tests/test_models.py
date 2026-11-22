@@ -1,3 +1,5 @@
+from typing import cast
+
 import pytest
 from django.db import IntegrityError, transaction
 
@@ -9,11 +11,12 @@ from apps.jobs.models import (
     ChangeStatus,
     Job,
     JobChangeRequest,
+    JobComment,
     JobStatus,
     PayBasis,
     WorkModel,
 )
-from apps.jobs.tests.factories import JobFactory
+from apps.jobs.tests.factories import JobCommentFactory, JobFactory
 
 pytestmark = pytest.mark.django_db
 
@@ -81,3 +84,34 @@ def test_one_pending_change_request_per_requester(job: Job, company_ta: User) ->
     JobChangeRequest.objects.update(status=ChangeStatus.REJECTED)
     JobChangeRequest.objects.create(job=job, requested_by=company_ta, kind=ChangeKind.EDIT)
     assert job.change_requests.filter(status=ChangeStatus.PENDING).count() == 1
+
+
+@pytest.fixture
+def comment(job: Job) -> JobComment:
+    return cast(JobComment, JobCommentFactory(job=job))
+
+
+@pytest.fixture
+def comment_with_reply(comment: JobComment, company_ta: User) -> JobComment:
+    JobCommentFactory(job=comment.job, parent=comment, author=company_ta)
+    return comment
+
+
+def test_deleting_a_comment_row_deletes_its_replies(comment_with_reply: JobComment) -> None:
+    assert JobComment.objects.filter(parent=comment_with_reply).count() == 1
+
+    comment_with_reply.delete()
+
+    assert not JobComment.objects.exists()
+
+
+def test_deleting_the_author_keeps_the_comment(comment: JobComment) -> None:
+    assert comment.from_recruiter is True
+    author = comment.author
+    assert author is not None
+
+    author.delete()
+
+    comment.refresh_from_db()
+    assert comment.author is None
+    assert comment.from_recruiter is True

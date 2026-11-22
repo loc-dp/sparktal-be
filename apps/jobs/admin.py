@@ -5,9 +5,11 @@ from django.conf import settings
 from django.contrib import admin, messages
 from django.db.models import QuerySet
 from django.http import HttpRequest
+from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 from simple_history.admin import SimpleHistoryAdmin
 
+from apps.accounts.models import User
 from apps.jobs.bounty import clean_bounty
 from apps.jobs.lifecycle import restore_job
 from apps.jobs.models import (
@@ -16,7 +18,7 @@ from apps.jobs.models import (
     Job,
     JobAssignment,
     JobChangeRequest,
-    JobQuestion,
+    JobComment,
 )
 
 BOUNTY_FIELDS = ("bounty_type", "bounty_pct", "bounty_amount")
@@ -132,23 +134,35 @@ class JobAssignmentAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
     autocomplete_fields = ("job", "recruiter")
 
 
-@admin.register(JobQuestion)
-class JobQuestionAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
-    list_display = ("job", "asked_by", "answered_at", "hidden_at", "created_at")
-    list_filter = ("job__company",)
-    search_fields = ("job__title", "asked_by__nickname", "body")
-    list_select_related = ("job", "asked_by")
+@admin.register(JobComment)
+class JobCommentAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
+    """Read-only, except that staff may hide a comment or put a hidden one back."""
 
-    def get_readonly_fields(
-        self, request: HttpRequest, obj: JobQuestion | None = None
-    ) -> list[str]:
+    list_display = ("job", "author", "from_recruiter", "created_at", "hidden_at", "deleted_at")
+    list_filter = ("job__company", "from_recruiter")
+    search_fields = ("job__title", "author__email", "body")
+    list_select_related = ("job", "author")
+    actions = ("hide_comments", "restore_comments")
+
+    def get_readonly_fields(self, request: HttpRequest, obj: JobComment | None = None) -> list[str]:
         return [field.name for field in self.model._meta.fields]
 
     def has_add_permission(self, request: HttpRequest) -> bool:
         return False
 
-    def has_change_permission(self, request: HttpRequest, obj: JobQuestion | None = None) -> bool:
-        return False
+    @admin.action(description="Hide selected comments", permissions=["change"])
+    def hide_comments(self, request: HttpRequest, queryset: QuerySet[JobComment]) -> None:
+        assert isinstance(request.user, User)
+        hidden = queryset.filter(hidden_at__isnull=True).update(
+            hidden_at=timezone.now(), hidden_by=request.user
+        )
+        self.message_user(request, f"Hid {hidden} comment(s).", messages.SUCCESS)
+
+    @admin.action(description="Restore hidden comments", permissions=["change"])
+    def restore_comments(self, request: HttpRequest, queryset: QuerySet[JobComment]) -> None:
+        # A comment its author deleted stays deleted: that was their call, not a moderation.
+        restored = queryset.filter(hidden_at__isnull=False).update(hidden_at=None, hidden_by=None)
+        self.message_user(request, f"Restored {restored} comment(s).", messages.SUCCESS)
 
 
 @admin.register(JdParse)

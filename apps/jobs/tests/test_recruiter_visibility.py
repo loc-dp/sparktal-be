@@ -40,7 +40,6 @@ from apps.jobs.access import (
 from apps.jobs.distribution import MARKETPLACE_OFF, DistributionError, set_marketplace
 from apps.jobs.marketplace import marketplace_queryset
 from apps.jobs.models import BountyType, Job, JobAssignment, JobStatus
-from apps.jobs.questions import JOB_NOT_TAKING_QUESTIONS
 from apps.jobs.tests.factories import JobAssignmentFactory, JobFactory
 from apps.recruiters.models import RecruiterProfile
 from apps.recruiters.tests.factories import RecruiterProfileFactory
@@ -737,50 +736,3 @@ def test_assign_log_line_carries_the_actor_pk_and_no_email(
 
     assert str(actor.pk) in caplog.text
     assert actor.email not in caplog.text
-
-
-# --- Q&A moved out from under the marketplace gate.
-
-
-@pytest.fixture
-def assigned_live_job(live_job: Job, recruiter_profile: RecruiterProfile) -> Job:
-    JobAssignmentFactory(job=live_job, recruiter=recruiter_profile)
-    return live_job
-
-
-@pytest.fixture
-def removed_with_cv_job(live_job: Job, recruiter_profile: RecruiterProfile) -> Job:
-    JobAssignmentFactory(job=live_job, recruiter=recruiter_profile, left_at=timezone.now())
-    _cv_on(live_job, recruiter_profile)
-    return live_job
-
-
-def test_questions_route_moved(recruiter_client: APIClient, assigned_live_job: Job) -> None:
-    new = f"/api/v1/recruiters/me/jobs/{assigned_live_job.pk}/questions"
-    old = f"/api/v1/marketplace/jobs/{assigned_live_job.pk}/questions"
-
-    assert recruiter_client.get(new).status_code == 200
-    assert recruiter_client.post(new, {"body": "Is it hybrid?"}).status_code == 201
-    assert recruiter_client.get(old).status_code == 404
-    assert recruiter_client.post(old, {"body": "Is it hybrid?"}).status_code == 404
-
-
-def test_removed_recruiter_with_cv_reads_but_cannot_ask(
-    recruiter_client: APIClient, removed_with_cv_job: Job
-) -> None:
-    url = f"/api/v1/recruiters/me/jobs/{removed_with_cv_job.pk}/questions"
-
-    assert recruiter_client.get(url).status_code == 200
-    refused = recruiter_client.post(url, {"body": "Still hiring?"})
-
-    assert refused.status_code == 403
-    assert refused.json() == {"detail": JOB_NOT_TAKING_QUESTIONS}
-
-
-def test_unassigned_recruiter_cannot_read_or_ask(
-    recruiter_client: APIClient, live_job: Job
-) -> None:
-    url = f"/api/v1/recruiters/me/jobs/{live_job.pk}/questions"
-
-    assert recruiter_client.get(url).status_code == 404
-    assert recruiter_client.post(url, {"body": "Hello?"}).status_code == 404

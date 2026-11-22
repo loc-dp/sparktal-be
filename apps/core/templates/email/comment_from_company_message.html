@@ -1,0 +1,13 @@
+{% extends "email/base.html" %}
+{% block title %}{{ company_name }} posted on {{ job_title }}{% endblock %}
+{% block preheader %}{{ author_label }}: {{ body|truncatechars:90 }}{% endblock %}
+{% block eyebrow %}Comment{% endblock %}
+{% block headline %}{{ author_label }} posted on the job.{% endblock %}
+{% block lead %}On {{ job_title }} at {{ company_name }}. Everyone working on this job can read the thread.{% endblock %}
+{% block action %}{% include "email/_button.html" with url=job_url label="Read the comment" %}{% endblock %}
+{% block details %}
+<p style="margin:0;color:#52525B;white-space:pre-line;">{{ body }}</p>
+{% endblock %}
+{% block footnote %}
+<p style="margin:24px 0 0 0;padding-top:20px;border-top:1px solid #E4E4E7;font-size:12px;line-height:1.6;color:#6B6B76;">The button not working? Paste this address into your browser:<br><a href="{{ job_url }}" style="color:#52525B;word-break:break-all;">{{ job_url }}</a></p>
+{% endblock %}

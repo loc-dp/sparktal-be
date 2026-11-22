@@ -238,28 +238,33 @@ class JobChangeRequest(models.Model):
         return f"{self.kind} · {self.job.title} · {self.status}"
 
 
-class JobQuestion(models.Model):
-    """A recruiter's question to the company about a job, and the company's answer."""
+class JobComment(models.Model):
+    """One comment in a job's Q&A thread; `parent` set makes it a reply (one level only)."""
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    job = models.ForeignKey(Job, on_delete=models.CASCADE, related_name="questions")
-    asked_by = models.ForeignKey(
-        "recruiters.RecruiterProfile", on_delete=models.CASCADE, related_name="job_questions"
-    )
-    body = models.TextField()
-    answer = models.TextField(blank=True)
-    answered_by = models.ForeignKey(
+    job = models.ForeignKey(Job, on_delete=models.CASCADE, related_name="comments")
+    author = models.ForeignKey(
         User, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
     )
-    answered_at = models.DateTimeField(null=True, blank=True)
-    hidden_at = models.DateTimeField(null=True, blank=True)
+    # Which side wrote it, kept on the row so it outlives the author's account.
+    from_recruiter = models.BooleanField()
+    parent = models.ForeignKey(
+        "self", on_delete=models.CASCADE, null=True, blank=True, related_name="replies"
+    )
+    body = models.TextField()
     created_at = models.DateTimeField(auto_now_add=True)
+    hidden_at = models.DateTimeField(null=True, blank=True)
+    hidden_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    deleted_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
-        ordering = ("-created_at",)
+        ordering = ("-created_at", "-id")
+        indexes = (models.Index(fields=("job", "parent", "-created_at")),)
 
     def __str__(self) -> str:
-        return f"{self.asked_by.nickname} · {self.job.title}"
+        return f"{self.job.title} · {self.body[:40]}"
 
 
 class JobAssignment(models.Model):

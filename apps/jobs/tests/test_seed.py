@@ -240,25 +240,46 @@ def test_seed_jobs_carry_the_date_the_company_posted_them() -> None:
     )
 
 
-def test_seed_adds_questions_from_northstar_and_sends_no_mail() -> None:
-    from apps.jobs.models import JobQuestion
+def test_seed_comments() -> None:
+    from apps.jobs.comments import unanswered_counts
+    from apps.jobs.models import JobComment
 
     call_command("seed_demo", "--force")
+    first = JobComment.objects.count()
     call_command("seed_demo", "--force")
+    assert JobComment.objects.count() == first
 
-    backend = JobQuestion.objects.filter(job__title="Senior Backend Engineer")
-    assert backend.count() == 3
-    assert backend.exclude(answer="").count() == 2
-    assert backend.filter(answer="").count() == 1
-    analyst = JobQuestion.objects.get(job__title="Data Analyst")
-    assert analyst.answer == ""
-    assert JobQuestion.objects.count() == 4
-    assert set(JobQuestion.objects.values_list("asked_by__nickname", flat=True)) == {
-        "NorthStar Talent"
-    }
-    answered = backend.exclude(answer="")
-    for q in answered:
-        assert q.answered_by is not None
-        assert q.answered_at is not None
-        assert q.answered_at > q.created_at
+    comments = JobComment.objects.select_related("author", "parent")
+    backend = comments.filter(job__title="Senior Backend Engineer")
+    # Two different headhunters wrote on the same job.
+    assert {
+        c.author.recruiter.nickname for c in backend.filter(from_recruiter=True) if c.author
+    } == {"NorthStar Talent", "Bluefin Search"}
+    # One comment carries two replies, from two different company users.
+    two_replies = [c for c in backend if c.replies.count() == 2]
+    assert len(two_replies) == 1
+    reply_authors = {r.author for r in two_replies[0].replies.select_related("author")}
+    assert len(reply_authors) == 2
+    assert all(r.author and not r.from_recruiter for r in two_replies[0].replies.all())
+    # A company top-level comment is answered by a headhunter.
+    company_top = backend.filter(from_recruiter=False, parent__isnull=True)
+    assert company_top.count() == 1
+    assert company_top[0].replies.filter(from_recruiter=True).count() == 1
+    # Unanswered headhunter comments: one per job, so the company sees 1 on each.
+    counts = unanswered_counts(Job.objects.filter(company__name="Vela Pay"))
+    assert set(counts.values()) == {1}
+    assert Job.objects.get(title="Senior Backend Engineer").pk in counts
+    # The flag matches the author's side; replies are one level deep and stay on their job.
+    for comment in comments:
+        assert comment.author is not None
+        assert comment.from_recruiter == (comment.author.kind == "recruiter")
+        if comment.parent is not None:
+            assert comment.parent.parent_id is None
+            assert comment.parent.job_id == comment.job_id
+            assert comment.created_at > comment.parent.created_at
+    # Every headhunter comment sits on a job its author holds.
+    for comment in comments.filter(from_recruiter=True):
+        assert JobAssignment.objects.filter(
+            job=comment.job, recruiter__user=comment.author, left_at__isnull=True
+        ).exists()
     assert mail.outbox == []
